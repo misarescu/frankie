@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+go.work
+go.work.sum
+
+# Web (React + Bun)
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local.toml
+mise.local.toml
+.mise.local.toml
+
+# Local agent settings
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Local dev cluster artifacts
+kubeconfig
+*.kubeconfig

@@ -16,6 +16,7 @@ Everything runs through mise tasks; tool versions are pinned in `mise.toml` (loc
 - `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
 - Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
 - E2E tests carry the `//go:build e2e` tag.
+- `mise run test:race` runs the suite under the race detector (also in CI). `mise run test:smoke-claude` checks the Claude Code adapter against the real `claude` CLI; it spends model usage, so run it only when changing the adapter or upgrading Claude Code.
 - Store tests need Postgres: `mise run db:up` (Docker, port 55432; `db:down` removes it). Each test creates and drops its own database. Without Postgres they skip locally but fail in CI. `mise.toml` sets `FRANKIE_TEST_DATABASE_URL` and overrides the shell environment inside `mise run`/`mise exec`.
 - Schema changes: edit `internal/store/schema.sql`, then `mise run db:diff <name>` (needs Docker) to generate a goose migration. Never hand-edit generated migrations without `mise run db:hash`.
 - `generate` and proto lint skip themselves until `proto/` or `internal/store/queries/` have files.

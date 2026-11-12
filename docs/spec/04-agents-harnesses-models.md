@@ -6,17 +6,27 @@ Do not write an agent loop. Wrap existing harnesses headlessly and invest in the
 
 ## Runner
 
-A small Go binary in every agent pod, next to the harness. The control plane never speaks harness protocols directly.
+A small Go binary in every agent pod, next to the harness. The control plane never speaks harness protocols directly. The contract is `proto/frankie/runner/v1/runner.proto` (event payload schemas are documented there):
 
 ```proto
-service Runner {
-  rpc Start(StartRequest) returns (StartResponse);   // role, model ref, repo/branch, env, budgets
-  rpc Prompt(PromptRequest) returns (PromptResponse); // initial task or follow-up
-  rpc Steer(SteerRequest) returns (SteerResponse);    // inject a message mid-run
+service RunnerService {
+  rpc Start(StartRequest) returns (StartResponse);    // harness, model, system prompt, env, timeouts, max turns
+  rpc Prompt(PromptRequest) returns (PromptResponse);  // the task; exactly once
+  rpc Steer(SteerRequest) returns (SteerResponse);     // further messages while the session runs
   rpc Abort(AbortRequest) returns (AbortResponse);
-  rpc Events(EventsRequest) returns (stream Event);   // normalized event stream
+  rpc Events(EventsRequest) returns (stream EventsResponse); // replay after a seq, then follow live
 }
 ```
+
+Session semantics:
+
+- One session per runner (one pod per step). Follow-up work after a session ends is a new step, not a new prompt.
+- The session ends when the harness has answered every message (Prompt plus Steers), on Abort, or on a timeout. The stream always ends with exactly one `done` event: `succeeded`, `failed`, `aborted` or `timeout`.
+- Events carry a per-session `seq`; a client that reconnects with the last seen `seq` resumes without gaps or duplicates.
+- Timeouts (FR-AG-3): `timeout` is wall-clock for the session; `idle_timeout` is time without any harness output. A long tool run (e.g. a test suite) produces no output until it finishes, so `idle_timeout` must exceed the longest expected tool run.
+- Abort and timeouts signal the harness's whole process group (SIGTERM, then SIGKILL after a grace period), so commands it spawned stop too.
+
+Implemented so far: the contract, the session lifecycle and Claude Code. Repo clone/branch handling (1) and commit/push (4) below arrive with the sandbox work.
 
 The runner:
 
@@ -36,6 +46,8 @@ The runner:
 **ACP (Agent Client Protocol)** is a common JSON-RPC protocol for driving coding agents. opencode supports it natively; Claude Code and pi work through adapters (a Go adapter, `acp-adapter`, exists). The runner may prefer ACP where available and fall back to the native protocol. Verify adapter maturity before depending on it (open question).
 
 Adapter contract: map to the normalized event types - `assistant_message`, `tool_call`, `tool_result`, `file_diff`, `command_output`, `token_usage`, `error`, `done`.
+
+Claude Code adapter (`internal/runner/claudecode`): runs `claude -p --input-format stream-json --output-format stream-json --verbose --dangerously-skip-permissions` (the pod is the sandbox; the flag is refused as root, matching FR-SB-1). Text blocks become `assistant_message`, `tool_use` becomes `tool_call`, results of the `Bash` tool become `command_output` and other tool results `tool_result` (output capped at 256 KiB per event), and each `result` line becomes a `token_usage` event with session totals (Claude Code reports tokens and turns per answered message but cost for the whole session; the adapter sums the former). The runner closes stdin once every message is answered, which lets Claude Code exit. Verified against Claude Code 2.1.323 with `mise run test:smoke-claude` (spends real usage): a message sent mid-turn is queued and gets its own `result`, and closing stdin after the last one exits cleanly. `file_diff` is not produced yet; it will come from the runner's own `git diff` at commit time rather than from tool inputs.
 
 ## Models and providers
 

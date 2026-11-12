@@ -1,0 +1,168 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+
+	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/store/db"
+)
+
+// CreateProject inserts a project with a unique name.
+func (s *Store) CreateProject(ctx context.Context, name string) (domain.Project, error) {
+	if name == "" {
+		return domain.Project{}, errors.New("store: create project: empty name")
+	}
+	row, err := s.q.CreateProject(ctx, db.CreateProjectParams{ID: domain.NewID(), Name: name})
+	if err != nil {
+		return domain.Project{}, mapErr("create project", err)
+	}
+	return projectFromRow(row), nil
+}
+
+// GetProjectByName looks a project up by its unique name.
+func (s *Store) GetProjectByName(ctx context.Context, name string) (domain.Project, error) {
+	row, err := s.q.GetProjectByName(ctx, name)
+	if err != nil {
+		return domain.Project{}, mapErr("get project", err)
+	}
+	return projectFromRow(row), nil
+}
+
+// NewIssue is the input for CreateIssue. Status defaults to draft.
+type NewIssue struct {
+	ProjectID          uuid.UUID
+	Type               domain.IssueType
+	Title              string
+	Spec               string
+	AcceptanceCriteria []string
+	Status             domain.IssueStatus
+	Priority           int
+	SourceRef          string
+	Labels             []string
+	CreatedBy          string
+}
+
+// CreateIssue inserts an issue. A SourceRef already synced into the project returns ErrConflict.
+func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, error) {
+	if in.Status == "" {
+		in.Status = domain.IssueDraft
+	}
+	switch {
+	case !in.Type.Valid():
+		return domain.Issue{}, fmt.Errorf("store: create issue: unknown type %q", in.Type)
+	case !in.Status.Valid():
+		return domain.Issue{}, fmt.Errorf("store: create issue: unknown status %q", in.Status)
+	case in.Title == "":
+		return domain.Issue{}, errors.New("store: create issue: empty title")
+	case in.CreatedBy == "":
+		return domain.Issue{}, errors.New("store: create issue: empty created_by")
+	}
+	row, err := s.q.CreateIssue(ctx, db.CreateIssueParams{
+		ID:                 domain.NewID(),
+		ProjectID:          in.ProjectID,
+		Type:               string(in.Type),
+		Title:              in.Title,
+		Spec:               in.Spec,
+		AcceptanceCriteria: nonNil(in.AcceptanceCriteria),
+		Status:             string(in.Status),
+		Priority:           int32(in.Priority),
+		SourceRef:          nonEmpty(in.SourceRef),
+		Labels:             nonNil(in.Labels),
+		CreatedBy:          in.CreatedBy,
+	})
+	if err != nil {
+		return domain.Issue{}, mapErr("create issue", err)
+	}
+	return issueFromRow(row), nil
+}
+
+// GetIssue returns an issue by ID.
+func (s *Store) GetIssue(ctx context.Context, id uuid.UUID) (domain.Issue, error) {
+	row, err := s.q.GetIssue(ctx, id)
+	if err != nil {
+		return domain.Issue{}, mapErr("get issue", err)
+	}
+	return issueFromRow(row), nil
+}
+
+// GetIssueBySourceRef returns the issue synced from an external reference.
+func (s *Store) GetIssueBySourceRef(ctx context.Context, projectID uuid.UUID, sourceRef string) (domain.Issue, error) {
+	row, err := s.q.GetIssueBySourceRef(ctx, db.GetIssueBySourceRefParams{ProjectID: projectID, SourceRef: &sourceRef})
+	if err != nil {
+		return domain.Issue{}, mapErr("get issue by source ref", err)
+	}
+	return issueFromRow(row), nil
+}
+
+// ListIssuesByStatus returns a project's issues in one status, highest priority first.
+func (s *Store) ListIssuesByStatus(ctx context.Context, projectID uuid.UUID, status domain.IssueStatus) ([]domain.Issue, error) {
+	rows, err := s.q.ListIssuesByStatus(ctx, db.ListIssuesByStatusParams{ProjectID: projectID, Status: string(status)})
+	if err != nil {
+		return nil, mapErr("list issues", err)
+	}
+	out := make([]domain.Issue, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, issueFromRow(r))
+	}
+	return out, nil
+}
+
+// TransitionIssue moves an issue from one status to another and records a state_change event.
+// It fails with domain.ErrInvalidTransition if the state machine forbids the move, and with
+// ErrConflict if the issue is no longer in from. Repeating a transition that already happened
+// returns the issue unchanged and no error, so retried Activities are idempotent.
+func (s *Store) TransitionIssue(ctx context.Context, id uuid.UUID, from, to domain.IssueStatus) (domain.Issue, error) {
+	if !domain.CanTransitionIssue(from, to) {
+		return domain.Issue{}, fmt.Errorf("store: issue %s: %w: %s -> %s", id, domain.ErrInvalidTransition, from, to)
+	}
+	var out domain.Issue
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		row, err := q.TransitionIssue(ctx, db.TransitionIssueParams{ID: id, FromStatus: string(from), ToStatus: string(to)})
+		if err != nil {
+			return mapErr("transition issue", err)
+		}
+		out = issueFromRow(row)
+		return appendStateChange(ctx, q, nil, nil, domain.StateChange{Entity: "issue", ID: id, From: string(from), To: string(to)})
+	})
+	if errors.Is(err, ErrNotFound) {
+		return s.resolveMissedIssueTransition(ctx, id, from, to)
+	}
+	return out, err
+}
+
+func (s *Store) resolveMissedIssueTransition(ctx context.Context, id uuid.UUID, from, to domain.IssueStatus) (domain.Issue, error) {
+	current, err := s.GetIssue(ctx, id)
+	if err != nil {
+		return domain.Issue{}, err
+	}
+	if current.Status == to {
+		return current, nil
+	}
+	return domain.Issue{}, fmt.Errorf("store: issue %s: %w: expected %s, found %s", id, ErrConflict, from, current.Status)
+}
+
+func projectFromRow(r db.Project) domain.Project {
+	return domain.Project{ID: r.ID, Name: r.Name, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+}
+
+func issueFromRow(r db.Issue) domain.Issue {
+	return domain.Issue{
+		ID:                 r.ID,
+		ProjectID:          r.ProjectID,
+		Type:               domain.IssueType(r.Type),
+		Title:              r.Title,
+		Spec:               r.Spec,
+		AcceptanceCriteria: r.AcceptanceCriteria,
+		Status:             domain.IssueStatus(r.Status),
+		Priority:           int(r.Priority),
+		SourceRef:          deref(r.SourceRef),
+		Labels:             r.Labels,
+		CreatedBy:          r.CreatedBy,
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
+	}
+}

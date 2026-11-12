@@ -24,6 +24,8 @@ shellcheck = "0.11.0"
 
 [env]
 CGO_ENABLED = "0"
+# Admin URL for store tests; each test creates and drops its own database. CI uses the same port.
+FRANKIE_TEST_DATABASE_URL = "postgres://postgres:frankie@localhost:55432/postgres?sslmode=disable"
 
 [tasks.doctor]
 description = "Check required tools and external prerequisites"
@@ -54,6 +56,14 @@ run = [
   "actionlint",
   "scripts/lint-deploy.sh",
 ]
+
+[tasks."db:up"]
+description = "Start the local dev/test Postgres (Docker, port 55432)"
+run = "scripts/db-up.sh"
+
+[tasks."db:down"]
+description = "Remove the local dev/test Postgres container"
+run = "docker rm -f frankie-dev-postgres"
 
 [tasks."db:diff"]
 description = "Generate a goose migration from internal/store/schema.sql (usage: mise run db:diff <name>); needs Docker"

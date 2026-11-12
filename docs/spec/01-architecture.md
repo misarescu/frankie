@@ -90,6 +90,7 @@ internal/
   events/
   images/
   config/           YAML schemas, validation
+  runner/           in-pod runner: RunnerService server, event log, harness adapters (claudecode/)
 proto/              runner.proto, driver.proto
 gen/                generated protobuf/gRPC Go code (committed; public so external drivers can import it)
 web/                React + Bun UI

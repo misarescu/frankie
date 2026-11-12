@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package frankie.runner.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// RunnerService runs one agent session per pod (one pod per workflow step).
+// The control plane is its only client (docs/spec/04-agents-harnesses-models.md).
+//
+// Lifecycle: Start, then Prompt exactly once with the task. Steer may add
+// messages while the session runs; the harness sees them at its next turn
+// boundary. The session ends once the harness has answered every message, or on
+// Abort or a timeout. The event stream always ends with one EVENT_TYPE_DONE.
+service RunnerService {
+  // Start launches the harness. Only one session per runner.
+  rpc Start(StartRequest) returns (StartResponse);
+  // Prompt sends the task. Allowed once, after Start.
+  rpc Prompt(PromptRequest) returns (PromptResponse);
+  // Steer injects a message into the running session.
+  rpc Steer(SteerRequest) returns (SteerResponse);
+  // Abort stops the session; the stream ends with done status "aborted".
+  rpc Abort(AbortRequest) returns (AbortResponse);
+  // Events replays the session's events after after_seq, then follows live
+  // events until done. Reconnect with the last seen seq to resume.
+  rpc Events(EventsRequest) returns (stream EventsResponse);
+}
+
+// Harness identifies the agent CLI the runner drives.
+enum Harness {
+  HARNESS_UNSPECIFIED = 0;
+  HARNESS_CLAUDE_CODE = 1;
+}
+
+message StartRequest {
+  // Correlates the session with the control plane's StepRun.
+  string step_run_id = 1;
+  Harness harness = 2;
+  // Model name as the gateway exposes it.
+  string model = 3;
+  // Role system prompt, appended to the harness's own.
+  string system_prompt = 4;
+  // Extra environment for the harness, e.g. the gateway base URL and the
+  // short-lived virtual key. Never real provider keys (invariant 1).
+  map<string, string> env = 5;
+  // Wall-clock limit for the whole session (FR-AG-3). Zero means no limit.
+  google.protobuf.Duration timeout = 6;
+  // Limit on time without any harness output (FR-AG-3). Zero means no limit.
+  google.protobuf.Duration idle_timeout = 7;
+  // Upper bound on agent turns, if the harness supports it. Zero means harness default.
+  int32 max_turns = 8;
+}
+
+message StartResponse {
+  // Runner-assigned session ID.
+  string session_id = 1;
+}
+
+message PromptRequest {
+  string text = 1;
+}
+
+message PromptResponse {}
+
+message SteerRequest {
+  string text = 1;
+}
+
+message SteerResponse {}
+
+message AbortRequest {
+  string reason = 1;
+}
+
+message AbortResponse {}
+
+message EventsRequest {
+  // Return events with seq greater than this; 0 replays from the start.
+  int64 after_seq = 1;
+}
+
+message EventsResponse {
+  Event event = 1;
+}
+
+// EventType is the normalized harness event type.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  // payload: {"text": string}
+  EVENT_TYPE_ASSISTANT_MESSAGE = 1;
+  // payload: {"id": string, "name": string, "input": object}
+  EVENT_TYPE_TOOL_CALL = 2;
+  // payload: {"tool_call_id": string, "name": string, "content": string, "is_error": bool}
+  EVENT_TYPE_TOOL_RESULT = 3;
+  // payload: {"path": string, "diff": string}
+  EVENT_TYPE_FILE_DIFF = 4;
+  // Result of a shell tool call.
+  // payload: {"tool_call_id": string, "output": string, "is_error": bool}
+  EVENT_TYPE_COMMAND_OUTPUT = 5;
+  // Running session totals, emitted when the harness finishes answering a message.
+  // payload: {"input_tokens", "output_tokens", "cache_read_input_tokens",
+  //           "cache_creation_input_tokens": int, "cost_usd": number, "turns": int}
+  EVENT_TYPE_TOKEN_USAGE = 6;
+  // payload: {"message": string, "detail": string}
+  EVENT_TYPE_ERROR = 7;
+  // Last event of every session.
+  // payload: {"status": "succeeded"|"failed"|"aborted"|"timeout", "reason": string,
+  //           "result": string, "harness_session_id": string, "exit_code": int}
+  EVENT_TYPE_DONE = 8;
+}
+
+message Event {
+  // Strictly increasing within a session, starting at 1.
+  int64 seq = 1;
+  google.protobuf.Timestamp time = 2;
+  EventType type = 3;
+  // JSON object; schema per EventType.
+  bytes payload = 4;
+}

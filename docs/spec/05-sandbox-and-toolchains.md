@@ -24,7 +24,8 @@ Changes to these paths, and skipped/deleted tests, force a **human gate** even i
 ```
 lint configs, CI configs, mise.toml / mise.lock / .factory/Dockerfile,
 deploy/**/networkpolicy*, RBAC manifests, Kata runtime class config,
-cmd/runner/**, gate definitions, LiteLLM budget config,
+cmd/runner/**, internal/runner/**, proto/frankie/runner/**,
+gate definitions, LiteLLM budget config,
 the protected-paths list itself (.factory/protected-paths.yaml)
 ```
 

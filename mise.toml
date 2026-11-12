@@ -39,6 +39,15 @@ run = "go build -o bin/ ./cmd/..."
 description = "Run unit tests (extra args are passed to go test)"
 run = "go test ./..."
 
+[tasks."test:race"]
+description = "Run unit tests under the race detector (needs cgo)"
+env = { CGO_ENABLED = "1" }
+run = "go test -race ./..."
+
+[tasks."test:smoke-claude"]
+description = "Smoke-test the Claude Code adapter against the real claude CLI (spends model usage)"
+run = "go test -tags smoke -count=1 -v -timeout 5m -run '^TestSmokeRealClaude$' ./internal/runner/claudecode/"
+
 [tasks.e2e]
 description = "Run end-to-end tests (files tagged //go:build e2e)"
 run = "go test -tags=e2e -count=1 ./..."

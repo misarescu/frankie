@@ -38,6 +38,7 @@ Numbered for reference from PRs and issues. Add new decisions at the bottom; nev
 | D16 | Agent steps all run in Kubernetes pods for now. Optional `runsOn:` for external executors later (e.g. macOS signing/notarization). | |
 | D17 | Self-hosting is a goal: the factory is a project on its own board, with extra guardrails. See `08-self-hosting.md`. | Best dogfooding signal. |
 | D18 | Two deployment profiles: **full** and **laptop** (single-node k3s, reduced services). Profile differences are configuration, not forks. See `09-deployment-profiles.md`. | The first host is a 16 GiB laptop. |
+| D19 | Migrations: Atlas authors, goose applies. `internal/store/schema.sql` is the desired state; `atlas migrate diff` (env `local` in `atlas.hcl`) writes goose-format files to `internal/store/migrations`; the control plane embeds them and applies them with goose as a Go library. sqlc reads the same migration files. Only Atlas's free features are relied on (diffing, versioned migrations); Pro features (migration lint, drift detection) are not. Resolves open question 9. | Declarative schema plus generated diffs, without a proprietary-licensed binary at runtime. Atlas needs a throwaway dev database to diff (Docker locally, a Postgres sidecar in agent pods). |
 
 ## Terminology
 

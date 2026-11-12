@@ -1,0 +1,3 @@
+-- Desired database schema for the control plane (source of truth, decision D19).
+-- Edit this file, then run `mise run db:diff <name>` to generate a goose migration.
+-- Entities are specified in docs/spec/02-domain-model.md; tables arrive with M1.

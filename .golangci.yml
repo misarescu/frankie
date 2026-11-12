@@ -1,0 +1,44 @@
+# Protected path: changes require a human gate (docs/spec/05-sandbox-and-toolchains.md).
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - noctx
+  settings:
+    depguard:
+      rules:
+        # Invariant 7: the domain stays provider-neutral.
+        domain-provider-neutral:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: github.com/misarescu/frankie/internal/connectors
+              desc: provider specifics belong behind GitProvider/IssueSource, not in internal/domain
+            - pkg: github.com/misarescu/frankie/internal/drivers
+              desc: release driver specifics belong behind ReleaseDriver, not in internal/domain
+            - pkg: github.com/google/go-github
+              desc: no GitHub types in internal/domain
+            - pkg: github.com/fluxcd
+              desc: no Flux types in internal/domain
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+      - ^internal/store/db/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/misarescu/frankie
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+      - ^internal/store/db/

@@ -1,0 +1,27 @@
+# Protected path: changes require a human gate (docs/spec/05-sandbox-and-toolchains.md).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v5.2.8
+        with:
+          cache: true
+      - name: Generated code is up to date
+        run: |
+          mise run generate
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - run: mise run lint
+      - run: mise run build
+      - run: mise run test

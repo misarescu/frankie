@@ -1,0 +1,16 @@
+# Platform settings read by the control plane at startup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "factory.fullname" . }}-platform
+  labels:
+    {{- include "factory.labels" . | nindent 4 }}
+data:
+  platform.yaml: |
+    profile: {{ .Values.profile }}
+    scheduler:
+      {{- toYaml .Values.scheduler | nindent 6 }}
+    previews:
+      {{- toYaml .Values.previews | nindent 6 }}
+    podResources:
+      {{- toYaml .Values.podResources | nindent 6 }}

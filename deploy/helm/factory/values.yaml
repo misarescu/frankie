@@ -1,0 +1,21 @@
+# Defaults shared by all profiles. Profile files (values-<profile>.yaml) override
+# only what differs; profiles are configuration, not forks (D18, docs/spec/09).
+
+profile: full
+
+scheduler:
+  maxConcurrentIssues: 2
+  sequentialReviewers: false
+
+previews:
+  # Maximum concurrent preview environments; 0 disables previews.
+  maxConcurrent: 4
+
+# Pod limits per pod type. The laptop numbers are the documented baseline (FR-PR-3).
+podResources:
+  coder:
+    limits: { cpu: "2", memory: 3Gi }
+  reviewer:
+    limits: { cpu: "1", memory: 2Gi }
+  commandGate:
+    limits: { cpu: "2", memory: 3Gi }

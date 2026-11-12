@@ -4,15 +4,20 @@ Guidance for coding agents (and humans) working in this repository. `CLAUDE.md` 
 
 ## What this repo is
 
-The Software Factory platform. The specs in `docs/` are the source of truth until code exists; when code and spec disagree, fix one of them in the same PR. Read `docs/01-architecture.md` and the roadmap milestone you are working on before changing anything. `README.md` has a map of what each doc covers.
+The Software Factory platform. The specs in `docs/spec/` are the source of truth; when code and spec disagree, fix one of them in the same PR. `docs/notes/` holds working notes (e.g. M0 exploration). Read `docs/spec/01-architecture.md` and the roadmap milestone you are working on before changing anything. `README.md` has a map of the spec files.
 
-**Status: specification only.** Nothing in `cmd/`, `internal/`, `proto/`, `web/`, `deploy/` or `mise.toml` exists yet; the layout in `docs/01-architecture.md` is the target. The first work is M0 in `docs/10-roadmap.md`. Until M0 lands, the `mise run` tasks below are the contract to implement, not commands that work.
+**Status: M0 scaffold.** Tooling, configs, CI, the Helm chart skeleton and Flux manifests exist; the binaries in `cmd/` are placeholders and there is no product code yet. The layout in `docs/spec/01-architecture.md` is the target. Next is M1 in `docs/spec/10-roadmap.md`.
 
 ## Commands
 
-Everything runs through mise tasks: `mise run build`, `mise run test`, `mise run lint`, `mise run generate`, `mise run e2e`. If a task is missing, add it to `mise.toml` rather than inventing a command.
+Everything runs through mise tasks; tool versions are pinned in `mise.toml` (locked in `mise.lock`). If a task is missing, add it to `mise.toml` rather than inventing a command.
 
-Single Go test: `go test ./internal/<pkg> -run '<TestName>'`. `mise run test` should pass extra arguments through to `go test`.
+- `mise install` then `mise run doctor`: install pinned tools, then check tools, Docker and the cluster.
+- `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
+- Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
+- E2E tests carry the `//go:build e2e` tag.
+- Schema changes: edit `internal/store/schema.sql`, then `mise run db:diff <name>` (needs Docker) to generate a goose migration. Never hand-edit generated migrations without `mise run db:hash`.
+- `generate` and proto lint skip themselves until `proto/` or `internal/store/queries/` have files.
 
 ## How it fits together
 
@@ -23,23 +28,24 @@ Single Go test: `go test ./internal/<pkg> -run '<TestName>'`. `mise run test` sh
 5. A per-repo merge-queue workflow (signal-with-start) rebases, re-gates and merges.
 6. A Release (a SHA plus the issues it contains) moves through project-defined Stages via out-of-process `ReleaseDriver` gRPC plugins, executed only by control-plane Activities.
 
-Details: workflows and gates `docs/03`, runner and harnesses `docs/04`, sandbox `docs/05`, merge queue and releases `docs/06`.
+Details: workflows and gates `docs/spec/03`, runner and harnesses `docs/spec/04`, sandbox `docs/spec/05`, merge queue and releases `docs/spec/06`.
 
-Use the spec's vocabulary in code and docs (defined under Terminology in `docs/00-vision-and-decisions.md`): Issue, Run, Step, Role, Harness, Gate, ChangeRequest (never "PR" in core code), Release, Stage, Driver.
+Use the spec's vocabulary in code and docs (defined under Terminology in `docs/spec/00-vision-and-decisions.md`): Issue, Run, Step, Role, Harness, Gate, ChangeRequest (never "PR" in core code), Release, Stage, Driver.
 
 ## Stack and conventions
 
 - Go (latest stable pinned in `mise.toml`), standard layout, `internal/` for everything not meant to be imported. Errors wrapped with `%w`. `context.Context` first parameter. No global state. Table-driven tests.
-- Postgres with versioned SQL migrations (golang-migrate or goose; decide once in M0 and record in `docs/00`). Queries via sqlc. No ORM.
+- Postgres. Migrations: Atlas authors, goose applies (D19). Queries via sqlc with pgx/v5. No ORM.
 - Temporal Go SDK for durable workflows.
-- gRPC + protobuf (`buf`) for runner and driver interfaces. Generated code is committed.
+- gRPC + protobuf (`buf`) for runner and driver interfaces. Generated code is committed to `gen/`.
+- `.golangci.yml` enforces invariant 7 with a depguard rule on `internal/domain`.
 - UI: React + Bun in `web/`. TypeScript strict.
 - Deployment: Helm chart in `deploy/helm/`, Flux manifests in `deploy/flux/`.
 - Tooling is declared in `mise.toml`.
 
 ## Laptop profile
 
-Every milestone must run on the **laptop profile**: a 16 GiB laptop running single-node k3s with reduced services (see `docs/09-deployment-profiles.md`). Profile differences are configuration, not forks (D18). Check memory budgets and the profile's deferrals before adding a service or a pod.
+Every milestone must run on the **laptop profile**: a 16 GiB laptop running single-node k3s with reduced services (see `docs/spec/09-deployment-profiles.md`). Profile differences are configuration, not forks (D18). Check memory budgets and the profile's deferrals before adding a service or a pod.
 
 ## Invariants (never violate; changes need explicit human approval)
 
@@ -47,15 +53,15 @@ Every milestone must run on the **laptop profile**: a 16 GiB laptop running sing
 2. **Never trust agent-reported results.** Every `command` gate re-runs from the pushed commit in a fresh pod.
 3. **Workflow code is deterministic.** Anything non-deterministic (time, randomness, I/O, map iteration order) goes in an Activity. Any change to workflow code needs Temporal versioning (`workflow.GetVersion`) and passing replay tests.
 4. **The workflow definition is snapshotted into the workflow input at start.** Never re-read YAML mid-run.
-5. **The factory never deploys over the instance doing the work.** See `docs/08-self-hosting.md`.
+5. **The factory never deploys over the instance doing the work.** See `docs/spec/08-self-hosting.md`.
 6. **Protected paths require a human gate**: NetworkPolicies, RBAC, Kata runtime class, runner, gate definitions, LiteLLM budgets, lint/CI config, toolchain files, and the protected-paths list itself. Skipped or deleted tests also trigger the gate.
 7. **Control plane core stays provider-neutral.** GitHub specifics live behind `GitProvider` / `IssueSource`. Flux specifics live behind `ReleaseDriver`. No provider types leak into `internal/domain`.
 8. **Postgres owns all state except in-flight workflow state, which Temporal owns.** Postgres rows reference Temporal workflow IDs; never duplicate workflow state.
 
 ## Decisions and open questions
 
-- Decisions live in the numbered log (D1, D2, ...) in `docs/00-vision-and-decisions.md`. Add new ones at the bottom; never rewrite an entry, supersede it with a new one.
-- Before making a choice, check `docs/11-open-questions.md` (e.g. migration tool, secrets management, auth, transcript storage). When you resolve one, record it as a decision in `docs/00` and update `docs/11`.
+- Decisions live in the numbered log (D1, D2, ...) in `docs/spec/00-vision-and-decisions.md`. Add new ones at the bottom; never rewrite an entry, supersede it with a new one.
+- Before making a choice, check `docs/spec/11-open-questions.md` (e.g. migration tool, secrets management, auth, transcript storage). When you resolve one, record it as a decision in `docs/spec/00` and update `docs/spec/11`.
 - Write a decision entry for anything that changes an interface.
 
 ## Working agreements
@@ -69,8 +75,8 @@ Every milestone must run on the **laptop profile**: a 16 GiB laptop running sing
 
 ## Where things live
 
-See `docs/01-architecture.md` for the repo layout. Short version: `cmd/` binaries, `internal/` packages, `proto/` contracts, `web/` UI, `deploy/` Helm and Flux, `roles/` and `workflows/` example config, `docs/` specs.
+See `docs/spec/01-architecture.md` for the repo layout. Short version: `cmd/` binaries, `internal/` packages, `proto/` contracts, `gen/` generated code, `web/` UI, `deploy/` Helm and Flux, `roles/` and `workflows/` example config, `scripts/` task helpers, `docs/spec/` specs, `docs/notes/` notes.
 
 ## Definition of done for a task
 
-Builds, `mise run lint` and `mise run test` pass, new behavior has tests tagged with the issue ID, docs updated if an interface or invariant changed, no protected paths touched without calling it out in the PR description.
+Builds, `mise run lint` and `mise run test` pass, new behavior has tests tagged with the issue ID, `docs/spec/` updated if an interface or invariant changed, no protected paths touched without calling it out in the PR description.

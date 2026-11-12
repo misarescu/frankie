@@ -7,7 +7,7 @@ Every milestone must run on the **laptop profile** (see `09-deployment-profiles.
 ## M0 - Explore and scaffold (no product code)
 
 - Run Vibe Kanban and Gas City against a toy repo; record what to keep and what annoys you in `docs/notes/exploration.md`.
-- Repo skeleton per `01-architecture.md`: Go module, `mise.toml` with tasks `build test lint generate e2e`, buf config, sqlc config, migration tool choice recorded in `docs/00`, CI running `mise run lint test`.
+- Repo skeleton per `01-architecture.md`: Go module, `mise.toml` with tasks `build test lint generate e2e`, buf config, sqlc config, migration tool choice recorded in `docs/spec/00`, CI running `mise run lint test`.
 - Helm chart skeleton and Flux manifests for a k3s dev cluster.
 - **Done when:** `mise run build lint test` is green on an empty-but-structured repo in CI, and the exploration notes exist.
 

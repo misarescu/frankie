@@ -1,0 +1,20 @@
+# kata-deploy Helm values for the laptop (homelab k3s) cluster.
+# Protected path: Kata runtime class config requires a human gate (docs/spec/05-sandbox-and-toolchains.md).
+# Chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy, version pinned in deploy/kata/README.md.
+
+k8sDistribution: k3s
+
+# One-off install Jobs per node (chart default); no always-on privileged DaemonSet.
+deploymentMode: job
+
+# Only the default shim (Rust runtime + QEMU). Other VMMs can be enabled per need.
+shims:
+  disableAll: true
+  qemu-runtime-rs:
+    enabled: true
+
+# Creates RuntimeClass "kata" pointing at the default shim, alongside "kata-qemu-runtime-rs".
+runtimeClasses:
+  enabled: true
+  createDefault: true
+  defaultName: kata

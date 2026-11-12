@@ -4,7 +4,9 @@ Frankie is a self-hosted platform that turns specs into merged, released softwar
 
 The name comes from the shipwright of the Strawhats crew from One Piece. Frankie can build and maintain everything, you just have to ask.
 
-Status: **specification only. Nothing is implemented yet.** Start with `CLAUDE.md`, then `docs/10-roadmap.md`.
+Status: **M0 scaffold. No product code yet.** Start with `AGENTS.md`, then `docs/spec/10-roadmap.md`.
+
+Getting started: install [mise](https://mise.jdx.dev), then `mise install` and `mise run doctor`.
 
 ## What it does
 
@@ -32,16 +34,17 @@ Go (control plane, runner, CLI), Postgres, Temporal, Kubernetes (k3s on the lapt
 | File | Contents |
 | --- | --- |
 | `CLAUDE.md` / `AGENTS.md` | Working rules and invariants for coding agents in this repo |
-| `docs/00-vision-and-decisions.md` | Goals, non-goals, decision log |
-| `docs/01-architecture.md` | Components, boundaries, repo layout |
-| `docs/02-domain-model.md` | Entities, state machines, Postgres ownership |
-| `docs/03-workflows-and-gates.md` | Workflow YAML schema, interpreter, gates, roles |
-| `docs/04-agents-harnesses-models.md` | Runner interface, harness adapters, LLM gateway, budgets |
-| `docs/05-sandbox-and-toolchains.md` | Pod sandbox, network, credentials, toolchain images |
-| `docs/06-delivery.md` | E2E test agent, previews, merge queue, release stages, drivers, feature flags |
-| `docs/07-observability.md` | Event stream, views, metrics, human intervention |
-| `docs/08-self-hosting.md` | The factory building itself safely |
-| `docs/09-deployment-profiles.md` | Full profile vs laptop profile (sizing, deferrals, checklist) |
-| `docs/10-roadmap.md` | Milestones with acceptance criteria |
-| `docs/11-open-questions.md` | Unresolved decisions and spec inconsistencies |
-| `docs/12-landscape.md` | Existing projects worth studying |
+| `docs/notes/` | Working notes (M0 exploration) |
+| `docs/spec/00-vision-and-decisions.md` | Goals, non-goals, decision log |
+| `docs/spec/01-architecture.md` | Components, boundaries, repo layout |
+| `docs/spec/02-domain-model.md` | Entities, state machines, Postgres ownership |
+| `docs/spec/03-workflows-and-gates.md` | Workflow YAML schema, interpreter, gates, roles |
+| `docs/spec/04-agents-harnesses-models.md` | Runner interface, harness adapters, LLM gateway, budgets |
+| `docs/spec/05-sandbox-and-toolchains.md` | Pod sandbox, network, credentials, toolchain images |
+| `docs/spec/06-delivery.md` | E2E test agent, previews, merge queue, release stages, drivers, feature flags |
+| `docs/spec/07-observability.md` | Event stream, views, metrics, human intervention |
+| `docs/spec/08-self-hosting.md` | The factory building itself safely |
+| `docs/spec/09-deployment-profiles.md` | Full profile vs laptop profile (sizing, deferrals, checklist) |
+| `docs/spec/10-roadmap.md` | Milestones with acceptance criteria |
+| `docs/spec/11-open-questions.md` | Unresolved decisions and spec inconsistencies |
+| `docs/spec/12-landscape.md` | Existing projects worth studying |

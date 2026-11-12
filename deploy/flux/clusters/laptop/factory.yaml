@@ -1,0 +1,25 @@
+# The Frankie platform on the laptop (homelab k3s) cluster.
+# Applied by Flux once the cluster is bootstrapped with --path=deploy/flux/clusters/laptop.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: frankie
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: factory
+  namespace: frankie
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: ./deploy/helm/factory
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      valuesFiles:
+        - ./deploy/helm/factory/values.yaml
+        - ./deploy/helm/factory/values-laptop.yaml

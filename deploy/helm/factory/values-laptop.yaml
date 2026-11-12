@@ -1,0 +1,9 @@
+# Laptop profile: 16 GiB, 4 cores, single-node k3s (docs/spec/09-deployment-profiles.md).
+profile: laptop
+
+scheduler:
+  maxConcurrentIssues: 1
+  sequentialReviewers: true
+
+previews:
+  maxConcurrent: 1

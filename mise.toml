@@ -1,0 +1,64 @@
+# Single source of truth for tool versions and dev tasks.
+# Humans, CI and factory agents all run `mise run <task>`.
+# Protected path: changes require a human gate (docs/spec/05-sandbox-and-toolchains.md).
+
+[settings]
+lockfile = true
+
+[tools]
+go = "1.27.4"
+golangci-lint = "2.15.0"
+buf = "1.75.0"
+protoc-gen-go = "1.36.12"
+protoc-gen-go-grpc = "1.6.2"
+sqlc = "1.31.1"
+atlas = "1.3.0"
+bun = "1.4.4"
+helm = "4.3.1"
+kubectl = "1.37.2"
+flux2 = "2.10.0"
+kubeconform = "0.8.0"
+temporal = "1.10.0"
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+
+[env]
+CGO_ENABLED = "0"
+
+[tasks.doctor]
+description = "Check required tools and external prerequisites"
+run = "scripts/doctor.sh"
+
+[tasks.build]
+description = "Build all binaries into bin/"
+run = "go build -o bin/ ./cmd/..."
+
+[tasks.test]
+description = "Run unit tests (extra args are passed to go test)"
+run = "go test ./..."
+
+[tasks.e2e]
+description = "Run end-to-end tests (files tagged //go:build e2e)"
+run = "go test -tags=e2e -count=1 ./..."
+
+[tasks.generate]
+description = "Regenerate committed code (protobuf, sqlc)"
+run = "scripts/generate.sh"
+
+[tasks.lint]
+description = "Lint Go, protobuf, shell, CI config and deploy manifests"
+run = [
+  "golangci-lint run",
+  "scripts/lint-proto.sh",
+  "shellcheck scripts/*.sh",
+  "actionlint",
+  "scripts/lint-deploy.sh",
+]
+
+[tasks."db:diff"]
+description = "Generate a goose migration from internal/store/schema.sql (usage: mise run db:diff <name>); needs Docker"
+run = "atlas migrate diff --env local"
+
+[tasks."db:hash"]
+description = "Recompute the migration directory checksum after editing a migration by hand"
+run = "atlas migrate hash --env local"

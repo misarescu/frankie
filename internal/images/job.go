@@ -18,10 +18,15 @@ import (
 // Labels on every build Job and its ConfigMap. RoleLabel is what the build
 // namespace's NetworkPolicies select.
 const (
-	RoleLabel      = "frankie.dev/role"
-	RoleBuild      = "toolchain-build"
-	ImageTagLabel  = "frankie.dev/toolchain-tag"
-	contextMount   = "/ctx"
+	RoleLabel     = "frankie.dev/role"
+	RoleBuild     = "toolchain-build"
+	ImageTagLabel = "frankie.dev/toolchain-tag"
+	contextMount  = "/ctx"
+	// contextDir holds the build context as plain files. A ConfigMap volume's
+	// files are symlinks into a hidden ..data directory, which BuildKit, sending
+	// only what the Dockerfile's COPY patterns match, does not reliably follow:
+	// with a mise.lock present, mise.toml went missing from the context.
+	contextDir     = "/tmp/context"
 	agentHomeMise  = "/home/agent/.local/share/mise"
 	agentUID       = 10001
 	toolchainDir   = "/home/agent/toolchain"
@@ -102,8 +107,10 @@ func (r BuildRequest) Image(c BuildConfig) string {
 const (
 	metadataFile       = "/tmp/build-metadata.json"
 	terminationLogPath = "/dev/termination-log"
-	// buildScript runs buildctl with the container's args, then reports.
-	buildScript = `buildctl-daemonless.sh "$@" && cat ` + metadataFile + ` > ` + terminationLogPath
+	// buildScript copies the context out of the ConfigMap, runs buildctl with
+	// the container's args, then reports.
+	buildScript = `mkdir -p ` + contextDir + ` && cp -L ` + contextMount + `/* ` + contextDir + `/ && ` +
+		`buildctl-daemonless.sh "$@" && cat ` + metadataFile + ` > ` + terminationLogPath
 )
 
 // Dockerfile is the build recipe: the base image plus the tools mise.toml pins,
@@ -157,8 +164,8 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 	args := []string{
 		"build",
 		"--frontend", "dockerfile.v0",
-		"--local", "context=" + contextMount,
-		"--local", "dockerfile=" + contextMount,
+		"--local", "context=" + contextDir,
+		"--local", "dockerfile=" + contextDir,
 		"--opt", "build-arg:HTTPS_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:HTTP_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:NO_PROXY=" + noProxy,

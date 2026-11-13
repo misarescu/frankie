@@ -76,8 +76,14 @@ func TestBuildResources(t *testing.T) {
 				t.Errorf("args missing %q:\n%s", want, args)
 			}
 		}
-		if cmd := strings.Join(c.Command, " "); !strings.Contains(cmd, `buildctl-daemonless.sh "$@" && cat /tmp/build-metadata.json > /dev/termination-log`) {
+		cmd := strings.Join(c.Command, " ")
+		if !strings.Contains(cmd, `buildctl-daemonless.sh "$@" && cat /tmp/build-metadata.json > /dev/termination-log`) {
 			t.Errorf("the build does not report its result in the termination message: %s", cmd)
+		}
+		// The context is built from plain copies, never the ConfigMap's symlinks.
+		if !strings.Contains(cmd, "cp -L /ctx/* /tmp/context/") || !strings.Contains(args, "--local context=/tmp/context") ||
+			!strings.Contains(args, "--local dockerfile=/tmp/context") || strings.Contains(args, "=/ctx") {
+			t.Errorf("command %q, args %q", cmd, args)
 		}
 		if strings.Contains(args, ":"+req.Inputs.Tag()) {
 			t.Errorf("the build pushes a tag; only the control plane tags:\n%s", args)

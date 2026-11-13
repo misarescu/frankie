@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"fmt"
+
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/misarescu/frankie/internal/workflow/activities"
@@ -24,8 +26,19 @@ func IssueRun(ctx workflow.Context, in activities.IssueRunInput) (IssueRunResult
 	}
 	out := IssueRunResult{RunID: run.RunID}
 
+	// The agent runs in the repo's toolchain image (M2, D30). Runs started before
+	// this version existed replay without it.
+	var err error
+	if workflow.GetVersion(ctx, "toolchain-image", workflow.DefaultVersion, 1) >= 1 {
+		if err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, toolchainOptions), a.EnsureToolchainImage, in).Get(ctx, &run.ToolchainImage); err != nil {
+			err = fmt.Errorf("toolchain image: %w", err)
+		}
+	}
+
 	var pod activities.AgentPod
-	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, launchOptions), a.LaunchAgentPod, in, run).Get(ctx, &pod)
+	if err == nil {
+		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, launchOptions), a.LaunchAgentPod, in, run).Get(ctx, &pod)
+	}
 	var session activities.SessionResult
 	if err == nil {
 		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sessionOptions), a.RunAgentSession, in, run, pod).Get(ctx, &session)

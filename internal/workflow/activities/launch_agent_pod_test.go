@@ -2,6 +2,10 @@ package activities
 
 import (
 	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 var (
@@ -14,5 +18,33 @@ func TestPodNameIsStablePerStep(t *testing.T) {
 	a, b := podName(testInput, testRun), podName(testInput, testRun)
 	if a != b || a != "gc-1-implement-00000003" {
 		t.Errorf("podName = %q, %q", a, b)
+	}
+}
+
+func TestAgentPodSpecImage(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "ghcr.io/misarescu/frankie-runner:sha-abc", RuntimeClass: "kata",
+		ServiceAccount: "frankie-agent", EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour,
+		Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+		WorkspaceSize: resource.MustParse("1Gi"),
+	}}
+	tests := []struct {
+		name, toolchain, want string
+	}{
+		{"toolchain image when resolved", "localhost:30500/toolchains/o/r:tc-1", "localhost:30500/toolchains/o/r:tc-1"},
+		{"base image otherwise", "", "ghcr.io/misarescu/frankie-runner:sha-abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := testRun
+			run.ToolchainImage = tt.toolchain
+			pod, err := a.agentPodSpec(testInput, run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := pod.Spec.Containers[0].Image; got != tt.want {
+				t.Errorf("image = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

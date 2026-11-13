@@ -41,6 +41,7 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- range .Values.controlPlane.repos -}}
 {{- $repos = append $repos (dict "name" (required "controlPlane.repos[].name is required" .name) "upstream" (required "controlPlane.repos[].upstream is required" .upstream) "keyPrefix" (required "controlPlane.repos[].keyPrefix is required" .keyPrefix) "baseBranch" (default "main" .baseBranch)) -}}
 {{- end -}}
+{{- $tc := .Values.toolchains -}}
 {{- $cfg := dict
   "repos" $repos
   "intakeLabel" .Values.controlPlane.intake.label
@@ -60,6 +61,17 @@ app.kubernetes.io/component: {{ index . 1 }}
     "model" $a.model "budgetUSD" $a.budgetUSD
     "sessionTimeout" $a.sessionTimeout "idleTimeout" $a.idleTimeout
     "authorName" $a.authorName "authorEmail" $a.authorEmail)
+  "toolchains" (dict
+    "registryURL" (printf "http://%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)
+    "pushHost" (printf "%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)
+    "pullHost" (printf "localhost:%v" $tc.registry.nodePort)
+    "namespace" $tc.build.namespace
+    "buildkitImage" $tc.build.buildkitImage
+    "runtimeClass" $.Values.agents.runtimeClassName
+    "serviceAccount" $tc.build.serviceAccountName
+    "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)
+    "cpu" (toString $tc.build.limits.cpu) "memory" (toString $tc.build.limits.memory)
+    "scratchSize" $tc.build.scratchSize "deadline" $tc.build.deadline)
 -}}
 {{- toPrettyJson $cfg -}}
 {{- end -}}

@@ -24,6 +24,13 @@ var (
 		StartToCloseTimeout: 2 * time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
 	}
+	// Resolving the toolchain image may wait for a BuildKit Job (its own deadline
+	// is 30 minutes); it heartbeats while it waits.
+	toolchainOptions = workflow.ActivityOptions{
+		StartToCloseTimeout: 40 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+	}
 	// Launching heartbeats while it waits for the pod, so a worker that dies
 	// mid-launch is noticed in seconds rather than at the 10-minute timeout.
 	launchOptions = workflow.ActivityOptions{

@@ -15,6 +15,7 @@ import (
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
+	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/store"
 )
 
@@ -36,6 +37,10 @@ type StartRunResult struct {
 	RunID     string
 	StepRunID string
 	Branch    string
+	// ToolchainImage is the repo's toolchain image for the agent pod; empty
+	// means the platform base image. The workflow sets it after StartRun, from
+	// EnsureToolchainImage.
+	ToolchainImage string
 }
 
 // AgentPod is a launched agent pod.
@@ -91,8 +96,11 @@ type Activities struct {
 	Gateway *gateway.Client
 	Signer  *gitproxy.Signer
 	GitHub  *github.Client
-	Agent   AgentConfig
-	Log     *slog.Logger
+	// Toolchain builds and finds toolchain images (D30); nil disables them and
+	// agent pods run in the platform base image.
+	Toolchain *images.Ensurer
+	Agent     AgentConfig
+	Log       *slog.Logger
 }
 
 // hardcodedWorkflow is the snapshot recorded on M1 runs (invariant 4).

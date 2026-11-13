@@ -127,19 +127,33 @@ type StatusError struct {
 func (e *StatusError) Error() string { return fmt.Sprintf("github: status %d: %s", e.Code, e.Body) }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	data, err := c.send(ctx, method, path, "application/vnd.github+json", body)
+	if err != nil {
+		return err
+	}
+	if out != nil {
+		if err := json.Unmarshal(data, out); err != nil {
+			return fmt.Errorf("github: decode %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+// send performs a request and returns the body of a 2xx response.
+func (c *Client) send(ctx context.Context, method, path, accept string, body any) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("github: encode: %w", err)
+			return nil, fmt.Errorf("github: encode: %w", err)
 		}
 		rdr = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
 	if err != nil {
-		return fmt.Errorf("github: %w", err)
+		return nil, fmt.Errorf("github: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -149,17 +163,40 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("github: %s %s: %w", method, path, err)
+		return nil, fmt.Errorf("github: %s %s: %w", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode/100 != 2 {
-		return &StatusError{Code: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+		return nil, &StatusError{Code: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
-	if out != nil {
-		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("github: decode %s: %w", path, err)
-		}
+	return data, nil
+}
+
+// ResolveRef returns the commit SHA a branch, tag or SHA of repo points to now.
+func (c *Client) ResolveRef(ctx context.Context, repo, ref string) (string, error) {
+	data, err := c.send(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+url.PathEscape(ref), "application/vnd.github.sha", nil)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	sha := strings.TrimSpace(string(data))
+	if sha == "" {
+		return "", fmt.Errorf("github: empty SHA for %s@%s", repo, ref)
+	}
+	return sha, nil
+}
+
+// FileAt returns the content of path in repo at ref. found is false when the
+// file does not exist at that ref.
+func (c *Client) FileAt(ctx context.Context, repo, path, ref string) (content []byte, found bool, err error) {
+	q := url.Values{"ref": {ref}}
+	data, err := c.send(ctx, http.MethodGet, "/repos/"+repo+"/contents/"+(&url.URL{Path: path}).EscapedPath()+"?"+q.Encode(), "application/vnd.github.raw+json", nil)
+	var se *StatusError
+	switch {
+	case errors.As(err, &se) && se.Code == http.StatusNotFound:
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
+	}
+	return data, true, nil
 }

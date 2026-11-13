@@ -167,6 +167,7 @@ spec:
       ports:
         - port: {{ $r.port }}
           protocol: TCP
+    {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}
 ---
 # The control plane creates build Jobs and their contexts, and nothing else here.
 apiVersion: rbac.authorization.k8s.io/v1

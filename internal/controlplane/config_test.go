@@ -177,3 +177,31 @@ func TestLoadConfigFileServices(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigFileSandboxEnv(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	cfg, err := load(t, `{"sandboxEnv": {"GOPROXY": "http://frankie-athens.frankie.svc:3000"},
+	  "toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.Env["GOPROXY"] != "http://frankie-athens.frankie.svc:3000" || cfg.Toolchain.Build.Env["GOPROXY"] == "" {
+		t.Errorf("agent env %v, build env %v", cfg.Agent.Env, cfg.Toolchain.Build.Env)
+	}
+	for name, body := range map[string]string{
+		"proxy override": `{"sandboxEnv": {"https_proxy": "http://evil"}}`,
+		"bad name":       `{"sandboxEnv": {"A-B": "x"}}`,
+	} {
+		if _, err := load(t, body); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

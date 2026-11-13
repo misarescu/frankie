@@ -97,6 +97,7 @@ spec:
       ports:
         - port: {{ .Values.llmGateway.port }}
           protocol: TCP
+    {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}
 ---
 # Command gate pods (D33) run the agent's code, so they get less than agents:
 # cluster DNS, the egress proxy (dependency downloads) and the git proxy (clone,
@@ -144,3 +145,4 @@ spec:
       ports:
         - port: {{ .Values.controlPlane.gitProxyPort }}
           protocol: TCP
+    {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}

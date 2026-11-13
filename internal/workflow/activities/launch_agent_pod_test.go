@@ -48,3 +48,23 @@ func TestAgentPodSpecImage(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentPodSpecCarriesTheSandboxEnv(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
+		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour, WorkspaceSize: resource.MustParse("1Gi"),
+		Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+		Env:    map[string]string{"GOPROXY": "http://frankie-athens.frankie.svc:3000"},
+	}}
+	pod, err := a.agentPodSpec(testInput, testRun, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range pod.Spec.Containers[0].Env {
+		found = found || (e.Name == "GOPROXY" && e.Value == "http://frankie-athens.frankie.svc:3000")
+	}
+	if !found {
+		t.Errorf("runner env has no GOPROXY: %v", pod.Spec.Containers[0].Env)
+	}
+}

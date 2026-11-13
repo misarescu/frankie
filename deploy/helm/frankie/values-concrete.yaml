@@ -11,7 +11,9 @@ previews:
 egressProxy:
   # No dependency proxy in the concrete profile: public package registries (docs/spec/09).
   allow:
-    - proxy.golang.org
+    # Go modules come from the in-cluster module proxy (goModuleProxy, D37), so
+    # neither proxy.golang.org nor the Cloud Storage it redirects to is listed.
+    # The checksum database stays reachable: go verifies every module against it.
     - sum.golang.org
     - registry.npmjs.org
     - pypi.org

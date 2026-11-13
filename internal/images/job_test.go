@@ -135,3 +135,23 @@ func TestRepository(t *testing.T) {
 		})
 	}
 }
+
+// D37: the sandbox environment (e.g. GOPROXY) reaches the build's RUN step.
+func TestBuildResourcesPassesSandboxEnv(t *testing.T) {
+	cfg := testConfig()
+	cfg.Env = map[string]string{"GOPROXY": "http://frankie-athens.frankie.svc:3000"}
+	cm, job, err := BuildResources(cfg, testRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if df := cm.Data["Dockerfile"]; !strings.Contains(df, "\nARG GOPROXY\n") || strings.Index(df, "ARG GOPROXY") < strings.Index(df, "FROM ") {
+		t.Errorf("Dockerfile does not declare the build arg after FROM:\n%s", df)
+	}
+	if args := strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "); !strings.Contains(args, "build-arg:GOPROXY=http://frankie-athens.frankie.svc:3000") {
+		t.Errorf("args = %s", args)
+	}
+	// Where downloads come from does not change what the image is.
+	if _, plain, _ := BuildResources(testConfig(), testRequest()); plain.Name != job.Name {
+		t.Errorf("job name changed with the environment: %s vs %s", plain.Name, job.Name)
+	}
+}

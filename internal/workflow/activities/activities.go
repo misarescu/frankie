@@ -90,6 +90,9 @@ type AgentConfig struct {
 	IdleTimeout    time.Duration
 	AuthorName     string
 	AuthorEmail    string
+	// Env is set in agent and gate pods, e.g. GOPROXY for the in-cluster Go
+	// module proxy (D37).
+	Env map[string]string
 }
 
 // GateConfig describes how command gates run (docs/spec/03). They share the

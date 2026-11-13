@@ -92,7 +92,7 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 		Limits: a.Gate.Limits, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: a.Gate.Deadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
-		Branch: session.Branch, CommitSHA: session.CommitSHA, Commands: commands, Services: services,
+		Branch: session.Branch, CommitSHA: session.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,
 	})
 	if err != nil {
 		return out, temporal.NewNonRetryableApplicationError("invalid gate pod spec", "config", err)

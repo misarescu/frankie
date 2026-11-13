@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -61,6 +62,9 @@ type fileConfig struct {
 		WorkspaceSize string   `json:"workspaceSize"`
 		Deadline      string   `json:"deadline"`
 	} `json:"gate"`
+	// SandboxEnv is set in every agent, gate and toolchain build pod, e.g.
+	// GOPROXY for the in-cluster Go module proxy (D37).
+	SandboxEnv map[string]string `json:"sandboxEnv"`
 	// Services limits sidecar services per pod (FR-SB-9).
 	Services struct {
 		MaxPerPod int    `json:"maxPerPod"`
@@ -137,6 +141,23 @@ func (fc fileConfig) services() (activities.ServicesConfig, error) {
 	}
 	return activities.ServicesConfig{MaxPerPod: sv.MaxPerPod,
 		Limits: corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: mem}}, nil
+}
+
+var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateSandboxEnv refuses names that are not environment variables and the
+// proxy settings, which only the sandbox builders set (D20).
+func validateSandboxEnv(env map[string]string) error {
+	for k := range env {
+		if !envNameRE.MatchString(k) {
+			return fmt.Errorf("controlplane: config: sandboxEnv name %q is invalid", k)
+		}
+		switch strings.ToUpper(k) {
+		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY":
+			return fmt.Errorf("controlplane: config: sandboxEnv may not set %s; the egress proxy settings are fixed", k)
+		}
+	}
+	return nil
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -254,5 +275,10 @@ func LoadConfigFile(path string, cfg *Config) error {
 	if cfg.Toolchain, err = fc.toolchain(); err != nil {
 		return err
 	}
+	if err := validateSandboxEnv(fc.SandboxEnv); err != nil {
+		return err
+	}
+	cfg.Agent.Env = fc.SandboxEnv
+	cfg.Toolchain.Build.Env = fc.SandboxEnv
 	return nil
 }

@@ -3,7 +3,9 @@ package images
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,6 +44,10 @@ type BuildConfig struct {
 	Limits         corev1.ResourceList // cpu, memory
 	// ScratchSize bounds the BuildKit cache and layer storage (emptyDir).
 	ScratchSize resource.Quantity
+	// Env is set for the build's RUN steps, e.g. GOPROXY for the in-cluster Go
+	// module proxy (D37). It does not change the image tag: it says where
+	// downloads come from, not what is installed.
+	Env map[string]string
 }
 
 func (c BuildConfig) validate() error {
@@ -86,15 +92,20 @@ func (r BuildRequest) Image(c BuildConfig) string {
 }
 
 // Dockerfile is the build recipe: the base image plus the tools mise.toml pins,
-// installed where the agent user finds them at run time.
-func Dockerfile(base string) string {
+// installed where the agent user finds them at run time. args are build
+// arguments the RUN step sees (values come from --opt build-arg).
+func Dockerfile(base string, args []string) string {
+	var argLines strings.Builder
+	for _, a := range args {
+		fmt.Fprintf(&argLines, "ARG %s\n", a)
+	}
 	return fmt.Sprintf(`FROM %s
-ENV MISE_DATA_DIR=%[2]s \
+%sENV MISE_DATA_DIR=%[3]s \
     MISE_TRUSTED_CONFIG_PATHS=/workspace \
-    PATH=%[2]s/shims:$PATH
-COPY --chown=%[3]d:%[3]d mise.toml mise.lock* %[4]s/
-RUN cd %[4]s && mise trust && mise install
-`, base, agentHomeMise, agentUID, toolchainDir)
+    PATH=%[3]s/shims:$PATH
+COPY --chown=%[4]d:%[4]d mise.toml mise.lock* %[5]s/
+RUN cd %[5]s && mise trust && mise install
+`, base, argLines.String(), agentHomeMise, agentUID, toolchainDir)
 }
 
 // BuildResources returns the ConfigMap holding the build context and the Job
@@ -114,7 +125,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 	labels := map[string]string{RoleLabel: RoleBuild, ImageTagLabel: r.Inputs.Tag()}
 
 	data := map[string]string{
-		dockerfileName: Dockerfile(r.Inputs.Base),
+		dockerfileName: Dockerfile(r.Inputs.Base, slices.Sorted(maps.Keys(c.Env))),
 		"mise.toml":    string(r.Inputs.MiseToml),
 	}
 	if len(r.Inputs.MiseLock) > 0 {
@@ -137,6 +148,9 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 		"--opt", "build-arg:HTTP_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:NO_PROXY=" + noProxy,
 		"--output", fmt.Sprintf("type=image,name=%s,push=true,registry.insecure=true", r.Image(c)),
+	}
+	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
+		args = append(args, "--opt", "build-arg:"+k+"="+c.Env[k])
 	}
 
 	job := &batchv1.Job{

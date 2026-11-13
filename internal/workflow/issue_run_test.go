@@ -26,6 +26,8 @@ const toolchainRef = "localhost:30500/toolchains/misarescu/goodreads-clone:tc-01
 var testRunInImage = func() activities.StartRunResult { r := testRun; r.ToolchainImage = toolchainRef; return r }()
 
 type fixture struct {
+	gated    []string // commits the command gate was asked to check
+	gate     func(activities.SessionResult) (activities.GateOutcome, error)
 	env      *testsuite.TestWorkflowEnvironment
 	finished *activities.FinishInput
 	deleted  []string
@@ -41,6 +43,13 @@ func newEnvWithToolchain(t *testing.T, image string, err error) *fixture {
 	f.env.RegisterActivity(a)
 	f.env.OnActivity(a.StartRun, mock.Anything, testInput).Return(testRun, nil)
 	f.env.OnActivity(a.EnsureToolchainImage, mock.Anything, testInput).Return(image, err)
+	f.env.OnActivity(a.RunCommandGate, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, _ activities.StartRunResult, s activities.SessionResult) (activities.GateOutcome, error) {
+		f.gated = append(f.gated, s.CommitSHA)
+		if f.gate != nil {
+			return f.gate(s)
+		}
+		return activities.GateOutcome{StepRunID: "gate-step", Passed: true, Summary: "all checks passed"}, nil
+	})
 	f.env.OnActivity(a.DeleteAgentPod, mock.Anything, mock.Anything).Return(func(_ context.Context, name string) error {
 		f.deleted = append(f.deleted, name)
 		return nil
@@ -79,6 +88,9 @@ func TestIssueRunOpensChangeRequest(t *testing.T) {
 	out := f.run(t)
 	if !out.Succeeded || out.ChangeRequestURL == "" || out.RunID != testRun.RunID {
 		t.Errorf("result = %+v", out)
+	}
+	if len(f.gated) != 1 || f.gated[0] != "abc" {
+		t.Errorf("gate checked %v; want the pushed commit once before the change request", f.gated)
 	}
 	if len(f.deleted) != 1 || f.deleted[0] != "gc-1-implement-x" {
 		t.Errorf("deleted pods = %v", f.deleted)
@@ -152,31 +164,72 @@ func TestIssueRunFailsWhenTheToolchainImageFails(t *testing.T) {
 	}
 }
 
-// Invariant 3: the workflow must replay recorded histories. The fixture is the
-// first successful M1 acceptance run on the homelab (issue gc-1 -> PR #3).
-// A failure here means a change broke determinism and needs workflow.GetVersion.
-func TestIssueRunReplaysRecordedHistory(t *testing.T) {
-	r := worker.NewWorkflowReplayer()
-	r.RegisterWorkflow(IssueRun)
-	if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/issue_run_m1_success.json"); err != nil {
-		t.Fatalf("replay: %v", err)
+// M2 done-when (docs/spec/10): the agent claims success and pushes, the
+// command gate re-runs the tests from that commit and they fail, so no change
+// request is opened and the run fails with the gate's reason.
+func TestIssueRunFailsWhenTheCommandGateFails(t *testing.T) {
+	tests := []struct {
+		name       string
+		outcome    activities.GateOutcome
+		err        error
+		wantReason string
+	}{
+		{"tests fail", activities.GateOutcome{Passed: false, Summary: "mise run test exited 1"}, nil, "command gate failed: mise run test exited 1"},
+		{"gate cannot run", activities.GateOutcome{}, errors.New("ImagePullBackOff"), "command gate could not run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newEnv(t)
+			f.gate = func(activities.SessionResult) (activities.GateOutcome, error) { return tt.outcome, tt.err }
+			a := &activities.Activities{}
+			pod := activities.AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}
+			session := activities.SessionResult{Status: "succeeded", Result: "All tests pass.", Branch: testRun.Branch, CommitSHA: "abc", Pushed: true}
+			f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRunInImage).Return(pod, nil)
+			f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, testRunInImage, pod).Return(session, nil)
+			// OpenChangeRequest is deliberately not mocked: calling it fails the test.
+
+			out := f.run(t)
+			if out.Succeeded || out.ChangeRequestURL != "" || !strings.Contains(out.Reason, tt.wantReason) {
+				t.Errorf("result = %+v, want reason containing %q", out, tt.wantReason)
+			}
+			if f.finished == nil || f.finished.Succeeded || !f.finished.AgentSucceeded {
+				t.Errorf("finish = %+v; want a failed run whose agent step succeeded", f.finished)
+			}
+			if len(f.deleted) != 1 {
+				t.Errorf("agent pod not deleted before the gate: %v", f.deleted)
+			}
+		})
 	}
 }
 
-// The M2 path: a history recorded from this workflow with the toolchain-image
-// version marker and EnsureToolchainImage (stub activities on a local Temporal
-// dev server, exported with `temporal workflow show --output json`).
-func TestIssueRunReplaysToolchainImageHistory(t *testing.T) {
-	r := worker.NewWorkflowReplayer()
-	r.RegisterWorkflow(IssueRun)
-	if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/issue_run_toolchain_image.json"); err != nil {
-		t.Fatalf("replay: %v", err)
+// recordedHistories are real histories of IssueRun, oldest first. Each must
+// keep replaying (invariant 3); a failure means a change broke determinism and
+// needs workflow.GetVersion.
+var recordedHistories = []struct{ file, what string }{
+	// The first successful M1 acceptance run on the homelab (issue gc-1 -> PR #3).
+	{"testdata/issue_run_m1_success.json", "M1: agent step, change request"},
+	// Recorded from this workflow with stub activities on a local Temporal dev
+	// server, exported with `temporal workflow show --output json`.
+	{"testdata/issue_run_toolchain_image.json", "M2: toolchain-image version, change request"},
+	{"testdata/issue_run_command_gate_failed.json", "M2: toolchain-image and command-gate versions, gate failed"},
+}
+
+func TestIssueRunReplaysRecordedHistories(t *testing.T) {
+	for _, h := range recordedHistories {
+		t.Run(h.what, func(t *testing.T) {
+			r := worker.NewWorkflowReplayer()
+			r.RegisterWorkflow(IssueRun)
+			if err := r.ReplayWorkflowHistoryFromJSONFile(nil, h.file); err != nil {
+				t.Fatalf("replay %s: %v", h.file, err)
+			}
+		})
 	}
 }
 
 // Credentials go to the runner over gRPC, never into the workflow history.
 func TestRecordedHistoryHasNoSecrets(t *testing.T) {
-	for _, file := range []string{"testdata/issue_run_m1_success.json", "testdata/issue_run_toolchain_image.json"} {
+	for _, h := range recordedHistories {
+		file := h.file
 		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

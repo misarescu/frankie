@@ -42,6 +42,8 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- $repos = append $repos (dict "name" (required "controlPlane.repos[].name is required" .name) "upstream" (required "controlPlane.repos[].upstream is required" .upstream) "keyPrefix" (required "controlPlane.repos[].keyPrefix is required" .keyPrefix) "baseBranch" (default "main" .baseBranch)) -}}
 {{- end -}}
 {{- $tc := .Values.toolchains -}}
+{{- $gate := .Values.controlPlane.gate -}}
+{{- $gateLimits := .Values.podResources.commandGate.limits -}}
 {{- $cfg := dict
   "repos" $repos
   "intakeLabel" .Values.controlPlane.intake.label
@@ -61,6 +63,9 @@ app.kubernetes.io/component: {{ index . 1 }}
     "model" $a.model "budgetUSD" $a.budgetUSD
     "sessionTimeout" $a.sessionTimeout "idleTimeout" $a.idleTimeout
     "authorName" $a.authorName "authorEmail" $a.authorEmail)
+  "gate" (dict
+    "commands" $gate.commands "deadline" $gate.deadline "workspaceSize" $gate.workspaceSize
+    "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory))
   "toolchains" (dict
     "registryURL" (printf "http://%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)
     "pushHost" (printf "%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)

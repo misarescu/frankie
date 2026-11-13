@@ -102,15 +102,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 	// Requests equal limits: agent pods are Guaranteed and never overcommit the node.
 	requests := limits.DeepCopy()
 
-	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, s.NoProxy...), ",")
-	env := []corev1.EnvVar{
-		{Name: "HTTPS_PROXY", Value: s.EgressProxyURL},
-		{Name: "https_proxy", Value: s.EgressProxyURL},
-		{Name: "HTTP_PROXY", Value: s.EgressProxyURL},
-		{Name: "http_proxy", Value: s.EgressProxyURL},
-		{Name: "NO_PROXY", Value: noProxy},
-		{Name: "no_proxy", Value: noProxy},
-	}
+	env := proxyEnv(s.EgressProxyURL, s.NoProxy)
 	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 		env = append(env, corev1.EnvVar{Name: k, Value: s.Env[k]})
 	}
@@ -133,13 +125,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,
 			ActiveDeadlineSeconds:        ptrTo(int64(s.Deadline.Seconds())),
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsNonRoot:   ptrTo(true),
-				RunAsUser:      ptrTo(int64(AgentUID)),
-				RunAsGroup:     ptrTo(int64(AgentUID)),
-				FSGroup:        ptrTo(int64(AgentUID)),
-				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-			},
+			SecurityContext:              podSecurity(),
 			Containers: []corev1.Container{{
 				Name:    "runner",
 				Image:   s.Image,
@@ -151,11 +137,8 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 					Limits:   limits,
 					Requests: requests,
 				},
-				SecurityContext: &corev1.SecurityContext{
-					AllowPrivilegeEscalation: ptrTo(false),
-					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-				},
-				VolumeMounts: []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}},
+				SecurityContext: containerSecurity(),
+				VolumeMounts:    []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}},
 			}},
 			Volumes: []corev1.Volume{{
 				Name: "workspace",
@@ -168,6 +151,39 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// proxyEnv routes a pod's traffic through the egress proxy (D20), except
+// cluster-internal names.
+func proxyEnv(proxyURL string, extraNoProxy []string) []corev1.EnvVar {
+	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, extraNoProxy...), ",")
+	return []corev1.EnvVar{
+		{Name: "HTTPS_PROXY", Value: proxyURL},
+		{Name: "https_proxy", Value: proxyURL},
+		{Name: "HTTP_PROXY", Value: proxyURL},
+		{Name: "http_proxy", Value: proxyURL},
+		{Name: "NO_PROXY", Value: noProxy},
+		{Name: "no_proxy", Value: noProxy},
+	}
+}
+
+// podSecurity runs every container as the non-root agent user.
+func podSecurity() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot:   ptrTo(true),
+		RunAsUser:      ptrTo(int64(AgentUID)),
+		RunAsGroup:     ptrTo(int64(AgentUID)),
+		FSGroup:        ptrTo(int64(AgentUID)),
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+// containerSecurity drops every capability and privilege escalation.
+func containerSecurity() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptrTo(false),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+}
 
 // runnerArgs points the image entrypoint at RunnerWorkdir; a later flag wins.
 func runnerArgs(command []string) []string {

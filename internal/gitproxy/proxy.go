@@ -72,9 +72,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "only smart HTTP is supported", http.StatusForbidden)
 			return
 		}
+		if svc == "git-receive-pack" && grant.ReadOnly {
+			log.Warn("git proxy: push refused for a read-only token")
+			http.Error(w, "this token is read-only", http.StatusForbidden)
+			return
+		}
 		p.forward(w, r, log, repo, suffix, r.Body, r.ContentLength, false)
 	case r.Method == http.MethodPost && suffix == "/git-upload-pack":
 		p.forward(w, r, log, repo, suffix, r.Body, r.ContentLength, false)
+	case r.Method == http.MethodPost && suffix == "/git-receive-pack" && grant.ReadOnly:
+		log.Warn("git proxy: push refused for a read-only token")
+		http.Error(w, "this token is read-only", http.StatusForbidden)
 	case r.Method == http.MethodPost && suffix == "/git-receive-pack":
 		p.receivePack(w, r, log, repo, grant)
 	default:

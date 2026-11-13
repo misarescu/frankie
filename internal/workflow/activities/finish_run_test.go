@@ -60,3 +60,30 @@ func TestFinishRun(t *testing.T) {
 		})
 	}
 }
+
+// A run whose gate failed is failed, but its agent step did its job.
+func TestFinishRunAfterAFailedGateKeepsTheAgentStepSucceeded(t *testing.T) {
+	st, in := readyIssue(t)
+	a := &Activities{Store: st, Log: quietLog()}
+	env := activityEnv(a)
+	var run StartRunResult
+	v, err := env.ExecuteActivity(a.StartRun, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = v.Get(&run)
+	stepID := uuid.MustParse(run.StepRunID)
+	if _, err := st.TransitionStepRun(t.Context(), stepID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	finish := FinishInput{IssueID: in.IssueID, RunID: run.RunID, StepRunID: run.StepRunID,
+		Reason: "command gate failed: mise run test exited 1", AgentSucceeded: true}
+	if _, err := env.ExecuteActivity(a.FinishRun, finish); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := st.GetRun(t.Context(), uuid.MustParse(run.RunID))
+	step, _ := st.GetStepRun(t.Context(), stepID)
+	if r.Status != domain.ExecFailed || step.Status != domain.ExecSucceeded {
+		t.Errorf("run %s, agent step %s; want failed and succeeded", r.Status, step.Status)
+	}
+}

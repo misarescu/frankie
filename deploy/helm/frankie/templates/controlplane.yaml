@@ -18,7 +18,8 @@ stringData:
   # Signs git proxy tokens (D21). Rotating it invalidates tokens of running steps.
   gitproxy-key: {{ $key | quote }}
 ---
-# The control plane launches agent pods, and nothing else, in the agents namespace.
+# The control plane launches agent and gate pods, and reads gate pod logs, and
+# nothing else, in the agents namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -37,6 +38,9 @@ rules:
   - apiGroups: [""]
     resources: [pods]
     verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

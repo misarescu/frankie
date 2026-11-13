@@ -11,7 +11,7 @@ import (
 	"github.com/misarescu/frankie/internal/store"
 )
 
-// FinishRun records the outcome on the step, the run and the issue. M1 has no
+// FinishRun records the outcome on the agent step, the run and the issue. M1 has no
 // merge queue, so a successful issue waits for a human on its PR.
 func (a *Activities) FinishRun(ctx context.Context, in FinishInput) error {
 	issueID, _ := uuid.Parse(in.IssueID)
@@ -20,6 +20,9 @@ func (a *Activities) FinishRun(ctx context.Context, in FinishInput) error {
 	stepStatus, runStatus, issueStatus := domain.ExecFailed, domain.ExecFailed, domain.IssueFailed
 	if in.Succeeded {
 		stepStatus, runStatus, issueStatus = domain.ExecSucceeded, domain.ExecSucceeded, domain.IssueAwaitingHuman
+	}
+	if in.AgentSucceeded {
+		stepStatus = domain.ExecSucceeded
 	}
 	if step, err := a.Store.GetStepRun(ctx, stepID); err == nil && !step.Status.Terminal() {
 		if _, err := a.Store.TransitionStepRun(ctx, stepID, step.Status, stepStatus); err != nil && !errors.Is(err, domain.ErrInvalidTransition) {

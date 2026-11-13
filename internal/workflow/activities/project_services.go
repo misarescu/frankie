@@ -22,18 +22,28 @@ type ServicesConfig struct {
 // opposed to failing to read it.
 var errInvalidProjectConfig = errors.New("invalid project config")
 
-// projectServices returns the services repo declares at ref (a branch or SHA).
-func (a *Activities) projectServices(ctx context.Context, repo, ref string) ([]sandbox.Service, error) {
+// projectConfig reads the project config repo declares at ref (a branch or
+// SHA); a repo without one has the zero config.
+func (a *Activities) projectConfig(ctx context.Context, repo, ref string) (config.Project, error) {
 	raw, found, err := a.GitHub.FileAt(ctx, repo, config.ProjectConfigPath, ref)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", config.ProjectConfigPath, err)
+		return config.Project{}, fmt.Errorf("read %s: %w", config.ProjectConfigPath, err)
 	}
 	if !found {
-		return nil, nil
+		return config.Project{}, nil
 	}
 	p, err := config.ParseProject(raw, a.Services.MaxPerPod)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidProjectConfig, err)
+		return config.Project{}, fmt.Errorf("%w: %w", errInvalidProjectConfig, err)
+	}
+	return p, nil
+}
+
+// projectServices returns the services repo declares at ref (a branch or SHA).
+func (a *Activities) projectServices(ctx context.Context, repo, ref string) ([]sandbox.Service, error) {
+	p, err := a.projectConfig(ctx, repo, ref)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]sandbox.Service, 0, len(p.Services))
 	for _, s := range p.Services {

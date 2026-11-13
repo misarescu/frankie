@@ -1,8 +1,9 @@
-// Package images decides which toolchain image an agent step or gate runs in,
-// and builds it when the registry does not have it yet (D15, D30,
-// docs/spec/05-sandbox-and-toolchains.md). The image is a pure function of the
-// platform base image and the repo's mise.toml/mise.lock, so an unchanged
-// toolchain is reused instead of rebuilt.
+// Package images decides which image an agent step or gate runs in, and builds
+// it when there is none on record yet (D15, D30, D45,
+// docs/spec/05-sandbox-and-toolchains.md). A toolchain image is a pure
+// function of the platform base image and the repo's mise.toml/mise.lock; a
+// dependency image (M3.1) of a toolchain image and the repo's declared
+// dependency files. Unchanged inputs reuse the image instead of rebuilding it.
 package images
 
 import (
@@ -58,4 +59,17 @@ func (in Inputs) Hash() string {
 // Tag is the registry tag of the toolchain image for these inputs.
 func (in Inputs) Tag() string {
 	return "tc-" + in.Hash()[:32]
+}
+
+// Context implements Spec: mise.toml, mise.lock and the Dockerfile that
+// installs their tools on the base image.
+func (in Inputs) Context(_ string, args []string) (map[string][]byte, error) {
+	if err := in.Validate(); err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{dockerfileName: []byte(Dockerfile(in.Base, args)), "mise.toml": in.MiseToml}
+	if len(in.MiseLock) > 0 {
+		files["mise.lock"] = in.MiseLock
+	}
+	return files, nil
 }

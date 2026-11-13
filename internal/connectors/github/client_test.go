@@ -188,3 +188,17 @@ func TestCompareTooManyFiles(t *testing.T) {
 		t.Fatalf("files %d, complete %v, err %v", len(files), complete, err)
 	}
 }
+
+func TestListFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/git/trees/abc" || r.URL.Query().Get("recursive") != "1" {
+			t.Errorf("request %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`{"tree":[{"path":"go.mod","type":"blob"},{"path":"web","type":"tree"},{"path":"web/bun.lock","type":"blob"}],"truncated":false}`))
+	}))
+	defer srv.Close()
+	paths, complete, err := NewClient("pat", srv.URL).ListFiles(t.Context(), "o/r", "abc")
+	if err != nil || !complete || len(paths) != 2 || paths[1] != "web/bun.lock" {
+		t.Fatalf("paths %v, complete %v, err %v", paths, complete, err)
+	}
+}

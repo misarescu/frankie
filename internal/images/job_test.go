@@ -1,6 +1,10 @@
 package images
 
 import (
+	"archive/tar"
+	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -19,10 +23,29 @@ func testConfig() BuildConfig {
 	}
 }
 
+func testInputsSpec() Inputs {
+	return Inputs{Base: "ghcr.io/misarescu/frankie-runner:sha-abc", MiseToml: []byte("[tools]\ngo = \"1.27\"\n"), MiseLock: []byte("lock")}
+}
+
 func testRequest() BuildRequest {
-	return BuildRequest{
-		Repository: "toolchains/misarescu/repo",
-		Inputs:     Inputs{Base: "ghcr.io/misarescu/frankie-runner:sha-abc", MiseToml: []byte("[tools]\ngo = \"1.27\"\n"), MiseLock: []byte("lock")},
+	return BuildRequest{Repository: "toolchains/misarescu/repo", Spec: testInputsSpec()}
+}
+
+// contextFiles unpacks the build context a ConfigMap carries.
+func contextFiles(t *testing.T, cm *corev1.ConfigMap) map[string]string {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(cm.BinaryData["context.tar"]))
+	out := map[string]string{}
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(tr)
+		out[h.Name] = string(b)
 	}
 }
 
@@ -34,14 +57,19 @@ func TestBuildResources(t *testing.T) {
 	}
 
 	t.Run("context holds the recipe and the repo files", func(t *testing.T) {
-		if !strings.HasPrefix(cm.Data["Dockerfile"], "FROM ghcr.io/misarescu/frankie-runner:sha-abc\n") {
-			t.Errorf("Dockerfile does not start from the base image:\n%s", cm.Data["Dockerfile"])
+		files := contextFiles(t, cm)
+		if !strings.HasPrefix(files["Dockerfile"], "FROM ghcr.io/misarescu/frankie-runner:sha-abc\n") {
+			t.Errorf("Dockerfile does not start from the base image:\n%s", files["Dockerfile"])
 		}
-		if !strings.Contains(cm.Data["Dockerfile"], "mise install") {
-			t.Errorf("Dockerfile does not install the toolchain:\n%s", cm.Data["Dockerfile"])
+		if !strings.Contains(files["Dockerfile"], "mise install") {
+			t.Errorf("Dockerfile does not install the toolchain:\n%s", files["Dockerfile"])
 		}
-		if cm.Data["mise.toml"] != string(req.Inputs.MiseToml) || cm.Data["mise.lock"] != "lock" {
-			t.Errorf("repo files not carried into the context: %v", cm.Data)
+		if files["mise.toml"] != string(testInputsSpec().MiseToml) || files["mise.lock"] != "lock" {
+			t.Errorf("repo files not carried into the context: %v", files)
+		}
+		// The in-cluster registry is plain HTTP, for builds FROM a recorded image.
+		if !strings.Contains(cm.Data["buildkitd.toml"], `[registry."frankie-registry.frankie.svc:5000"]`) || !strings.Contains(cm.Data["buildkitd.toml"], "http = true") {
+			t.Errorf("buildkitd.toml = %q", cm.Data["buildkitd.toml"])
 		}
 	})
 
@@ -51,7 +79,9 @@ func TestBuildResources(t *testing.T) {
 			t.Errorf("names differ: %s %s %s", job.Name, job2.Name, cm.Name)
 		}
 		other := testRequest()
-		other.Inputs.MiseToml = []byte("[tools]\ngo = \"1.28\"\n")
+		in := testInputsSpec()
+		in.MiseToml = []byte("[tools]\ngo = \"1.28\"\n")
+		other.Spec = in
 		_, job3, _ := BuildResources(cfg, other)
 		if job.Name == job3.Name {
 			t.Error("different inputs share a job name")
@@ -80,12 +110,12 @@ func TestBuildResources(t *testing.T) {
 		if !strings.Contains(cmd, `buildctl-daemonless.sh "$@" && cat /tmp/build-metadata.json > /dev/termination-log`) {
 			t.Errorf("the build does not report its result in the termination message: %s", cmd)
 		}
-		// The context is built from plain copies, never the ConfigMap's symlinks.
-		if !strings.Contains(cmd, "cp -L /ctx/* /tmp/context/") || !strings.Contains(args, "--local context=/tmp/context") ||
+		// The context is unpacked from a tar, never read through the ConfigMap's symlinks.
+		if !strings.Contains(cmd, "tar -xf /ctx/context.tar -C /tmp/context") || !strings.Contains(args, "--local context=/tmp/context") ||
 			!strings.Contains(args, "--local dockerfile=/tmp/context") || strings.Contains(args, "=/ctx") {
 			t.Errorf("command %q, args %q", cmd, args)
 		}
-		if strings.Contains(args, ":"+req.Inputs.Tag()) {
+		if strings.Contains(args, ":"+req.Spec.Tag()) {
 			t.Errorf("the build pushes a tag; only the control plane tags:\n%s", args)
 		}
 		// D31: rootless BuildKit does not work on Kata (no file capabilities on virtiofs), and
@@ -116,7 +146,8 @@ func TestBuildResourcesRejectsBadInput(t *testing.T) {
 		{"no namespace", func(c *BuildConfig, _ *BuildRequest) { c.Namespace = "" }, "Namespace"},
 		{"no proxy", func(c *BuildConfig, _ *BuildRequest) { c.EgressProxyURL = "" }, "EgressProxyURL"},
 		{"no deadline", func(c *BuildConfig, _ *BuildRequest) { c.Deadline = 0 }, "deadline"},
-		{"no mise.toml", func(_ *BuildConfig, r *BuildRequest) { r.Inputs.MiseToml = nil }, "mise.toml"},
+		{"no mise.toml", func(_ *BuildConfig, r *BuildRequest) { in := testInputsSpec(); in.MiseToml = nil; r.Spec = in }, "mise.toml"},
+		{"no spec", func(_ *BuildConfig, r *BuildRequest) { r.Spec = nil }, "no image to build"},
 		{"bad repository", func(_ *BuildConfig, r *BuildRequest) { r.Repository = "Bad Repo/../x" }, "repository"},
 	}
 	for _, tt := range tests {
@@ -158,7 +189,7 @@ func TestBuildResourcesPassesSandboxEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if df := cm.Data["Dockerfile"]; !strings.Contains(df, "\nARG GOPROXY\n") || strings.Index(df, "ARG GOPROXY") < strings.Index(df, "FROM ") {
+	if df := contextFiles(t, cm)["Dockerfile"]; !strings.Contains(df, "\nARG GOPROXY\n") || strings.Index(df, "ARG GOPROXY") < strings.Index(df, "FROM ") {
 		t.Errorf("Dockerfile does not declare the build arg after FROM:\n%s", df)
 	}
 	if args := strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "); !strings.Contains(args, "build-arg:GOPROXY=http://frankie-athens.frankie.svc:3000") {

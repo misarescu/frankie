@@ -22,16 +22,20 @@ const (
 	RoleBuild     = "toolchain-build"
 	ImageTagLabel = "frankie.dev/toolchain-tag"
 	contextMount  = "/ctx"
-	// contextDir holds the build context as plain files. A ConfigMap volume's
-	// files are symlinks into a hidden ..data directory, which BuildKit, sending
-	// only what the Dockerfile's COPY patterns match, does not reliably follow:
-	// with a mise.lock present, mise.toml went missing from the context.
+	// contextDir holds the build context as plain files, unpacked from the
+	// ConfigMap's tar archive. A tar keeps directory paths, which ConfigMap
+	// keys cannot, and avoids the ConfigMap volume's symlinks into ..data,
+	// which BuildKit did not reliably follow.
 	contextDir     = "/tmp/context"
-	agentHomeMise  = "/home/agent/.local/share/mise"
-	agentUID       = 10001
-	toolchainDir   = "/home/agent/toolchain"
-	dockerfileName = "Dockerfile"
-	buildContainer = "buildkit"
+	contextArchive = "context.tar"
+	// buildkitdConfig marks the in-cluster registry as plain HTTP, so a
+	// dependency image can be built FROM a recorded toolchain image there.
+	buildkitdConfig = "buildkitd.toml"
+	agentHomeMise   = "/home/agent/.local/share/mise"
+	agentUID        = 10001
+	toolchainDir    = "/home/agent/toolchain"
+	dockerfileName  = "Dockerfile"
+	buildContainer  = "buildkit"
 )
 
 // BuildConfig describes how toolchain images are built; it comes from the
@@ -80,16 +84,17 @@ func (c BuildConfig) validate() error {
 	return errors.Join(errs...)
 }
 
-// BuildRequest is one toolchain image to build.
+// BuildRequest is one image to build.
 type BuildRequest struct {
-	Repository string // registry repository, from Repository()
-	Inputs     Inputs
+	Repository string // registry repository, from Repository() or DependencyRepository()
+	Spec       Spec
 }
 
-// JobName is stable per toolchain tag, so concurrent or retried requests for the
-// same image meet in one Job instead of building twice.
+// JobName is stable per tag, so concurrent or retried requests for the same
+// image meet in one Job instead of building twice.
 func (r BuildRequest) JobName() string {
-	return "tc-" + strings.TrimPrefix(r.Inputs.Tag(), "tc-")[:20]
+	tag := r.Spec.Tag() // tc-<hash> or dp-<hash>
+	return tag[:min(len(tag), 23)]
 }
 
 // Image is the repository the build pushes to, by digest only (D45): the
@@ -107,9 +112,9 @@ func (r BuildRequest) Image(c BuildConfig) string {
 const (
 	metadataFile       = "/tmp/build-metadata.json"
 	terminationLogPath = "/dev/termination-log"
-	// buildScript copies the context out of the ConfigMap, runs buildctl with
-	// the container's args, then reports.
-	buildScript = `mkdir -p ` + contextDir + ` && cp -L ` + contextMount + `/* ` + contextDir + `/ && ` +
+	// buildScript unpacks the context out of the ConfigMap, runs buildctl
+	// with the container's args, then reports.
+	buildScript = `mkdir -p ` + contextDir + ` && tar -xf ` + contextMount + `/` + contextArchive + ` -C ` + contextDir + ` && ` +
 		`buildctl-daemonless.sh "$@" && cat ` + metadataFile + ` > ` + terminationLogPath
 )
 
@@ -137,25 +142,30 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 	if err := c.validate(); err != nil {
 		return nil, nil, fmt.Errorf("images: %w", err)
 	}
-	if err := r.Inputs.Validate(); err != nil {
+	if r.Spec == nil {
+		return nil, nil, errors.New("images: no image to build")
+	}
+	if err := r.Spec.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("images: %w", err)
 	}
 	if !repositoryRE.MatchString(r.Repository) {
 		return nil, nil, fmt.Errorf("images: invalid repository %q", r.Repository)
 	}
 	name := r.JobName()
-	labels := map[string]string{RoleLabel: RoleBuild, ImageTagLabel: r.Inputs.Tag()}
+	labels := map[string]string{RoleLabel: RoleBuild, ImageTagLabel: r.Spec.Tag()}
 
-	data := map[string]string{
-		dockerfileName: Dockerfile(r.Inputs.Base, slices.Sorted(maps.Keys(c.Env))),
-		"mise.toml":    string(r.Inputs.MiseToml),
+	files, err := r.Spec.Context(c.PushHost, slices.Sorted(maps.Keys(c.Env)))
+	if err != nil {
+		return nil, nil, fmt.Errorf("images: %w", err)
 	}
-	if len(r.Inputs.MiseLock) > 0 {
-		data["mise.lock"] = string(r.Inputs.MiseLock)
+	archive, err := contextTar(files)
+	if err != nil {
+		return nil, nil, err
 	}
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.Namespace, Labels: labels},
-		Data:       data,
+		Data:       map[string]string{buildkitdConfig: fmt.Sprintf("[registry.%q]\n  http = true\n", c.PushHost)},
+		BinaryData: map[string][]byte{contextArchive: archive},
 	}
 
 	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, c.NoProxy...), ",")
@@ -197,6 +207,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 						Command: []string{"/bin/sh", "-c", buildScript, buildContainer},
 						Args:    args,
 						Env: []corev1.EnvVar{
+							{Name: "BUILDKITD_FLAGS", Value: "--config " + contextMount + "/" + buildkitdConfig},
 							{Name: "HTTPS_PROXY", Value: c.EgressProxyURL},
 							{Name: "https_proxy", Value: c.EgressProxyURL},
 							{Name: "HTTP_PROXY", Value: c.EgressProxyURL},

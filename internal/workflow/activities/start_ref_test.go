@@ -3,6 +3,8 @@ package activities
 import (
 	"slices"
 	"testing"
+
+	"github.com/misarescu/frankie/internal/images"
 )
 
 const earlierAttemptSHA = "15d3b56dc87b1d230a78cc373b793a9307ad9422"
@@ -47,7 +49,7 @@ func TestEnsureToolchainImageFollowsTheAgentBranch(t *testing.T) {
 	if !slices.Contains(*reads, "mise.toml@"+earlierAttemptSHA) || slices.Contains(*reads, "mise.toml@"+testBaseSHA) {
 		t.Errorf("reads = %v; want mise.toml read at the agent branch head only", *reads)
 	}
-	if got := string(b.builds[0].Inputs.MiseToml); got != "[tools]\ngo = \"1.28\"\n" {
+	if got := string(b.builds[0].Spec.(images.Inputs).MiseToml); got != "[tools]\ngo = \"1.28\"\n" {
 		t.Errorf("built from %q, want the branch's mise.toml", got)
 	}
 }

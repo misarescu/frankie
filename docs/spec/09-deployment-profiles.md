@@ -11,7 +11,7 @@ The same codebase supports two profiles: **full** and **concrete** (called "lapt
 | LLM gateway | LiteLLM | LiteLLM (kept: keeps API keys out of sandboxes) |
 | Registry | Harbor (scanning, proxy cache) or Zot | **Plain `registry:2`** for toolchain images; platform images come from GHCR (D23) |
 | Dependency proxies | Athens/Verdaccio/devpi or Nexus | **Egress to public registries + per-repo cache volumes** |
-| Image building | Rootless BuildKit as a service | **One-off Job when a toolchain image changes** |
+| Image building | BuildKit as a service | **One-off Job when a toolchain image changes** |
 | Preview environments | One per change request | **At most one at a time, or off** |
 | Observability | OTel + Tempo/Prometheus/Loki or Langfuse | **Temporal UI, factory run view, `kubectl logs`; VictoriaMetrics later** |
 | Concurrency | Configurable | `maxConcurrentIssues = 1`; reviewers sequential |

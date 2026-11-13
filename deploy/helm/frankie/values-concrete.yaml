@@ -28,6 +28,12 @@ egressProxy:
     - mise-versions.jdx.dev
     - go.dev
     - dl.google.com
+    # Found by the first live toolchain build (Goodreads-Clone): sqlc releases,
+    # and the Sigstore TUF root mise uses to verify GitHub artifact attestations.
+    - downloads.sqlc.dev
+    - tuf-repo-cdn.sigstore.dev
+    # golangci-lint config verify downloads the config JSON schema (found by the first live gate).
+    - golangci-lint.run
 
 controlPlane:
   # One sidecar per pod: a 3Gi agent or gate pod keeps 2.5Gi for its own work.

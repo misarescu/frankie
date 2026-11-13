@@ -102,6 +102,7 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 			Dir: s.workdir, CloneURL: w.GetCloneUrl(), Token: w.GetToken(),
 			BaseRef: w.GetBaseRef(), Branch: w.GetBranch(), CommitMessage: w.GetCommitMessage(),
 			AuthorName: w.GetAuthorName(), AuthorEmail: w.GetAuthorEmail(),
+			ReadOnly: w.GetReadOnly(), CompareRef: w.GetCompareRef(),
 		})
 		if err != nil {
 			return nil, status.Errorf(codes.FailedPrecondition, "prepare workspace: %v", err)
@@ -121,6 +122,7 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 		SystemPrompt: req.GetSystemPrompt(),
 		Env:          req.GetEnv(),
 		MaxTurns:     int(req.GetMaxTurns()),
+		AllowedTools: req.GetAllowedTools(),
 	}
 	// The session outlives this RPC, so it must not inherit its cancellation.
 	sess, err := h.Start(context.WithoutCancel(ctx), cfg, emit)

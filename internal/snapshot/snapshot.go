@@ -49,21 +49,17 @@ type FileReader interface {
 	FileAt(ctx context.Context, repo, path, ref string) (content []byte, found bool, err error)
 }
 
-var (
-	// ErrNoWorkflow means the project selects no workflow. Until the interpreter
-	// runs the built-in default (M3), such projects keep the M2 IssueRun.
-	ErrNoWorkflow = errors.New("the project selects no workflow")
-	// ErrInvalid wraps a configuration error the repo must fix; any other error
-	// is a failure to read and worth retrying.
-	ErrInvalid = errors.New("invalid project configuration")
-)
+// ErrInvalid wraps a configuration error the repo must fix; any other error is
+// a failure to read and worth retrying.
+var ErrInvalid = errors.New("invalid project configuration")
 
 // errRead marks failures to read, so they are not mistaken for invalid content.
 var errRead = errors.New("read")
 
 // Resolve reads the project's `.factory/config.yaml`, workflow definition and
 // roles at the head of baseBranch. Repo definitions and roles take precedence
-// over built-in ones of the same name.
+// over built-in ones of the same name; a project that selects no workflow runs
+// the built-in default (workflows.Default).
 func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapshot, error) {
 	sha, err := r.ResolveRef(ctx, repo, baseBranch)
 	if err != nil {
@@ -81,16 +77,15 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
 	}
-	if !found {
-		return Snapshot{}, ErrNoWorkflow
-	}
-	// The services limit is the platform's and is checked per pod.
-	project, err := config.ParseProject(raw, math.MaxInt)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+	var project config.Project
+	if found {
+		// The services limit is the platform's and is checked per pod.
+		if project, err = config.ParseProject(raw, math.MaxInt); err != nil {
+			return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+		}
 	}
 	if project.Workflow == "" {
-		return Snapshot{}, ErrNoWorkflow
+		project.Workflow = workflows.Default
 	}
 
 	s := Snapshot{BaseSHA: sha}

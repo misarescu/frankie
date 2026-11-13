@@ -39,13 +39,13 @@ func TestChooseWorkflow(t *testing.T) {
 	tests := []struct {
 		name      string
 		files     map[string]string
-		interpret bool
 		wantError string // the snapshot error the run will fail with
 	}{
-		{"no workflow selected keeps IssueRun", map[string]string{".factory/config.yaml": "services: [postgres:17]\n"}, false, ""},
-		{"a runnable workflow runs on Interpret", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": runnableDefinition}, true, ""},
-		{"an invalid selection fails on the run", map[string]string{".factory/config.yaml": "workflow: nope\n"}, true, "neither in .factory/workflows nor built in"},
-		{"a definition the interpreter cannot run yet fails on the run", map[string]string{".factory/config.yaml": "workflow: default-build\n"}, true, "parallel steps are not supported yet"},
+		{"no workflow selected runs default-build", map[string]string{".factory/config.yaml": "services: [postgres:17]\n"}, ""},
+		{"a runnable workflow runs on Interpret", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": runnableDefinition}, ""},
+		{"an invalid selection fails on the run", map[string]string{".factory/config.yaml": "workflow: nope\n"}, "neither in .factory/workflows nor built in"},
+		{"a definition the interpreter cannot run yet fails on the run", map[string]string{".factory/config.yaml": "workflow: gated\n",
+			".factory/workflows/gated.yaml": strings.Replace(runnableDefinition, "name: fast", "name: gated", 1) + "  - id: approve\n    gate: {type: human}\n"}, "human gates are not supported yet"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,17 +53,11 @@ func TestChooseWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !tt.interpret {
-				if reflect.ValueOf(wf).Pointer() != reflect.ValueOf(workflow.IssueRun).Pointer() || !reflect.DeepEqual(arg, in) {
-					t.Fatalf("wf = %v, arg = %+v; want IssueRun", wf, arg)
-				}
-				return
-			}
 			got, ok := arg.(workflow.InterpretInput)
 			if reflect.ValueOf(wf).Pointer() != reflect.ValueOf(workflow.Interpret).Pointer() || !ok || !reflect.DeepEqual(got.Issue, in) {
 				t.Fatalf("wf = %v, arg = %+v; want Interpret", wf, arg)
 			}
-			if tt.wantError == "" && (got.Snapshot.Error != "" || got.Snapshot.Workflow.Name != "fast") {
+			if tt.wantError == "" && (got.Snapshot.Error != "" || got.Snapshot.Workflow.Name == "") {
 				t.Errorf("snapshot = %+v", got.Snapshot)
 			}
 			if tt.wantError != "" && !strings.Contains(got.Snapshot.Error, tt.wantError) {

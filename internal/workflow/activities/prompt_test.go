@@ -71,3 +71,14 @@ func TestStepPromptHonorsInputs(t *testing.T) {
 		t.Errorf("prompt lacks the spec:\n%s", p)
 	}
 }
+
+// A reviewer is told to end with its verdict, not a summary of changes.
+func TestStepPromptForAReviewer(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-3", Title: "Add search", Spec: "Users can search.", BaseBranch: "main"}
+	p := StepPrompt(in, "agent/gc-3/add-search", true, AgentStep{StepID: "code-reviewer", Contract: "review-verdict",
+		Inputs: []string{"spec", "diff"}})
+	if !strings.Contains(p, "git diff origin/main...HEAD") || !strings.HasSuffix(p, "must be only the JSON result your instructions describe.") ||
+		strings.Contains(p, "summarize what you did") {
+		t.Errorf("reviewer prompt:\n%s", p)
+	}
+}

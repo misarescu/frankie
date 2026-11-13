@@ -307,3 +307,70 @@ func TestLargeDiffIsCapped(t *testing.T) {
 		t.Errorf("diff not capped: %d bytes", len(res.Diffs[0].Diff))
 	}
 }
+
+// A continuing step clones only the agent branch; compare_ref makes the base
+// branch available as origin/<base> for diffs.
+func TestPrepareFetchesTheCompareRef(t *testing.T) {
+	u := newUpstream(t)
+	first := u.config(t, "main", "agent/frk-42/fix")
+	w1, err := Prepare(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, first.Dir, "a.txt", "a\n")
+	if _, err := w1.Publish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	second := u.config(t, "agent/frk-42/fix", "agent/frk-42/fix")
+	second.CompareRef = "main"
+	if _, err := Prepare(t.Context(), second); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, second.Dir, "rev-parse", "origin/main"); got != u.ref(t, "refs/heads/main") {
+		t.Errorf("origin/main = %q, want %q", got, u.ref(t, "refs/heads/main"))
+	}
+	if diff := run(t, second.Dir, "diff", "--name-only", "origin/main...HEAD"); diff != "a.txt" {
+		t.Errorf("diff against the base = %q", diff)
+	}
+}
+
+// Reviewers get a read-only checkout: whatever they change is never pushed.
+func TestReadOnlyWorkspaceNeverPushes(t *testing.T) {
+	u := newUpstream(t)
+	cfg := u.config(t, "main", "agent/frk-42/review")
+	cfg.ReadOnly, cfg.CommitMessage, cfg.AuthorName, cfg.AuthorEmail = true, "", "", ""
+	w, err := Prepare(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	writeFile(t, cfg.Dir, "sneaky.go", "package sneaky\n")
+	run(t, cfg.Dir, "add", "sneaky.go")
+	res, err := w.Publish(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pushed || res.CommitSHA != w.BaseSHA() || len(res.Diffs) != 0 {
+		t.Errorf("result %+v; want the checked-out commit and nothing pushed", res)
+	}
+	if u.ref(t, "refs/heads/"+cfg.Branch) != "" {
+		t.Error("a read-only workspace created a branch upstream")
+	}
+}
+
+func TestValidateCompareRef(t *testing.T) {
+	base := Config{Dir: "/w", CloneURL: "http://cp/git/o/r.git", Token: "t", BaseRef: "main", Branch: "agent/x/y",
+		CommitMessage: "m", AuthorName: "a", AuthorEmail: "e"}
+	for ref, ok := range map[string]bool{"main": true, "release/1.2": true, "": true, "--upload-pack=x": false, "a..b": false, "main branch": false} {
+		c := base
+		c.CompareRef = ref
+		if err := c.Validate(); (err == nil) != ok {
+			t.Errorf("compare ref %q: err = %v", ref, err)
+		}
+	}
+	ro := base
+	ro.ReadOnly, ro.CommitMessage, ro.AuthorName, ro.AuthorEmail = true, "", "", ""
+	if err := ro.Validate(); err != nil {
+		t.Errorf("read-only without a commit message: %v", err)
+	}
+}

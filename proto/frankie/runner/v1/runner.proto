@@ -52,12 +52,18 @@ message StartRequest {
   // Git workspace to prepare before the harness starts. Unset: the harness works
   // in the runner's workdir as it is.
   Workspace workspace = 9;
+  // Tools the session may use, by harness-neutral name (a role's allowed_tools,
+  // docs/spec/03): read, grep, glob, edit, write, bash, bash:readonly (a shell
+  // limited to commands that do not change the workspace), web-fetch. Empty
+  // means the harness's default tools. The adapter refuses names it cannot map.
+  repeated string allowed_tools = 10;
 }
 
 // Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
 // the control plane git proxy and checks out branch; when the session succeeds
 // the runner commits any remaining changes, pushes branch, and reports the commit
-// in the done event. Nothing is pushed when the session fails or is aborted.
+// in the done event. Nothing is pushed when the session fails or is aborted, or
+// when the workspace is read-only.
 message Workspace {
   // Git proxy URL of the repo, e.g. http://controlplane:8081/git/misarescu/toy.git.
   string clone_url = 1;
@@ -71,6 +77,14 @@ message Workspace {
   string commit_message = 5;
   string author_name = 6;
   string author_email = 7;
+  // Read-only checkout, for reviewers: nothing is committed or pushed, and the
+  // done event reports the commit that was checked out. commit_message and the
+  // author are not needed.
+  bool read_only = 8;
+  // Branch fetched as origin/<compare_ref> next to base_ref, so the agent can
+  // diff its branch against it (e.g. the issue's base branch when base_ref is
+  // the agent branch). Empty or equal to base_ref: nothing extra is fetched.
+  string compare_ref = 9;
 }
 
 message StartResponse {

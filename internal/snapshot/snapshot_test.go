@@ -98,16 +98,26 @@ func TestResolveRepoDefinitionAndRole(t *testing.T) {
 	}
 }
 
-func TestResolveNoWorkflow(t *testing.T) {
+func TestResolveDefaultsToTheBuiltInWorkflow(t *testing.T) {
 	for name, files := range map[string]map[string]string{
 		"no project config":       {},
 		"config without workflow": {".factory/config.yaml": "services: [redis:7]\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Resolve(t.Context(), &repo{files: files}, "acme/app", "main"); !errors.Is(err, ErrNoWorkflow) {
-				t.Fatalf("err = %v, want ErrNoWorkflow", err)
+			s, err := Resolve(t.Context(), &repo{files: files}, "acme/app", "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Source != "built-in" || s.Workflow.Name != "default-build" || len(s.Roles) != 2 {
+				t.Errorf("snapshot = %+v", s)
 			}
 		})
+	}
+	// A repo may still replace the default definition with its own of that name.
+	s, err := Resolve(t.Context(), &repo{files: map[string]string{
+		".factory/workflows/default-build.yaml": strings.Replace(loopWorkflow, "name: fast", "name: default-build", 1)}}, "acme/app", "main")
+	if err != nil || s.Source != ".factory/workflows/default-build.yaml" {
+		t.Errorf("repo default-build: %+v, %v", s, err)
 	}
 }
 
@@ -144,7 +154,7 @@ func TestResolveReadFailuresAreNotInvalid(t *testing.T) {
 	for _, path := range []string{".factory/config.yaml", ".factory/workflows/fast.yaml", ".factory/roles/coder.yaml", ".factory/roles/coder.md"} {
 		t.Run(path, func(t *testing.T) {
 			_, err := Resolve(t.Context(), &repo{files: files, broken: map[string]bool{path: true}}, "acme/app", "main")
-			if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNoWorkflow) {
+			if err == nil || errors.Is(err, ErrInvalid) {
 				t.Fatalf("err = %v, want a read error", err)
 			}
 		})

@@ -180,7 +180,12 @@ type StartRequest struct {
 	MaxTurns int32 `protobuf:"varint,8,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
 	// Git workspace to prepare before the harness starts. Unset: the harness works
 	// in the runner's workdir as it is.
-	Workspace     *Workspace `protobuf:"bytes,9,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	Workspace *Workspace `protobuf:"bytes,9,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	// Tools the session may use, by harness-neutral name (a role's allowed_tools,
+	// docs/spec/03): read, grep, glob, edit, write, bash, bash:readonly (a shell
+	// limited to commands that do not change the workspace), web-fetch. Empty
+	// means the harness's default tools. The adapter refuses names it cannot map.
+	AllowedTools  []string `protobuf:"bytes,10,rep,name=allowed_tools,json=allowedTools,proto3" json:"allowed_tools,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -278,10 +283,18 @@ func (x *StartRequest) GetWorkspace() *Workspace {
 	return nil
 }
 
+func (x *StartRequest) GetAllowedTools() []string {
+	if x != nil {
+		return x.AllowedTools
+	}
+	return nil
+}
+
 // Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
 // the control plane git proxy and checks out branch; when the session succeeds
 // the runner commits any remaining changes, pushes branch, and reports the commit
-// in the done event. Nothing is pushed when the session fails or is aborted.
+// in the done event. Nothing is pushed when the session fails or is aborted, or
+// when the workspace is read-only.
 type Workspace struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Git proxy URL of the repo, e.g. http://controlplane:8081/git/misarescu/toy.git.
@@ -296,6 +309,14 @@ type Workspace struct {
 	CommitMessage string `protobuf:"bytes,5,opt,name=commit_message,json=commitMessage,proto3" json:"commit_message,omitempty"`
 	AuthorName    string `protobuf:"bytes,6,opt,name=author_name,json=authorName,proto3" json:"author_name,omitempty"`
 	AuthorEmail   string `protobuf:"bytes,7,opt,name=author_email,json=authorEmail,proto3" json:"author_email,omitempty"`
+	// Read-only checkout, for reviewers: nothing is committed or pushed, and the
+	// done event reports the commit that was checked out. commit_message and the
+	// author are not needed.
+	ReadOnly bool `protobuf:"varint,8,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	// Branch fetched as origin/<compare_ref> next to base_ref, so the agent can
+	// diff its branch against it (e.g. the issue's base branch when base_ref is
+	// the agent branch). Empty or equal to base_ref: nothing extra is fetched.
+	CompareRef    string `protobuf:"bytes,9,opt,name=compare_ref,json=compareRef,proto3" json:"compare_ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -375,6 +396,20 @@ func (x *Workspace) GetAuthorName() string {
 func (x *Workspace) GetAuthorEmail() string {
 	if x != nil {
 		return x.AuthorEmail
+	}
+	return ""
+}
+
+func (x *Workspace) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
+}
+
+func (x *Workspace) GetCompareRef() string {
+	if x != nil {
+		return x.CompareRef
 	}
 	return ""
 }
@@ -827,7 +862,7 @@ var File_frankie_runner_v1_runner_proto protoreflect.FileDescriptor
 
 const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\n" +
-	"\x1efrankie/runner/v1/runner.proto\x12\x11frankie.runner.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdf\x03\n" +
+	"\x1efrankie/runner/v1/runner.proto\x12\x11frankie.runner.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x84\x04\n" +
 	"\fStartRequest\x12\x1e\n" +
 	"\vstep_run_id\x18\x01 \x01(\tR\tstepRunId\x124\n" +
 	"\aharness\x18\x02 \x01(\x0e2\x1a.frankie.runner.v1.HarnessR\aharness\x12\x14\n" +
@@ -837,10 +872,12 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12<\n" +
 	"\fidle_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\vidleTimeout\x12\x1b\n" +
 	"\tmax_turns\x18\b \x01(\x05R\bmaxTurns\x12:\n" +
-	"\tworkspace\x18\t \x01(\v2\x1c.frankie.runner.v1.WorkspaceR\tworkspace\x1a6\n" +
+	"\tworkspace\x18\t \x01(\v2\x1c.frankie.runner.v1.WorkspaceR\tworkspace\x12#\n" +
+	"\rallowed_tools\x18\n" +
+	" \x03(\tR\fallowedTools\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdc\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9a\x02\n" +
 	"\tWorkspace\x12\x1b\n" +
 	"\tclone_url\x18\x01 \x01(\tR\bcloneUrl\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12\x19\n" +
@@ -849,7 +886,10 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\x0ecommit_message\x18\x05 \x01(\tR\rcommitMessage\x12\x1f\n" +
 	"\vauthor_name\x18\x06 \x01(\tR\n" +
 	"authorName\x12!\n" +
-	"\fauthor_email\x18\a \x01(\tR\vauthorEmail\".\n" +
+	"\fauthor_email\x18\a \x01(\tR\vauthorEmail\x12\x1b\n" +
+	"\tread_only\x18\b \x01(\bR\breadOnly\x12\x1f\n" +
+	"\vcompare_ref\x18\t \x01(\tR\n" +
+	"compareRef\".\n" +
 	"\rStartResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"#\n" +

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { eventTypes, summary, type RunEvent } from "./events";
+import { eventTypes, isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
 
 // Live transcript: the control plane's SSE stream replays stored events, then
 // follows live ones; EventSource resumes with Last-Event-ID after a drop.
@@ -12,15 +12,18 @@ export function RunPage({ runID }: { runID: string }) {
     setEvents([]);
     const es = new EventSource(`/api/runs/${runID}/stream`);
     es.onopen = () => setStatus("live");
-    es.onerror = () => setStatus("reconnecting…");
+    es.onerror = (e) => {
+      if (isConnectionError(e)) setStatus("reconnecting…");
+    };
     es.addEventListener("end", (m) => {
-      setStatus(`finished: ${JSON.parse((m as MessageEvent).data).status}`);
+      const end = parseStreamEvent(m) as { status?: string } | null;
+      setStatus(`finished: ${end?.status ?? "unknown"}`);
       es.close();
     });
     for (const t of eventTypes) {
       es.addEventListener(t, (m) => {
-        const e = JSON.parse((m as MessageEvent).data) as RunEvent;
-        setEvents((prev) => [...prev, e]);
+        const e = parseStreamEvent(m);
+        if (e) setEvents((prev) => [...prev, e]);
       });
     }
     return () => es.close();

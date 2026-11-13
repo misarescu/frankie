@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { summary, type RunEvent } from "./events";
+import { isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
 
 const ev = (type: string, payload: Record<string, unknown>): RunEvent => ({ seq: 1, time: "", type, payload });
 
@@ -16,4 +16,18 @@ test("summarizes each event type", () => {
 test("tolerates missing fields", () => {
   expect(summary(ev("assistant_message", {}))).toBe("");
   expect(summary(ev("unknown_kind", { a: 1 }))).toBe('{"a":1}');
+});
+
+// EventSource fires its own "error" event (no data) when the connection drops,
+// under the same name as the transcript's "error" events.
+test("parses transcript messages and ignores EventSource's own events", () => {
+  const msg = new MessageEvent("error", { data: JSON.stringify(ev("error", { message: "run failed" })) });
+  expect(parseStreamEvent(msg)?.payload.message).toBe("run failed");
+  expect(parseStreamEvent(new Event("error"))).toBeNull();
+  expect(parseStreamEvent(new MessageEvent("tool_call", { data: "not json" }))).toBeNull();
+});
+
+test("tells a dropped connection from a transcript error event", () => {
+  expect(isConnectionError(new Event("error"))).toBe(true);
+  expect(isConnectionError(new MessageEvent("error", { data: "{}" }))).toBe(false);
 });

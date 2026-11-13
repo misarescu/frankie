@@ -11,7 +11,8 @@ const upstream = Bun.serve({
       const stream = new ReadableStream({
         async start(c) {
           c.enqueue(new TextEncoder().encode("id: 1\nevent: tool_call\ndata: {}\n\n"));
-          await Bun.sleep(150);
+          // Quiet for longer than the web server's idle timeout below.
+          await Bun.sleep(6000);
           c.enqueue(new TextEncoder().encode("event: end\ndata: {}\n\n"));
           c.close();
         },
@@ -21,7 +22,8 @@ const upstream = Bun.serve({
     return new Response("nope", { status: 404 });
   },
 });
-const web = createServer(upstream.url.href.replace(/\/$/, ""), 0);
+// A 1s idle timeout stands in for Bun's 10s default, so the test stays fast.
+const web = createServer(upstream.url.href.replace(/\/$/, ""), 0, { idleTimeout: 1 });
 afterAll(() => { web.stop(true); upstream.stop(true); });
 
 test("proxies the API", async () => {
@@ -30,7 +32,7 @@ test("proxies the API", async () => {
   expect(await r.json()).toEqual([{ ID: "r1" }]);
 });
 
-test("streams SSE through without buffering the whole response", async () => {
+test("streams SSE through without buffering, and outlives the idle timeout", async () => {
   const r = await fetch(new URL("/api/runs/r1/stream", web.url));
   expect(r.headers.get("content-type")).toBe("text/event-stream");
   const reader = r.body!.getReader();
@@ -39,7 +41,7 @@ test("streams SSE through without buffering the whole response", async () => {
   let rest = "";
   for (let c = await reader.read(); !c.done; c = await reader.read()) rest += new TextDecoder().decode(c.value);
   expect(rest).toContain("event: end");
-});
+}, 10_000);
 
 test("serves health and the app, 404 elsewhere", async () => {
   expect((await fetch(new URL("/healthz", web.url))).status).toBe(200);

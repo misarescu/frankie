@@ -106,6 +106,8 @@ type IssueSource interface {
 }
 ```
 
+Intake (D27): the control plane polls `List` (with `since`) and, once webhooks are reachable, also accepts `Webhook` deliveries; both go through one idempotent intake keyed by `source_ref`, so a delivery and a poll that see the same issue create it once.
+
 `ReleaseDriver` is specified in `06-delivery.md`.
 
 ## Postgres conventions

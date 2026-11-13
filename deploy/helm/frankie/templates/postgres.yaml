@@ -1,0 +1,155 @@
+# Shared Postgres (docs/spec/09): one instance, a database per component.
+{{- $name := printf "%s-postgres" (include "frankie.fullname" .) }}
+{{- $password := randAlphaNum 32 }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- $password = index .data "password" | b64dec }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  password: {{ $password | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-init
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+data:
+  create-databases.sh: |
+    #!/bin/sh
+    set -e
+    {{- range .Values.postgres.databases }}
+    {{- if ne . "frankie" }}
+    psql -v ON_ERROR_STOP=1 -U postgres -c 'CREATE DATABASE {{ . }}'
+    {{- end }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "postgres") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # The official image's postgres user; numeric so runAsNonRoot is verifiable.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - name: POSTGRES_DB
+              value: frankie
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: password }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          # Crash recovery can take a while; liveness must not kill it midway.
+          startupProbe:
+            exec: { command: [pg_isready, -U, postgres] }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            exec: { command: [pg_isready, -U, postgres] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: [pg_isready, -U, postgres] }
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            {{- if .Values.postgres.appArmorUnconfined }}
+            # Workaround (docs/spec/11, open question 14): the host's containerd
+            # AppArmor profile denies signals between Postgres's own processes.
+            appArmorProfile: { type: Unconfined }
+            {{- end }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+            - { name: run, mountPath: /var/run/postgresql }
+      volumes:
+        - name: init
+          configMap:
+            name: {{ $name }}-init
+            defaultMode: 0555
+        - name: run
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "postgres") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+# Only the platform components that own a database may connect.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "postgres") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values: [{{ .Release.Name }}]
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [controlplane, temporal, llm-gateway]
+      ports:
+        - port: 5432
+          protocol: TCP

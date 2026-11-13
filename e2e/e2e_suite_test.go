@@ -6,6 +6,7 @@
 //	FRANKIE_E2E_RUNNER_IMAGE  runner image, e.g. ghcr.io/misarescu/frankie-runner:sha-87f0290 (required; the suite fails without it)
 //	FRANKIE_E2E_NAMESPACE     agents namespace (default frankie-agents)
 //	FRANKIE_E2E_PROXY_URL     egress proxy (default http://frankie-egress-proxy.frankie.svc:3128)
+//	FRANKIE_E2E_PLATFORM_NS   platform namespace (default frankie)
 //	KUBECONFIG                cluster access, as for kubectl
 //
 // Run with: mise run e2e
@@ -27,10 +28,13 @@ func TestE2E(t *testing.T) {
 }
 
 var (
-	cs          *kubernetes.Clientset
-	runnerImage string
-	agentsNS    string
-	proxyURL    string
+	cs               *kubernetes.Clientset
+	runnerImage      string
+	agentsNS         string
+	platformNS       string
+	proxyURL         string
+	controlPlaneHost string
+	postgresHost     string
 )
 
 var _ = BeforeSuite(func() {
@@ -44,6 +48,9 @@ var _ = BeforeSuite(func() {
 			"  3. FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> mise run e2e")
 	}
 	agentsNS = envOr("FRANKIE_E2E_NAMESPACE", "frankie-agents")
+	platformNS = envOr("FRANKIE_E2E_PLATFORM_NS", "frankie")
+	controlPlaneHost = "frankie-controlplane." + platformNS + ".svc"
+	postgresHost = "frankie-postgres." + platformNS + ".svc"
 	proxyURL = envOr("FRANKIE_E2E_PROXY_URL", "http://frankie-egress-proxy.frankie.svc:3128")
 
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(

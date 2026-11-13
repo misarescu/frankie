@@ -37,6 +37,9 @@ r proxy_denied_lan "$(curl -sk -m 20 -o /dev/null -w '%{http_connect}' https://$
 r direct_internet "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://example.com/)"
 r direct_lan "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://${NODE_IP}:6443/)"
 r direct_k8s_api "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://kubernetes.default.svc/)"
+r gitproxy "$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://${CP_HOST}:8081/git/x/y.git/info/refs?service=git-upload-pack")"
+r controlplane_api "$(timeout 5 bash -c "echo > /dev/tcp/${CP_HOST}/8080" 2>/dev/null && echo open || echo closed)"
+r postgres "$(timeout 5 bash -c "echo > /dev/tcp/${PG_HOST}/5432" 2>/dev/null && echo open || echo closed)"
 `
 
 // M1 acceptance (docs/spec/10) and FR-SB-1/2/5: an agent pod runs in a Kata VM
@@ -76,7 +79,7 @@ var _ = Describe("Agent sandbox", Ordered, ContinueOnFailure, Label("sandbox"), 
 			WorkspaceSize:  resource.MustParse("1Gi"),
 			Deadline:       5 * time.Minute,
 			EgressProxyURL: proxyURL,
-			Env:            map[string]string{"NODE_IP": nodeIP},
+			Env:            map[string]string{"NODE_IP": nodeIP, "CP_HOST": controlPlaneHost, "PG_HOST": postgresHost},
 			Command:        []string{"/bin/sh", "-c", probeScript},
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -121,6 +124,15 @@ var _ = Describe("Agent sandbox", Ordered, ContinueOnFailure, Label("sandbox"), 
 	It("cannot reach the Kubernetes API", func() {
 		Expect(results).To(HaveKeyWithValue("direct_k8s_api", "000"))
 	})
+	It("reaches the control plane's git proxy, which demands a token (D21)", func() {
+		Expect(results).To(HaveKeyWithValue("gitproxy", "401"))
+	})
+	It("cannot reach the control plane's API port", func() {
+		Expect(results).To(HaveKeyWithValue("controlplane_api", "closed"))
+	})
+	It("cannot reach Postgres", func() {
+		Expect(results).To(HaveKeyWithValue("postgres", "closed"))
+	})
 })
 
 // probeResults waits for the probe pod to finish and parses its RESULT lines.
@@ -149,6 +161,19 @@ func probeResults(ctx context.Context, name string) map[string]string {
 	Expect(results).NotTo(BeEmpty(), "no probe results in logs:\n%s", raw)
 	return results
 }
+
+var _ = Describe("Platform", Label("platform"), func() {
+	It("runs the control plane and Postgres", func(ctx SpecContext) {
+		Eventually(func(g Gomega) {
+			d, err := cs.AppsV1().Deployments(platformNS).Get(ctx, "frankie-controlplane", metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(d.Status.ReadyReplicas).To(BeNumerically(">=", 1), "control plane ready replicas")
+			ss, err := cs.AppsV1().StatefulSets(platformNS).Get(ctx, "frankie-postgres", metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(ss.Status.ReadyReplicas).To(BeNumerically(">=", 1), "postgres ready replicas")
+		}).WithContext(ctx).WithTimeout(2 * time.Minute).WithPolling(3 * time.Second).Should(Succeed())
+	})
+})
 
 // The agents namespace enforces Pod Security "restricted": a privileged pod is
 // refused by the API server even if something other than the builder creates it.

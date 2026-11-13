@@ -25,6 +25,9 @@ images:
   registry: ghcr.io/misarescu
   tag: ""
   pullPolicy: IfNotPresent
+  # Full image references per component, for verifying dev builds before they
+  # are published, e.g. { controlplane: docker.io/library/frankie-controlplane:dev }.
+  overrides: {}
 
 # Where agent and gate pods run (docs/spec/05-sandbox-and-toolchains.md).
 agents:
@@ -35,9 +38,33 @@ agents:
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted
 
-# Agents may reach these platform services (and nothing else in the cluster).
+# Control plane (docs/spec/01). Agents may reach only its git proxy port.
 controlPlane:
+  apiPort: 8080
   gitProxyPort: 8081
+  # Factory repos served by the git proxy, until project config sync exists.
+  repos: []
+  #  - name: misarescu/frankie-toy
+  #    upstream: https://github.com/misarescu/frankie-toy.git
+  # Secret with key "token": fine-grained PAT for the repos (D26). Optional
+  # until created; without it the git proxy can only read public repos.
+  githubSecret: frankie-github
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 300Mi }
+
+# One Postgres for the app, Temporal and LiteLLM, separate databases (docs/spec/09).
+postgres:
+  image: postgres:17.12-trixie
+  storage: 5Gi
+  databases: [frankie, temporal, litellm]
+  # Run Postgres without AppArmor confinement; only for hosts whose containerd
+  # profile blocks Postgres's internal signals (docs/spec/11, open question 14).
+  appArmorUnconfined: false
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
 llmGateway:
   port: 4000
 

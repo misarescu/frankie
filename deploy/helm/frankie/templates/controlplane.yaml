@@ -1,0 +1,105 @@
+# Control plane (docs/spec/01): store, git proxy for agents, API.
+{{- $name := printf "%s-controlplane" (include "frankie.fullname" .) }}
+{{- $pg := printf "%s-postgres" (include "frankie.fullname" .) }}
+{{- $key := randAlphaNum 48 }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- $key = index .data "gitproxy-key" | b64dec }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  # Signs git proxy tokens (D21). Rotating it invalidates tokens of running steps.
+  gitproxy-key: {{ $key | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controlplane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "controlplane") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "controlplane") | nindent 8 }}
+      annotations:
+        checksum/repos: {{ .Values.controlPlane.repos | toJson | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: controlplane
+          image: {{ include "frankie.image" (list . "controlplane") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args:
+            - --api-listen=:{{ .Values.controlPlane.apiPort }}
+            - --gitproxy-listen=:{{ .Values.controlPlane.gitProxyPort }}
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ $pg }}, key: password }
+            - name: FRANKIE_DATABASE_URL
+              value: postgres://postgres:$(POSTGRES_PASSWORD)@{{ $pg }}:5432/frankie?sslmode=disable
+            - name: FRANKIE_GITPROXY_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: gitproxy-key }
+            - name: FRANKIE_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.githubSecret }}, key: token, optional: true }
+            - name: FRANKIE_REPOS
+              value: {{ include "frankie.repos" . | quote }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.controlPlane.apiPort }}
+            - name: gitproxy
+              containerPort: {{ .Values.controlPlane.gitProxyPort }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: api }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: api }
+            periodSeconds: 20
+            failureThreshold: 6
+          startupProbe:
+            httpGet: { path: /healthz, port: api }
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "controlplane") | nindent 4 }}
+  ports:
+    - name: api
+      port: {{ .Values.controlPlane.apiPort }}
+      targetPort: api
+    - name: gitproxy
+      port: {{ .Values.controlPlane.gitProxyPort }}
+      targetPort: gitproxy

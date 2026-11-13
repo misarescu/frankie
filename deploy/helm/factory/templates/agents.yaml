@@ -1,0 +1,99 @@
+# Agent sandbox namespace (docs/spec/05). Agent and gate pods run here under the
+# Kata runtime class, with Pod Security "restricted" enforced by the API server.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "factory.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ .Values.agents.podSecurity }}
+    pod-security.kubernetes.io/warn: {{ .Values.agents.podSecurity }}
+---
+# FR-SB-5: no RBAC bindings and no mounted token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.agents.serviceAccountName }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "factory.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+# Everything in the agents namespace is denied unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "factory.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# FR-SB-2 / D20: agents reach cluster DNS, the egress proxy, the control plane's
+# git proxy and the LLM gateway; only the control plane reaches the runner.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "factory.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      frankie.dev/role: agent
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "factory.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.agents.runnerPort }}
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 14 }}
+      ports:
+        - port: {{ .Values.egressProxy.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "factory.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.controlPlane.gitProxyPort }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "factory.componentLabels" (list . "llm-gateway") | nindent 14 }}
+      ports:
+        - port: {{ .Values.llmGateway.port }}
+          protocol: TCP

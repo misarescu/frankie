@@ -27,7 +27,7 @@ Getting started: install [mise](https://mise.jdx.dev), then `mise install` and `
 
 ## Stack
 
-Go (control plane, runner, CLI), Postgres, Temporal, Kubernetes (k3s on the laptop profile) with Kata Containers, Helm, FluxCD, LiteLLM, OpenFeature + flagd, OpenTelemetry. UI: React, Bun.
+Go (control plane, runner, CLI), Postgres, Temporal, Kubernetes (k3s on the concrete profile) with Kata Containers, Helm, FluxCD, LiteLLM, OpenFeature + flagd, OpenTelemetry. UI: React, Bun.
 
 ## Document map
 
@@ -44,7 +44,7 @@ Go (control plane, runner, CLI), Postgres, Temporal, Kubernetes (k3s on the lapt
 | `docs/spec/06-delivery.md` | E2E test agent, previews, merge queue, release stages, drivers, feature flags |
 | `docs/spec/07-observability.md` | Event stream, views, metrics, human intervention |
 | `docs/spec/08-self-hosting.md` | The factory building itself safely |
-| `docs/spec/09-deployment-profiles.md` | Full profile vs laptop profile (sizing, deferrals, checklist) |
+| `docs/spec/09-deployment-profiles.md` | Full profile vs concrete profile (sizing, deferrals, checklist) |
 | `docs/spec/10-roadmap.md` | Milestones with acceptance criteria |
 | `docs/spec/11-open-questions.md` | Unresolved decisions and spec inconsistencies |
 | `docs/spec/12-landscape.md` | Existing projects worth studying |

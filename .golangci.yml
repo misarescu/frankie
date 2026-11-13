@@ -1,6 +1,10 @@
 # Protected path: changes require a human gate (docs/spec/05-sandbox-and-toolchains.md).
 version: "2"
 
+run:
+  # Also lint the cluster acceptance tests and the real-CLI smoke tests.
+  build-tags: [e2e, smoke]
+
 linters:
   enable:
     - bodyclose

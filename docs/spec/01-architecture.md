@@ -97,17 +97,20 @@ internal/
   gitproxy/         git smart-HTTP proxy for agent pods
   egress/           egress proxy policy and server
   config/           YAML schemas, validation
-  runner/           in-pod runner: RunnerService server, event log, harness adapters (claudecode/)
+  runner/           in-pod runner: RunnerService server, event log, harness adapters (claudecode/), git workspace (workspace/)
+  sandbox/          agent pod spec builder (Kata, no SA token, non-root, limits, proxy env)
 proto/              runner.proto, driver.proto
 gen/                generated protobuf/gRPC Go code (committed; public so external drivers can import it)
 web/                React + Bun UI
 deploy/
+  images/           Dockerfiles of platform images, built by CI and published to GHCR (D23)
   helm/factory/     the platform chart; values.yaml + values-<profile>.yaml
   flux/clusters/    Flux manifests per cluster (bootstrap path)
   kata/             kata-deploy values for the cluster runtime (protected)
 roles/              example role definitions
 workflows/          example workflow definitions
 scripts/            helpers called by mise tasks
+e2e/                cluster acceptance tests (build tag e2e)
 docs/
 mise.toml, mise.lock
 atlas.hcl, buf.yaml, buf.gen.yaml, sqlc.yaml, .golangci.yml

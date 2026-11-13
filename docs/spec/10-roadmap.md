@@ -2,7 +2,7 @@
 
 Ordered to get a working end-to-end slice early, then layer the product. Steps 2 and 3 alone reproduce most of a typical work setup (sandboxed, tracker-agnostic); everything after is the product. Each milestone lists acceptance criteria that can be turned into issues and e2e tests. Milestones are specs for the factory itself and, after M3, are candidates to be run by the factory (see `08-self-hosting.md`).
 
-Every milestone must run on the **laptop profile** (see `09-deployment-profiles.md`).
+Every milestone must run on the **concrete profile** (see `09-deployment-profiles.md`).
 
 ## M0 - Explore and scaffold (no product code)
 
@@ -22,7 +22,7 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 - LiteLLM gateway with per-run virtual key and budget (real keys never in the pod).
 - `GitProvider` + `IssueSource` for GitHub.
 - Live log streaming to a minimal UI page (Postgres LISTEN/NOTIFY).
-- **Done when:** labeling a GitHub issue `factory` on a toy repo results in a PR on `agent/<issue-key>/*`, with the transcript streaming live and replayable afterwards, within the laptop memory budget, and an attempt to push to `main` or reach a non-allowlisted host from the pod fails (tested).
+- **Done when:** labeling a GitHub issue `factory` on a toy repo results in a PR on `agent/<issue-key>/*`, with the transcript streaming live and replayable afterwards, within the concrete profile's memory budget, and an attempt to push to `main` or reach a non-allowlisted host from the pod fails (tested).
 
 ## M2 - Toolchains and deterministic gates
 
@@ -54,7 +54,7 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 - Scheduler: start one or many, honor DAG and concurrency, overlap warning.
 - Refinement agent and spec-approval gate (draft > refining > ready).
 - UI: board/list with DAG, issue detail, approvals inbox.
-- **Done when:** starting an epic runs its tasks in dependency order and in parallel where independent (concurrency 1 on the laptop profile, 2+ on the full profile), blocked on spec approval where required.
+- **Done when:** starting an epic runs its tasks in dependency order and in parallel where independent (concurrency 1 on the concrete profile, 2+ on the full profile), blocked on spec approval where required.
 
 ## M6 - Merge queue
 
@@ -65,7 +65,7 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 ## M7 - E2E test agent, previews, release stages
 
 - `e2e-test-writer` role, tests tagged with issue IDs, both-flag-state support hook.
-- Flux Operator ResourceSets preview per change request (limit 1 on laptop).
+- Flux Operator ResourceSets preview per change request (limit 1 on the concrete profile).
 - `Release` entity, `Stage` config, `ReleaseDriver` gRPC plugin interface, `flux` and `flux-preview` drivers, verification with the e2e suite, rollback by revert, auto-created bug issues.
 - Release agent (semver, changelog, notes).
 - **Done when:** a merged issue becomes a release that deploys to staging, a deliberately broken release is rolled back and produces a bug issue linking release and suspect issue, and the factory's own canary e2e (`08-self-hosting.md`) runs in the preview environment.

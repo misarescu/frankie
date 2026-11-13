@@ -11,7 +11,7 @@ previews:
   # Maximum concurrent preview environments; 0 disables previews.
   maxConcurrent: 4
 
-# Pod limits per pod type. The laptop numbers are the documented baseline (FR-PR-3).
+# Pod limits per pod type. The concrete-profile numbers are the documented baseline (FR-PR-3).
 podResources:
   coder:
     limits: { cpu: "2", memory: 3Gi }
@@ -19,3 +19,33 @@ podResources:
     limits: { cpu: "1", memory: 2Gi }
   commandGate:
     limits: { cpu: "2", memory: 3Gi }
+
+# Platform images (D23). Set images.tag per deployment, e.g. sha-87f0290.
+images:
+  registry: ghcr.io/misarescu
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Where agent and gate pods run (docs/spec/05-sandbox-and-toolchains.md).
+agents:
+  namespace: frankie-agents
+  runtimeClassName: kata
+  serviceAccountName: frankie-agent
+  runnerPort: 7070
+  # Pod Security Admission level enforced on the agents namespace.
+  podSecurity: restricted
+
+# Agents may reach these platform services (and nothing else in the cluster).
+controlPlane:
+  gitProxyPort: 8081
+llmGateway:
+  port: 4000
+
+# Hostname-allowlisting CONNECT proxy, the agents' only route out (D20).
+egressProxy:
+  port: 3128
+  # Hostnames agent pods may reach over HTTPS; profiles set the list.
+  allow: []
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 64Mi }

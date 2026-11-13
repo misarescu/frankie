@@ -1,5 +1,5 @@
-# The Frankie platform on the laptop (homelab k3s) cluster.
-# Applied by Flux once the cluster is bootstrapped with --path=deploy/flux/clusters/laptop.
+# The Frankie platform on the homelab k3s cluster (concrete profile).
+# Applied by Flux once the cluster is bootstrapped with --path=deploy/flux/clusters/concrete.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -22,4 +22,4 @@ spec:
         namespace: flux-system
       valuesFiles:
         - ./deploy/helm/factory/values.yaml
-        - ./deploy/helm/factory/values-laptop.yaml
+        - ./deploy/helm/factory/values-concrete.yaml

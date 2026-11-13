@@ -5,7 +5,7 @@ Three layers, plus a ladder of human intervention.
 ## 1. Live session view (per agent run)
 
 - The runner normalizes harness events into one stream: assistant messages, tool calls, file diffs, command output, token usage.
-- Full profile: published to NATS or Redis Streams and pushed to the UI over SSE/WebSocket. Laptop profile: Postgres `LISTEN/NOTIFY` or in-process fan-out.
+- Full profile: published to NATS or Redis Streams and pushed to the UI over SSE/WebSocket. Concrete profile: Postgres `LISTEN/NOTIFY` or in-process fan-out.
 - Streams are **persisted** (Postgres plus object storage/PVC) so any run can be replayed as a transcript.
 - **FR-OB-1** A user can open a running step and see the live stream with sub-second latency from the pod.
 - **FR-OB-2** A completed run can be replayed from persisted events with no dependency on the pod.
@@ -27,7 +27,7 @@ Key metrics (these drive model/harness choice per step):
 - merge queue wait time, rebase conflict rate
 - release verification failure rate, rollback count
 
-Laptop profile: Temporal UI, the factory's own run view and `kubectl logs`; add a small VictoriaMetrics later for metrics.
+Concrete profile: Temporal UI, the factory's own run view and `kubectl logs`; add a small VictoriaMetrics later for metrics.
 
 ## Human intervention ladder
 

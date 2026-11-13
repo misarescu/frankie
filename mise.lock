@@ -25,7 +25,19 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924896"
 provenance = "github-attestations"
 
+[tools.actionlint."platforms.linux-x64-baseline"]
+checksum = "sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924896"
+provenance = "github-attestations"
+
 [tools.actionlint."platforms.linux-x64-musl"]
+checksum = "sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924896"
+provenance = "github-attestations"
+
+[tools.actionlint."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924896"
@@ -43,7 +55,19 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924880"
 provenance = "github-attestations"
 
+[tools.actionlint."platforms.macos-x64-baseline"]
+checksum = "sha256:5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644"
+url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924880"
+provenance = "github-attestations"
+
 [tools.actionlint."platforms.windows-x64"]
+checksum = "sha256:6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9"
+url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_amd64.zip"
+url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924919"
+provenance = "github-attestations"
+
+[tools.actionlint."platforms.windows-x64-baseline"]
 checksum = "sha256:6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9"
 url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_amd64.zip"
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924919"
@@ -66,7 +90,15 @@ url = "https://release.ariga.io/atlas/atlas-linux-arm64-v1.3.0"
 checksum = "sha256:cfc773e5b4e845bc01d680390c174648938a7f88bf30e5a2c83ae85217c21587"
 url = "https://release.ariga.io/atlas/atlas-linux-amd64-v1.3.0"
 
+[tools.atlas."platforms.linux-x64-baseline"]
+checksum = "sha256:cfc773e5b4e845bc01d680390c174648938a7f88bf30e5a2c83ae85217c21587"
+url = "https://release.ariga.io/atlas/atlas-linux-amd64-v1.3.0"
+
 [tools.atlas."platforms.linux-x64-musl"]
+checksum = "sha256:cfc773e5b4e845bc01d680390c174648938a7f88bf30e5a2c83ae85217c21587"
+url = "https://release.ariga.io/atlas/atlas-linux-amd64-v1.3.0"
+
+[tools.atlas."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:cfc773e5b4e845bc01d680390c174648938a7f88bf30e5a2c83ae85217c21587"
 url = "https://release.ariga.io/atlas/atlas-linux-amd64-v1.3.0"
 
@@ -78,7 +110,15 @@ url = "https://release.ariga.io/atlas/atlas-darwin-arm64-v1.3.0"
 checksum = "sha256:4b4d8621332eabc3e6e7554d799a98ceef6376c4d8bbad6ed7832b49655e3480"
 url = "https://release.ariga.io/atlas/atlas-darwin-amd64-v1.3.0"
 
+[tools.atlas."platforms.macos-x64-baseline"]
+checksum = "sha256:4b4d8621332eabc3e6e7554d799a98ceef6376c4d8bbad6ed7832b49655e3480"
+url = "https://release.ariga.io/atlas/atlas-darwin-amd64-v1.3.0"
+
 [tools.atlas."platforms.windows-x64"]
+checksum = "sha256:19b3bf812be93d1b30d7199c5700af01002cbd606c2aec2394fd618af7e3f7b1"
+url = "https://release.ariga.io/atlas/atlas-windows-amd64-v1.3.0.exe"
+
+[tools.atlas."platforms.windows-x64-baseline"]
 checksum = "sha256:19b3bf812be93d1b30d7199c5700af01002cbd606c2aec2394fd618af7e3f7b1"
 url = "https://release.ariga.io/atlas/atlas-windows-amd64-v1.3.0.exe"
 
@@ -105,7 +145,19 @@ url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Linux-x86_6
 url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187730"
 provenance = "minisign"
 
+[tools.buf."platforms.linux-x64-baseline"]
+checksum = "sha256:7168a06e29bd5eb8d1530848f242264f7a86b9b8af3b2e811570fbea0c929a30"
+url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Linux-x86_64.tar.gz"
+url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187730"
+provenance = "minisign"
+
 [tools.buf."platforms.linux-x64-musl"]
+checksum = "sha256:7168a06e29bd5eb8d1530848f242264f7a86b9b8af3b2e811570fbea0c929a30"
+url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Linux-x86_64.tar.gz"
+url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187730"
+provenance = "minisign"
+
+[tools.buf."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:7168a06e29bd5eb8d1530848f242264f7a86b9b8af3b2e811570fbea0c929a30"
 url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Linux-x86_64.tar.gz"
 url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187730"
@@ -123,7 +175,19 @@ url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Darwin-x86_
 url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187490"
 provenance = "minisign"
 
+[tools.buf."platforms.macos-x64-baseline"]
+checksum = "sha256:d04292081e76c19c613d2411b2d0b3619d6d49d54ce6cbcf9e12f72edce0532b"
+url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Darwin-x86_64.tar.gz"
+url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187490"
+provenance = "minisign"
+
 [tools.buf."platforms.windows-x64"]
+checksum = "sha256:3d580339622823a2ea48ec1f0a401b8c5686144ef51f88d19ce17af7c54588fc"
+url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Windows-x86_64.zip"
+url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187857"
+provenance = "minisign"
+
+[tools.buf."platforms.windows-x64-baseline"]
 checksum = "sha256:3d580339622823a2ea48ec1f0a401b8c5686144ef51f88d19ce17af7c54588fc"
 url = "https://github.com/bufbuild/buf/releases/download/v1.75.0/buf-Windows-x86_64.zip"
 url_api = "https://api.github.com/repos/bufbuild/buf/releases/assets/664187857"
@@ -201,7 +265,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_linux_amd64.tar.gz"
 url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609567"
 
+[tools.flux2."platforms.linux-x64-baseline"]
+checksum = "sha256:208dd7012c04fedeed5b2d0b6e63df3b15b1c34a381527811685c098bc9f8659"
+checksum_source = "mise-versions"
+url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609567"
+
 [tools.flux2."platforms.linux-x64-musl"]
+checksum = "sha256:208dd7012c04fedeed5b2d0b6e63df3b15b1c34a381527811685c098bc9f8659"
+checksum_source = "mise-versions"
+url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609567"
+
+[tools.flux2."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:208dd7012c04fedeed5b2d0b6e63df3b15b1c34a381527811685c098bc9f8659"
 checksum_source = "mise-versions"
 url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_linux_amd64.tar.gz"
@@ -218,11 +294,28 @@ checksum_source = "mise-versions"
 url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_darwin_amd64.tar.gz"
 url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609570"
 
+[tools.flux2."platforms.macos-x64-baseline"]
+checksum = "sha256:23fc019f5b682c1ff6841a2ce06798b3c8e17452998cb9c2dd57a6440e6340ff"
+checksum_source = "mise-versions"
+url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609570"
+
 [tools.flux2."platforms.windows-x64"]
 checksum = "sha256:750250d4dcc828c395d7edaf72c1787d34af697fc3d7bc310d32955a5269823d"
 checksum_source = "mise-versions"
 url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_windows_amd64.zip"
 url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609573"
+
+[tools.flux2."platforms.windows-x64-baseline"]
+checksum = "sha256:750250d4dcc828c395d7edaf72c1787d34af697fc3d7bc310d32955a5269823d"
+checksum_source = "mise-versions"
+url = "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_windows_amd64.zip"
+url_api = "https://api.github.com/repos/fluxcd/flux2/releases/assets/678609573"
+
+[[tools.ginkgo]]
+version = "2.34.0"
+backend = "go:github.com/onsi/ginkgo/v2/ginkgo"
+specifiers = ["2.34.0"]
 
 [[tools.go]]
 version = "1.27.4"
@@ -241,7 +334,15 @@ url = "https://dl.google.com/go/go1.27.4.linux-arm64.tar.gz"
 checksum = "sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
 url = "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz"
 
+[tools.go."platforms.linux-x64-baseline"]
+checksum = "sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
+url = "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz"
+
 [tools.go."platforms.linux-x64-musl"]
+checksum = "sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
+url = "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz"
+
+[tools.go."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
 url = "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz"
 
@@ -253,7 +354,15 @@ url = "https://dl.google.com/go/go1.27.4.darwin-arm64.tar.gz"
 checksum = "sha256:2b799377704ef12db39bd254995d5c348c9cc8d86562ca817724390e56c38f43"
 url = "https://dl.google.com/go/go1.27.4.darwin-amd64.tar.gz"
 
+[tools.go."platforms.macos-x64-baseline"]
+checksum = "sha256:2b799377704ef12db39bd254995d5c348c9cc8d86562ca817724390e56c38f43"
+url = "https://dl.google.com/go/go1.27.4.darwin-amd64.tar.gz"
+
 [tools.go."platforms.windows-x64"]
+checksum = "sha256:178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e"
+url = "https://dl.google.com/go/go1.27.4.windows-amd64.zip"
+
+[tools.go."platforms.windows-x64-baseline"]
 checksum = "sha256:178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e"
 url = "https://dl.google.com/go/go1.27.4.windows-amd64.zip"
 
@@ -280,7 +389,19 @@ url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golan
 url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
 provenance = "github-attestations"
 
+[tools.golangci-lint."platforms.linux-x64-baseline"]
+checksum = "sha256:9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
+provenance = "github-attestations"
+
 [tools.golangci-lint."platforms.linux-x64-musl"]
+checksum = "sha256:9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz"
 url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
@@ -298,7 +419,19 @@ url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golan
 url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132753"
 provenance = "github-attestations"
 
+[tools.golangci-lint."platforms.macos-x64-baseline"]
+checksum = "sha256:767b899a28285e88ded2823d5dcc4bc5ef681173eb2d80f029a7b17ee4ece3b8"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132753"
+provenance = "github-attestations"
+
 [tools.golangci-lint."platforms.windows-x64"]
+checksum = "sha256:cd7ea6063c95de245e17e5246e42bdc14bb221792c429dbd239ab3a6ade6ca6a"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-windows-amd64.zip"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132900"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.windows-x64-baseline"]
 checksum = "sha256:cd7ea6063c95de245e17e5246e42bdc14bb221792c429dbd239ab3a6ade6ca6a"
 url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-windows-amd64.zip"
 url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132900"
@@ -321,7 +454,15 @@ url = "https://get.helm.sh/helm-v4.3.1-linux-arm64.tar.gz"
 checksum = "sha256:0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
 url = "https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz"
 
+[tools.helm."platforms.linux-x64-baseline"]
+checksum = "sha256:0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
+url = "https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz"
+
 [tools.helm."platforms.linux-x64-musl"]
+checksum = "sha256:0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
+url = "https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz"
+
+[tools.helm."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
 url = "https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz"
 
@@ -333,7 +474,15 @@ url = "https://get.helm.sh/helm-v4.3.1-darwin-arm64.tar.gz"
 checksum = "sha256:34bec4eba761ba5c16d1965ee6b8f5b0abe5993974a802274e2a4f0418893d89"
 url = "https://get.helm.sh/helm-v4.3.1-darwin-amd64.tar.gz"
 
+[tools.helm."platforms.macos-x64-baseline"]
+checksum = "sha256:34bec4eba761ba5c16d1965ee6b8f5b0abe5993974a802274e2a4f0418893d89"
+url = "https://get.helm.sh/helm-v4.3.1-darwin-amd64.tar.gz"
+
 [tools.helm."platforms.windows-x64"]
+checksum = "sha256:5735a2bd59071b814546c6d0a76f29a8fd3ebe06e3a4791dd2784804ae895f34"
+url = "https://get.helm.sh/helm-v4.3.1-windows-amd64.tar.gz"
+
+[tools.helm."platforms.windows-x64-baseline"]
 checksum = "sha256:5735a2bd59071b814546c6d0a76f29a8fd3ebe06e3a4791dd2784804ae895f34"
 url = "https://get.helm.sh/helm-v4.3.1-windows-amd64.tar.gz"
 
@@ -360,7 +509,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz"
 url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666"
 
+[tools.kubeconform."platforms.linux-x64-baseline"]
+checksum = "sha256:9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
+checksum_source = "mise-versions"
+url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666"
+
 [tools.kubeconform."platforms.linux-x64-musl"]
+checksum = "sha256:9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
+checksum_source = "mise-versions"
+url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666"
+
+[tools.kubeconform."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
 checksum_source = "mise-versions"
 url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz"
@@ -377,7 +538,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-amd64.tar.gz"
 url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612679"
 
+[tools.kubeconform."platforms.macos-x64-baseline"]
+checksum = "sha256:71dbc87ac9f24099a62b93570e65aa06312ba6ac8aea63b7f86e9d999edf5a92"
+checksum_source = "mise-versions"
+url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612679"
+
 [tools.kubeconform."platforms.windows-x64"]
+checksum = "sha256:e3f56102bcf4f50b034a567e2482a1c5330799983ddd655952310211aef73d93"
+checksum_source = "mise-versions"
+url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-windows-amd64.zip"
+url_api = "https://api.github.com/repos/yannh/kubeconform/releases/assets/438612665"
+
+[tools.kubeconform."platforms.windows-x64-baseline"]
 checksum = "sha256:e3f56102bcf4f50b034a567e2482a1c5330799983ddd655952310211aef73d93"
 checksum_source = "mise-versions"
 url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-windows-amd64.zip"
@@ -400,7 +573,15 @@ url = "https://dl.k8s.io/v1.37.2/bin/linux/arm64/kubectl"
 checksum = "sha256:c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4"
 url = "https://dl.k8s.io/v1.37.2/bin/linux/amd64/kubectl"
 
+[tools.kubectl."platforms.linux-x64-baseline"]
+checksum = "sha256:c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4"
+url = "https://dl.k8s.io/v1.37.2/bin/linux/amd64/kubectl"
+
 [tools.kubectl."platforms.linux-x64-musl"]
+checksum = "sha256:c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4"
+url = "https://dl.k8s.io/v1.37.2/bin/linux/amd64/kubectl"
+
+[tools.kubectl."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4"
 url = "https://dl.k8s.io/v1.37.2/bin/linux/amd64/kubectl"
 
@@ -412,7 +593,15 @@ url = "https://dl.k8s.io/v1.37.2/bin/darwin/arm64/kubectl"
 checksum = "sha256:88379aff5c8111de6be0a394adffba2819e44cde269f3ab23cef76de1a48eaa8"
 url = "https://dl.k8s.io/v1.37.2/bin/darwin/amd64/kubectl"
 
+[tools.kubectl."platforms.macos-x64-baseline"]
+checksum = "sha256:88379aff5c8111de6be0a394adffba2819e44cde269f3ab23cef76de1a48eaa8"
+url = "https://dl.k8s.io/v1.37.2/bin/darwin/amd64/kubectl"
+
 [tools.kubectl."platforms.windows-x64"]
+checksum = "sha256:1691938f7de0e931969f9968c3601cf32d6b0d573573afb4ce471f3d28f51984"
+url = "https://dl.k8s.io/v1.37.2/bin/windows/amd64/kubectl.exe"
+
+[tools.kubectl."platforms.windows-x64-baseline"]
 checksum = "sha256:1691938f7de0e931969f9968c3601cf32d6b0d573573afb4ce471f3d28f51984"
 url = "https://dl.k8s.io/v1.37.2/bin/windows/amd64/kubectl.exe"
 
@@ -439,7 +628,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.linux.amd64.tar.gz"
 url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915445"
 
+[tools.protoc-gen-go."platforms.linux-x64-baseline"]
+checksum = "sha256:14abe70d1557026d3dce6676b7a44d3ada91d79902c71cb075fbb8d315943320"
+checksum_source = "mise-versions"
+url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.linux.amd64.tar.gz"
+url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915445"
+
 [tools.protoc-gen-go."platforms.linux-x64-musl"]
+checksum = "sha256:14abe70d1557026d3dce6676b7a44d3ada91d79902c71cb075fbb8d315943320"
+checksum_source = "mise-versions"
+url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.linux.amd64.tar.gz"
+url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915445"
+
+[tools.protoc-gen-go."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:14abe70d1557026d3dce6676b7a44d3ada91d79902c71cb075fbb8d315943320"
 checksum_source = "mise-versions"
 url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.linux.amd64.tar.gz"
@@ -456,7 +657,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.darwin.amd64.tar.gz"
 url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915393"
 
+[tools.protoc-gen-go."platforms.macos-x64-baseline"]
+checksum = "sha256:1df5af4a047a54fb15b1f9c4a174562a692f55cab13e94b8fbf274e766800314"
+checksum_source = "mise-versions"
+url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.darwin.amd64.tar.gz"
+url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915393"
+
 [tools.protoc-gen-go."platforms.windows-x64"]
+checksum = "sha256:ab2aa2c53df000ad47c6a546e56556d9adb1767e38136f7c9a042e0a1c22793f"
+checksum_source = "mise-versions"
+url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.windows.amd64.zip"
+url_api = "https://api.github.com/repos/protocolbuffers/protobuf-go/releases/assets/508915486"
+
+[tools.protoc-gen-go."platforms.windows-x64-baseline"]
 checksum = "sha256:ab2aa2c53df000ad47c6a546e56556d9adb1767e38136f7c9a042e0a1c22793f"
 checksum_source = "mise-versions"
 url = "https://github.com/protocolbuffers/protobuf-go/releases/download/v1.36.12/protoc-gen-go.v1.36.12.windows.amd64.zip"
@@ -485,7 +698,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.linux.amd64.tar.gz"
 url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417609811"
 
+[tools.protoc-gen-go-grpc."platforms.linux-x64-baseline"]
+checksum = "sha256:3d36f376624c73eb62c7a46e34c2b21a1e97684fb1812e882ba775ba05b7bfc9"
+checksum_source = "mise-versions"
+url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.linux.amd64.tar.gz"
+url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417609811"
+
 [tools.protoc-gen-go-grpc."platforms.linux-x64-musl"]
+checksum = "sha256:3d36f376624c73eb62c7a46e34c2b21a1e97684fb1812e882ba775ba05b7bfc9"
+checksum_source = "mise-versions"
+url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.linux.amd64.tar.gz"
+url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417609811"
+
+[tools.protoc-gen-go-grpc."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:3d36f376624c73eb62c7a46e34c2b21a1e97684fb1812e882ba775ba05b7bfc9"
 checksum_source = "mise-versions"
 url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.linux.amd64.tar.gz"
@@ -502,7 +727,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.darwin.amd64.tar.gz"
 url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417610006"
 
+[tools.protoc-gen-go-grpc."platforms.macos-x64-baseline"]
+checksum = "sha256:e891ebaf91f5ac959234cf9b323fecb14947f8b6f989989c50023da55bd55af3"
+checksum_source = "mise-versions"
+url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.darwin.amd64.tar.gz"
+url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417610006"
+
 [tools.protoc-gen-go-grpc."platforms.windows-x64"]
+checksum = "sha256:58dad1ef6c53e508224378c1bc3f85bf47f8f860e32988dfd8abdec20da148f0"
+checksum_source = "mise-versions"
+url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.windows.amd64.tar.gz"
+url_api = "https://api.github.com/repos/grpc/grpc-go/releases/assets/417609671"
+
+[tools.protoc-gen-go-grpc."platforms.windows-x64-baseline"]
 checksum = "sha256:58dad1ef6c53e508224378c1bc3f85bf47f8f860e32988dfd8abdec20da148f0"
 checksum_source = "mise-versions"
 url = "https://github.com/grpc/grpc-go/releases/download/cmd/protoc-gen-go-grpc/v1.6.2/protoc-gen-go-grpc.v1.6.2.windows.amd64.tar.gz"
@@ -531,7 +768,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056942"
 
+[tools.shellcheck."platforms.linux-x64-baseline"]
+checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056942"
+
 [tools.shellcheck."platforms.linux-x64-musl"]
+checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056942"
+
+[tools.shellcheck."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
 checksum_source = "mise-versions"
 url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
@@ -548,7 +797,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.xz"
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056930"
 
+[tools.shellcheck."platforms.macos-x64-baseline"]
+checksum = "sha256:3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056930"
+
 [tools.shellcheck."platforms.windows-x64"]
+checksum = "sha256:8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.zip"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"
+
+[tools.shellcheck."platforms.windows-x64-baseline"]
 checksum = "sha256:8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
 checksum_source = "mise-versions"
 url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.zip"
@@ -571,7 +832,15 @@ url = "https://downloads.sqlc.dev/sqlc_1.31.1_linux_arm64.tar.gz"
 checksum = "sha256:497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
 url = "https://downloads.sqlc.dev/sqlc_1.31.1_linux_amd64.tar.gz"
 
+[tools.sqlc."platforms.linux-x64-baseline"]
+checksum = "sha256:497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
+url = "https://downloads.sqlc.dev/sqlc_1.31.1_linux_amd64.tar.gz"
+
 [tools.sqlc."platforms.linux-x64-musl"]
+checksum = "sha256:497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
+url = "https://downloads.sqlc.dev/sqlc_1.31.1_linux_amd64.tar.gz"
+
+[tools.sqlc."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
 url = "https://downloads.sqlc.dev/sqlc_1.31.1_linux_amd64.tar.gz"
 
@@ -583,7 +852,15 @@ url = "https://downloads.sqlc.dev/sqlc_1.31.1_darwin_arm64.tar.gz"
 checksum = "sha256:c5af76772e3785d21663a62697056b383f07629979b1bd25b93872e73dbd519b"
 url = "https://downloads.sqlc.dev/sqlc_1.31.1_darwin_amd64.tar.gz"
 
+[tools.sqlc."platforms.macos-x64-baseline"]
+checksum = "sha256:c5af76772e3785d21663a62697056b383f07629979b1bd25b93872e73dbd519b"
+url = "https://downloads.sqlc.dev/sqlc_1.31.1_darwin_amd64.tar.gz"
+
 [tools.sqlc."platforms.windows-x64"]
+checksum = "sha256:40d138ec18b1cc80d2be7305917fd4deceda4e0c32d78ba5d8faa4bfa3bc0fc0"
+url = "https://downloads.sqlc.dev/sqlc_1.31.1_windows_amd64.tar.gz"
+
+[tools.sqlc."platforms.windows-x64-baseline"]
 checksum = "sha256:40d138ec18b1cc80d2be7305917fd4deceda4e0c32d78ba5d8faa4bfa3bc0fc0"
 url = "https://downloads.sqlc.dev/sqlc_1.31.1_windows_amd64.tar.gz"
 
@@ -610,7 +887,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_linux_amd64.tar.gz"
 url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909584"
 
+[tools.temporal."platforms.linux-x64-baseline"]
+checksum = "sha256:521f461f3d108902763bb71e85cd0fd382dc9357b59604ae03da6ae734d16890"
+checksum_source = "mise-versions"
+url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909584"
+
 [tools.temporal."platforms.linux-x64-musl"]
+checksum = "sha256:521f461f3d108902763bb71e85cd0fd382dc9357b59604ae03da6ae734d16890"
+checksum_source = "mise-versions"
+url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909584"
+
+[tools.temporal."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:521f461f3d108902763bb71e85cd0fd382dc9357b59604ae03da6ae734d16890"
 checksum_source = "mise-versions"
 url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_linux_amd64.tar.gz"
@@ -627,7 +916,19 @@ checksum_source = "mise-versions"
 url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_darwin_amd64.tar.gz"
 url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909577"
 
+[tools.temporal."platforms.macos-x64-baseline"]
+checksum = "sha256:150603ba135dc5f40f0a8f33b1a09732469692fae9a78e3024318e83f023136a"
+checksum_source = "mise-versions"
+url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909577"
+
 [tools.temporal."platforms.windows-x64"]
+checksum = "sha256:08dc600ed4e6ed3ecd9ffc135ac8834c679a96275a5709acfa4034e1b42ad8db"
+checksum_source = "mise-versions"
+url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_windows_amd64.tar.gz"
+url_api = "https://api.github.com/repos/temporalio/cli/releases/assets/703909742"
+
+[tools.temporal."platforms.windows-x64-baseline"]
 checksum = "sha256:08dc600ed4e6ed3ecd9ffc135ac8834c679a96275a5709acfa4034e1b42ad8db"
 checksum_source = "mise-versions"
 url = "https://github.com/temporalio/cli/releases/download/v1.10.0/temporal_cli_1.10.0_windows_amd64.tar.gz"

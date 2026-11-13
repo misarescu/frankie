@@ -1,0 +1,24 @@
+# The platform's default workflow (docs/spec/03-workflows-and-gates.md).
+# Differences from the spec's full example until later milestones:
+# - no e2e-test-writer branch next to implement (the role arrives in M7);
+# - one reviewer, on Claude Code (opencode and pi arrive in M4);
+# - ends by opening the change request; the merge queue arrives in M6.
+name: default-build
+version: 1
+steps:
+  - id: implement
+    agent: { role: coder }
+  - id: checks
+    gate:
+      type: command
+      run: ["mise run lint", "mise run test"]
+      onFail: { goto: implement, maxLoops: 3 }
+  - id: review
+    parallel:
+      - agent: { role: code-reviewer }
+    gate:
+      type: agent-verdict
+      require: all
+      onFail: { goto: implement, maxLoops: 2 }
+  - id: open-change-request
+    action: change-request.open

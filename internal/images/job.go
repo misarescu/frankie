@@ -93,10 +93,18 @@ func (r BuildRequest) Image(c BuildConfig) string {
 	return fmt.Sprintf("%s/%s", c.PushHost, r.Repository)
 }
 
-// MetadataFile is where buildctl writes the build result, including
-// containerimage.digest. It is the container's termination message, which the
-// kubelet records in the pod status: the build's own RUN steps cannot write it.
-const MetadataFile = "/dev/termination-log"
+// metadataFile is where buildctl writes the build result, including
+// containerimage.digest. The build container then copies it to its
+// termination message, which the kubelet records in the pod status: the
+// build's own RUN steps, sandboxed by BuildKit, cannot write either file.
+// buildctl writes atomically (temp file and rename), which fails on the
+// kubelet's bind-mounted termination log, hence the copy.
+const (
+	metadataFile       = "/tmp/build-metadata.json"
+	terminationLogPath = "/dev/termination-log"
+	// buildScript runs buildctl with the container's args, then reports.
+	buildScript = `buildctl-daemonless.sh "$@" && cat ` + metadataFile + ` > ` + terminationLogPath
+)
 
 // Dockerfile is the build recipe: the base image plus the tools mise.toml pins,
 // installed where the agent user finds them at run time. args are build
@@ -155,7 +163,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 		"--opt", "build-arg:HTTP_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:NO_PROXY=" + noProxy,
 		"--output", fmt.Sprintf("type=image,name=%s,push=true,push-by-digest=true,registry.insecure=true", r.Image(c)),
-		"--metadata-file", MetadataFile,
+		"--metadata-file", metadataFile,
 	}
 	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
 		args = append(args, "--opt", "build-arg:"+k+"="+c.Env[k])
@@ -179,7 +187,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 					Containers: []corev1.Container{{
 						Name:    buildContainer,
 						Image:   c.BuildKitImage,
-						Command: []string{"buildctl-daemonless.sh"},
+						Command: []string{"/bin/sh", "-c", buildScript, buildContainer},
 						Args:    args,
 						Env: []corev1.EnvVar{
 							{Name: "HTTPS_PROXY", Value: c.EgressProxyURL},

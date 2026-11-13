@@ -70,11 +70,14 @@ func TestBuildResources(t *testing.T) {
 			"build-arg:HTTPS_PROXY=http://egress.frankie.svc:3128",
 			"build-arg:NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local",
 			// D45: the digest is reported through the kubelet, never a tag pushed.
-			"--metadata-file /dev/termination-log",
+			"--metadata-file /tmp/build-metadata.json",
 		} {
 			if !strings.Contains(args, want) {
 				t.Errorf("args missing %q:\n%s", want, args)
 			}
+		}
+		if cmd := strings.Join(c.Command, " "); !strings.Contains(cmd, `buildctl-daemonless.sh "$@" && cat /tmp/build-metadata.json > /dev/termination-log`) {
+			t.Errorf("the build does not report its result in the termination message: %s", cmd)
 		}
 		if strings.Contains(args, ":"+req.Inputs.Tag()) {
 			t.Errorf("the build pushes a tag; only the control plane tags:\n%s", args)

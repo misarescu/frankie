@@ -39,6 +39,7 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 - Protected-path and test-removal detection forcing human gates.
 - Temporal replay tests in CI.
 - **Done when:** the example `default-build` workflow runs end to end including a reviewer-triggered loop back to `implement` and a human-gated protected-path change; replay tests pass. **The factory repo is onboarded as a project (self-hosting begins).**
+- **Done (2026-11-13):** on the homelab, Goodreads-Clone gc-5 ran `default-build` with its reviewer failing the first commit and the run looping back to `implement` (Goodreads-Clone#16); Frankie's first own issue, frk-1, passed its own lint and tests (with the replay tests) and review, then waited at the forced `protected-changes` gate for its `roles/` change until a person approved it in the inbox (frankie#37). Nine replay fixtures pass in CI.
 
 ## M4 - Harnesses and models
 

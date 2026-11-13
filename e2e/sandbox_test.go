@@ -80,7 +80,7 @@ var _ = Describe("Agent sandbox", Ordered, ContinueOnFailure, Label("sandbox"), 
 			Deadline:       5 * time.Minute,
 			EgressProxyURL: proxyURL,
 			Env:            map[string]string{"NODE_IP": nodeIP, "CP_HOST": controlPlaneHost, "PG_HOST": postgresHost},
-			Command:        []string{"/bin/sh", "-c", probeScript},
+			Command:        []string{"/bin/sh", "-c", networkReady + probeScript},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		created, err := cs.CoreV1().Pods(agentsNS).Create(ctx, pod, metav1.CreateOptions{})

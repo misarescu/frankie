@@ -75,3 +75,18 @@ func envOr(name, def string) string {
 	}
 	return def
 }
+
+// networkReady is prepended to probe scripts. The node's NetworkPolicy
+// controller refuses a new pod's connections until it has installed the pod's
+// rules, tens of milliseconds after the container starts, so a probe's first
+// request could fail for that reason alone (D38). It waits until the egress
+// proxy (allowed for every sandbox pod) accepts a connection, at most 10 s, and
+// reports how long that took as net_ready_ms.
+const networkReady = `
+nr_start=$(date +%s%N); nr_hostport=${HTTPS_PROXY#http://}
+for nr_i in $(seq 1 100); do
+  curl -s -o /dev/null --connect-timeout 1 "http://$nr_hostport/" && break
+  sleep 0.1
+done
+echo "RESULT net_ready_ms $(( ($(date +%s%N) - nr_start) / 1000000 ))"
+`

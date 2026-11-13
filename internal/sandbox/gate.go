@@ -37,8 +37,19 @@ const GateRepoDir = "/workspace/repo"
 
 // cloneScript checks out exactly the commit under test. It is the only
 // container holding the git proxy token, and it runs only git.
+//
+// The clone is the pod's first connection, made as soon as the pod starts, and
+// the node's NetworkPolicy controller rejects a new pod's traffic until it has
+// installed the pod's rules (measured on the homelab: the first connection is
+// refused within 3 ms, the next one 60 ms later succeeds). So the clone is
+// retried; anything that keeps failing still fails the gate.
 const cloneScript = `set -eu
-git clone --no-tags --single-branch --branch "$GATE_BRANCH" -- "$GATE_URL" ` + GateRepoDir + `
+for attempt in 1 2 3 4 5; do
+  rm -rf ` + GateRepoDir + `
+  git clone --no-tags --single-branch --branch "$GATE_BRANCH" -- "$GATE_URL" ` + GateRepoDir + ` && break
+  [ "$attempt" = 5 ] && exit 1
+  sleep "$attempt"
+done
 cd ` + GateRepoDir + `
 git checkout -q --detach "$GATE_SHA"
 test "$(git rev-parse HEAD)" = "$GATE_SHA"

@@ -1,5 +1,5 @@
 name: code-reviewer
-version: 1
+version: 2
 system_prompt_file: prompts/code-reviewer.md
 allowed_tools: [read, grep, glob, bash:readonly]
 output_contract:

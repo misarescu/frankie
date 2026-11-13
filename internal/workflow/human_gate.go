@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"cmp"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
@@ -27,6 +29,39 @@ type HumanDecision struct {
 
 // escalationSuffix names the human gate a failed gate escalates to.
 const escalationSuffix = "-escalation"
+
+// protectedGateID names the human gate forced by protected changes.
+const protectedGateID = "protected-changes"
+
+// guardChanges forces a human gate when the run's change touches protected
+// paths or deletes or skips tests (invariant 6), whatever the definition says:
+// a workflow author cannot turn it off. It runs once the definition's steps
+// have passed, on the last pushed commit, so after any change request opened
+// and the person can read the diff there. Runs recorded before it existed end
+// without it.
+func (it *interpreter) guardChanges(ctx workflow.Context) string {
+	if workflow.GetVersion(ctx, "protected-changes", workflow.DefaultVersion, 1) < 1 || it.session.CommitSHA == "" {
+		return ""
+	}
+	patterns := it.in.Snapshot.ProtectedPaths
+	if len(patterns) == 0 { // a snapshot taken before protected paths were
+		patterns = config.DefaultProtectedPaths
+	}
+	var report guard.Report
+	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.DetectProtectedChanges, it.in.Issue, activities.GuardRequest{
+		BaseSHA: cmp.Or(it.in.Snapshot.BaseSHA, it.in.Issue.BaseBranch), HeadSHA: it.session.CommitSHA, Patterns: patterns,
+	}).Get(ctx, &report)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("step %s: inspecting the change failed: %s", protectedGateID, err)
+	case report.Clean():
+		return ""
+	}
+	if why := it.awaitHuman(ctx, protectedGateID, report.Reason(), time.Duration(config.DefaultHumanTimeout), config.OnTimeoutFail); why != "" {
+		return fmt.Sprintf("step %s: %s", protectedGateID, why)
+	}
+	return ""
+}
 
 // humanGate is a definition's human gate: the run continues only once a person
 // approves; a rejection or a timeout fails it.

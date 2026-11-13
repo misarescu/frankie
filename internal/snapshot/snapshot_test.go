@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/misarescu/frankie/internal/config"
 )
 
 const baseSHA = "1111111111111111111111111111111111111111"
@@ -72,6 +75,7 @@ func TestResolveRepoDefinitionAndRole(t *testing.T) {
 		// The repo replaces the built-in coder.
 		".factory/roles/coder.yaml":       "name: coder\nversion: 7\nsystem_prompt_file: prompts/coder.md\n",
 		".factory/roles/prompts/coder.md": "Write Go like we do.\n",
+		".factory/protected-paths.yaml":   "paths: [deploy/**/networkpolicy*]\n",
 	}}
 	s, err := Resolve(t.Context(), r, "acme/app", "main")
 	if err != nil {
@@ -82,6 +86,9 @@ func TestResolveRepoDefinitionAndRole(t *testing.T) {
 	}
 	if c := s.Roles["coder"]; c.Version != 7 || c.SystemPrompt != "Write Go like we do.\n" {
 		t.Errorf("coder = %+v", c)
+	}
+	if !slices.Contains(s.ProtectedPaths, "deploy/**/networkpolicy*") || !slices.Contains(s.ProtectedPaths, ".factory/**") {
+		t.Errorf("protected paths = %v (the repo's added to the defaults)", s.ProtectedPaths)
 	}
 
 	// Invariant 4: the snapshot travels as JSON in the workflow input.
@@ -108,7 +115,7 @@ func TestResolveDefaultsToTheBuiltInWorkflow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if s.Source != "built-in" || s.Workflow.Name != "default-build" || len(s.Roles) != 2 {
+			if s.Source != "built-in" || s.Workflow.Name != "default-build" || len(s.Roles) != 2 || !slices.Equal(s.ProtectedPaths, config.DefaultProtectedPaths) {
 				t.Errorf("snapshot = %+v", s)
 			}
 		})
@@ -134,6 +141,7 @@ func TestResolveInvalid(t *testing.T) {
 		{"missing role", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": strings.Replace(loopWorkflow, "role: coder", "role: ghost", 1)}, "no built-in role"},
 		{"role prompt missing", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": loopWorkflow,
 			".factory/roles/coder.yaml": "name: coder\nversion: 1\nsystem_prompt_file: coder.md\n"}, ".factory/roles/coder.md not found"},
+		{"bad protected paths", map[string]string{".factory/protected-paths.yaml": "paths: [/etc]\n"}, "relative to the repo root"},
 		{"role named differently", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": loopWorkflow,
 			".factory/roles/coder.yaml": "name: hacker\nversion: 1\nsystem_prompt_file: coder.md\n", ".factory/roles/coder.md": "x"}, `is named "hacker"`},
 	}
@@ -151,7 +159,7 @@ func TestResolveInvalid(t *testing.T) {
 func TestResolveReadFailuresAreNotInvalid(t *testing.T) {
 	files := map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": loopWorkflow,
 		".factory/roles/coder.yaml": "name: coder\nversion: 1\nsystem_prompt_file: coder.md\n", ".factory/roles/coder.md": "x"}
-	for _, path := range []string{".factory/config.yaml", ".factory/workflows/fast.yaml", ".factory/roles/coder.yaml", ".factory/roles/coder.md"} {
+	for _, path := range []string{".factory/config.yaml", ".factory/protected-paths.yaml", ".factory/workflows/fast.yaml", ".factory/roles/coder.yaml", ".factory/roles/coder.md"} {
 		t.Run(path, func(t *testing.T) {
 			_, err := Resolve(t.Context(), &repo{files: files, broken: map[string]bool{path: true}}, "acme/app", "main")
 			if err == nil || errors.Is(err, ErrInvalid) {

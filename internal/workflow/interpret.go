@@ -118,7 +118,7 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 		}
 		pc = next
 	}
-	return ""
+	return it.guardChanges(ctx)
 }
 
 // startStep creates the StepRun of the step's next execution.

@@ -30,6 +30,10 @@ type Snapshot struct {
 	Source string `json:"source"`
 	// BaseSHA is the base branch commit the definition and roles were read at.
 	BaseSHA string `json:"baseSHA"`
+	// ProtectedPaths are the platform's protected-path patterns plus the
+	// repo's own, read from the base branch so a change cannot loosen the
+	// rules it is judged by (invariant 6).
+	ProtectedPaths []string `json:"protectedPaths,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -56,8 +60,8 @@ var ErrInvalid = errors.New("invalid project configuration")
 // errRead marks failures to read, so they are not mistaken for invalid content.
 var errRead = errors.New("read")
 
-// Resolve reads the project's `.factory/config.yaml`, workflow definition and
-// roles at the head of baseBranch. Repo definitions and roles take precedence
+// Resolve reads the project's `.factory/config.yaml`, protected paths,
+// workflow definition and roles at the head of baseBranch. Repo definitions and roles take precedence
 // over built-in ones of the same name; a project that selects no workflow runs
 // the built-in default (workflows.Default).
 func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapshot, error) {
@@ -89,6 +93,17 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 	}
 
 	s := Snapshot{BaseSHA: sha}
+	raw, found, err = read(config.ProtectedPathsFile)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
+	}
+	var repoProtected []string
+	if found {
+		if repoProtected, err = config.ParseProtectedPaths(raw); err != nil {
+			return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+		}
+	}
+	s.ProtectedPaths = config.ProtectedPatterns(repoProtected)
 	defPath := path.Join(WorkflowsDir, project.Workflow+".yaml")
 	raw, found, err = read(defPath)
 	switch {

@@ -84,7 +84,7 @@ Every gate has:
 
 ### Built-in protections
 
-Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this.
+Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this. The gate comes after the definition's last step, so after `change-request.open` (D44).
 
 ### Validation (at save time)
 
@@ -138,7 +138,7 @@ Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code
 
 `internal/workflow.IssueRun` ran every issue the same way until `Interpret` took over (D41, D42); intake no longer starts it: `StartRun` (Run + `implement` StepRun, issue `ready -> running`), `EnsureToolchainImage`, `LaunchAgentPod` (Kata pod from `internal/sandbox`), `RunAgentSession` (mints the git proxy token and gateway virtual key, passes them to the runner over gRPC so they never enter the pod spec or the workflow history, persists every event, heartbeats the last stored `seq` so a retry resumes the stream), `DeleteAgentPod` (always, on a disconnected context), `RunCommandGate`, `OpenChangeRequest` (idempotent), `FinishRun` (issue `awaiting_human` on success, `failed` otherwise). Workflow ID `issue-<key>` with "use existing" on conflict, so intake polls never start a second concurrent run. `IssueRun` stays registered, with its replay fixtures, until its in-flight runs drain.
 
-### Interpret (D41, D42, D43)
+### Interpret (D41, D42, D43, D44)
 
 `internal/workflow.Interpret` is a new workflow type rather than a changed `IssueRun`, so it needed no `workflow.GetVersion`. Its input is the issue plus a `snapshot.Snapshot`: the definition, the resolved roles (prompt text included), where the definition came from, and the base branch commit they were read at. The control plane's starter resolves the snapshot before starting the workflow (`internal/snapshot`), so the definition is in the workflow input itself (invariant 4). If the project's configuration is invalid, or selects something the interpreter cannot run yet (`workflow.CheckSupported`), the snapshot carries the error instead and the run fails with it, visibly, before any step. A failure to read the repo is retried on the next intake poll.
 
@@ -150,6 +150,7 @@ The interpreter walks the top-level steps in order:
 - **Agent-verdict gate**: `RunVerdictGate` parses each reviewer's final message against the `review-verdict` contract (a code fence or a sentence around the JSON object is tolerated), checks that each reviewer read the commit under review, combines the verdicts with `require`, and records one `gate_results` row whose details list every review (`domain.AgentVerdictDetails`). The feedback for a loop back is the failing reviews' findings, most severe first. A reviewer that returns no valid verdict makes the gate **inconclusive**: the run fails with the reason instead of sending the coder back, since the coder cannot fix the reviewer.
 - **onFail**: a failed blocking gate fails the run, escalates, or with `goto` jumps back to the target step after `RecordLoop` stores the gate's loop count on the Run (`runs.loop_counts`). The next coding step that takes the `feedback` input gets the gate's feedback in its prompt. A `goto` to a branch runs only that branch of its group, then continues after the group. A gate that has used its `maxLoops` escalates (FR-WF-4; `workflow.GetVersion("escalate-exhausted-loops")`, runs from before failed there).
 - **Human gate** (FR-WF-3): `StartStep`, then `OpenHumanGate` writes an `approvals` row (reason, the last pushed commit, the change request if one is open, expiry) and the run waits for the `human-gate-decision` signal or the timeout. A decision for any other gate is ignored. `CloseHumanGate` records the decision on the approval, a `human` gate result (pass only when approved) and the StepRun's end; the first decision stands. Rejected fails the run; on timeout `onTimeout: fail` fails it and `extend` waits another period (`ExtendHumanGate`). A run canceled while waiting closes the approval as rejected.
+- **Protected changes** (invariant 6): once the definition's steps have passed, `DetectProtectedChanges` inspects the provider's diff from the snapshot's base commit to the last push against the snapshot's protected-path patterns (docs/spec/05). Any finding forces a `protected-changes` human gate (72 h, then fail), opened after any change request so the diff can be read there; the definition cannot turn it off. Behind `workflow.GetVersion("protected-changes")`.
 - **Escalation**: `onFail: escalate`, or a used-up loop, opens a human gate named `<gate>-escalation` (72 h, then fail) explaining what failed. Approving accepts the change despite the failure and continues after the gate; rejecting fails the run.
 - **Action**: `change-request.open` opens (or finds) the change request for the last pushed commit.
 - `FinishRun` ends the Run and the issue, without a StepRunID.

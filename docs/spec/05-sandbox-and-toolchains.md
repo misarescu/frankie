@@ -32,6 +32,8 @@ the protected-paths list itself (.factory/protected-paths.yaml)
 
 Detection runs in the control plane against the diff (not in the agent pod). Test removal/skip detection looks for deleted test files, newly added skip markers (`t.Skip`, `it.skip`, `xit`, etc.) and a lower test count.
 
+Implementation (D44): the platform protects, for every project, `.factory/**` (workflows, roles, project config, the protected-paths list), the toolchain files (`mise.toml`, `mise.lock`, `.mise.toml`, `.mise/**`), CI configuration (`.github/workflows/**`, `.github/actions/**`, `.gitlab-ci.yml`, `.circleci/**`) and lint configuration (`.golangci.*`, ESLint and Biome configs, `.pre-commit-config.yaml`) (`config.DefaultProtectedPaths`). A repo adds its own guardrails in `.factory/protected-paths.yaml` (`paths:`, globs where `**` spans directories); it cannot remove a default. The list is read from the base branch into the run's snapshot. When a run's steps have passed, `DetectProtectedChanges` asks the provider for the diff from the run's base commit to its last push (`internal/guard`): a protected path changed (or renamed away), a test file deleted or renamed to a non-test file, a skip marker added in a test file (Go `Skip`, `//go:build ignore`, pending Ginkgo specs, `it.skip`/`xit`, pytest and unittest skips, `@Disabled`/`@Ignore`), fewer test declarations than before, a test file whose diff the provider left out, or a diff too large to list in full each force the `protected-changes` human gate. Detection errs towards asking: a skip call inside a comment still counts.
+
 ## Trust model for results
 
 Agents run build and tests inside their own loop so most problems are fixed before a gate. Two rules keep this safe:

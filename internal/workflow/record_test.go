@@ -25,6 +25,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
@@ -36,6 +37,14 @@ type stubActivities struct {
 	failReview func(req activities.VerdictGateRequest) bool
 	pushes     int
 	opened     chan string // step run IDs of opened human gates
+	protected  bool        // the change touches a protected path
+}
+
+func (s *stubActivities) DetectProtectedChanges(context.Context, activities.IssueRunInput, activities.GuardRequest) (guard.Report, error) {
+	if !s.protected {
+		return guard.Report{}, nil
+	}
+	return guard.Report{Protected: []guard.ProtectedChange{{Path: "mise.toml", Pattern: "mise.toml"}}}, nil
 }
 
 func (s *stubActivities) OpenHumanGate(_ context.Context, req activities.HumanGateRequest) error {
@@ -118,23 +127,26 @@ func TestRecordInterpretHistories(t *testing.T) {
 		failGate   func(req activities.GateRequest) bool
 		failReview func(req activities.VerdictGateRequest) bool
 		approve    bool // the decision sent to each human gate the run opens
+		protected  bool
 	}{
 		// The first command gate fails, the loop back to implement fixes it.
 		{"interpret_loop_then_success.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool {
 			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
-		}, nil, false},
+		}, nil, false, false},
 		// The command gate keeps failing until maxLoops is used up (recorded before
 		// escalation existed, so the run failed there).
-		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false},
+		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false},
 		// default-build: the reviewer fails the first commit, the loop back to
 		// implement fixes it.
 		{"interpret_default_build_review_loop.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false },
-			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false},
+			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false},
 		// A definition's human gate after the change request opened, approved.
-		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true},
+		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false},
 		// maxLoops used up: the gate escalates to a human, who approves.
 		{"interpret_loops_exhausted_escalated.json", loopSnapshot(t, loopDefinition),
-			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true},
+			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false},
+		// default-build on a change to a protected path: the forced human gate, approved.
+		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -144,7 +156,7 @@ func TestRecordInterpretHistories(t *testing.T) {
 			queue := fmt.Sprintf("record-%d-%d", time.Now().UnixNano(), i)
 			w := worker.New(c, queue, worker.Options{})
 			w.RegisterWorkflow(Interpret)
-			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4)}
+			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4), protected: sc.protected}
 			w.RegisterActivity(stub)
 			if err := w.Start(); err != nil {
 				t.Fatal(err)

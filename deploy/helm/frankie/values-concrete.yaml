@@ -22,3 +22,5 @@ controlPlane:
   repos:
     - name: misarescu/Goodreads-Clone
       upstream: https://github.com/misarescu/Goodreads-Clone.git
+      keyPrefix: gc
+      baseBranch: main

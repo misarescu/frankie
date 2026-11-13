@@ -66,6 +66,7 @@ func TestAgentPodSandboxGuarantees(t *testing.T) {
 		{"never restarts", spec.RestartPolicy == corev1.RestartPolicyNever},
 		{"workspace mounted", len(c.VolumeMounts) == 1 && c.VolumeMounts[0].MountPath == "/workspace"},
 		{"image entrypoint by default", c.Command == nil},
+		{"runner works in a directory it owns", len(c.Args) == 2 && c.Args[0] == "--workdir" && c.Args[1] == RunnerWorkdir},
 	}
 	for _, ch := range checks {
 		if !ch.ok {

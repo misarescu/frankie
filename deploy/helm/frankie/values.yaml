@@ -42,10 +42,27 @@ agents:
 controlPlane:
   apiPort: 8080
   gitProxyPort: 8081
-  # Factory repos served by the git proxy, until project config sync exists.
+  # Factory repos: served by the git proxy and polled for issues, until project
+  # config sync exists. keyPrefix is the issue key prefix (D22) and never changes.
   repos: []
   #  - name: misarescu/frankie-toy
   #    upstream: https://github.com/misarescu/frankie-toy.git
+  #    keyPrefix: toy
+  #    baseBranch: main
+  # Issues carrying this label are taken in (D27).
+  intake:
+    label: factory
+    pollInterval: 30s
+  # How agent steps run (docs/spec/04, docs/spec/05).
+  agent:
+    model: claude-sonnet-5-5
+    budgetUSD: 2
+    sessionTimeout: 90m
+    idleTimeout: 20m
+    podDeadline: 2h
+    workspaceSize: 10Gi
+    authorName: frankie-agent
+    authorEmail: frankie-agent@users.noreply.github.com
   # Secret with key "token": fine-grained PAT for the repos (D26). Optional
   # until created; without it the git proxy can only read public repos.
   githubSecret: frankie-github
@@ -90,3 +107,12 @@ egressProxy:
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits: { cpu: 250m, memory: 64Mi }
+
+# Temporal (D29): the single-binary dev server with SQLite on a volume.
+temporal:
+  image: temporalio/temporal:1.10.0
+  namespace: frankie
+  storage: 2Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }

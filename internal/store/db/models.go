@@ -10,6 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
+type ChangeRequest struct {
+	ID          uuid.UUID
+	IssueID     uuid.UUID
+	RunID       uuid.UUID
+	Repo        string
+	Number      int32
+	ProviderRef string
+	Branch      string
+	HeadSha     string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type Event struct {
 	ID        uuid.UUID
 	Seq       int64
@@ -61,6 +75,7 @@ type Run struct {
 	FinishedAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	TemporalRunID      *string
 }
 
 type StepRun struct {

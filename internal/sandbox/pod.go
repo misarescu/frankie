@@ -34,6 +34,11 @@ const RunnerPort = 7070
 // AgentUID is the non-root user of the runner image.
 const AgentUID = 10001
 
+// RunnerWorkdir is where the runner clones the repo: a directory it creates
+// itself inside the workspace volume, so the agent user owns it. Kubernetes
+// creates the volume root as root-owned, which git rejects ("dubious ownership").
+const RunnerWorkdir = "/workspace/repo"
+
 // PodSpec describes one agent pod.
 type PodSpec struct {
 	Name               string
@@ -139,6 +144,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 				Name:    "runner",
 				Image:   s.Image,
 				Command: s.Command,
+				Args:    runnerArgs(s.Command),
 				Ports:   []corev1.ContainerPort{{Name: "runner", ContainerPort: RunnerPort}},
 				Env:     env,
 				Resources: corev1.ResourceRequirements{
@@ -162,3 +168,11 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// runnerArgs points the image entrypoint at RunnerWorkdir; a later flag wins.
+func runnerArgs(command []string) []string {
+	if command != nil {
+		return nil
+	}
+	return []string{"--workdir", RunnerWorkdir}
+}

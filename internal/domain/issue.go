@@ -102,3 +102,18 @@ type Issue struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
+
+// ChangeRequest is a provider-neutral pull/merge request for an issue's branch.
+type ChangeRequest struct {
+	ID          uuid.UUID
+	IssueID     uuid.UUID
+	RunID       uuid.UUID
+	Repo        string
+	Number      int
+	ProviderRef string // e.g. the PR URL
+	Branch      string
+	HeadSHA     string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}

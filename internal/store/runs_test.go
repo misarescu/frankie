@@ -159,3 +159,34 @@ func TestRunValidation(t *testing.T) {
 		t.Errorf("TransitionRun(succeeded -> running) err = %v, want ErrInvalidTransition", err)
 	}
 }
+
+// Reruns of an issue reuse its workflow ID; each execution is its own Run.
+func TestRunsShareWorkflowIDButNotTemporalRunID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
+	first, err := s.CreateRun(ctx, NewRun{IssueID: is.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "1",
+		TemporalWorkflowID: "issue-p-1", TemporalRunID: "exec-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TransitionRun(ctx, first.ID, domain.ExecPending, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateRun(ctx, NewRun{IssueID: is.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "1",
+		TemporalWorkflowID: "issue-p-1", TemporalRunID: "exec-2"})
+	if err != nil {
+		t.Fatalf("rerun with the same workflow ID: %v", err)
+	}
+	got, err := s.GetRunByTemporalRunID(ctx, "exec-2")
+	if err != nil || got.ID != second.ID || got.TemporalRunID != "exec-2" {
+		t.Fatalf("GetRunByTemporalRunID = %+v, %v", got, err)
+	}
+	if _, err := s.CreateRun(ctx, NewRun{IssueID: mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning).ID,
+		WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "1", TemporalWorkflowID: "x", TemporalRunID: "exec-2"}); !errors.Is(err, ErrConflict) {
+		t.Errorf("duplicate temporal run id: err = %v, want ErrConflict", err)
+	}
+	if _, err := s.GetRunByTemporalRunID(ctx, "exec-404"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown run id: err = %v", err)
+	}
+}

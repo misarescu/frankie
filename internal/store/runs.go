@@ -18,10 +18,11 @@ type NewRun struct {
 	WorkflowSnapshot   json.RawMessage
 	WorkflowVersion    string
 	TemporalWorkflowID string
+	TemporalRunID      string // optional; unique when set
 }
 
 // CreateRun inserts a pending Run. It returns ErrConflict if the issue already has an
-// active (pending or running) Run, or if the Temporal workflow ID is taken.
+// active (pending or running) Run, or if the Temporal run ID is taken.
 func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
 	switch {
 	case !json.Valid(in.WorkflowSnapshot):
@@ -37,6 +38,7 @@ func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
 		WorkflowSnapshot:   in.WorkflowSnapshot,
 		WorkflowVersion:    in.WorkflowVersion,
 		TemporalWorkflowID: in.TemporalWorkflowID,
+		TemporalRunID:      nonEmpty(in.TemporalRunID),
 	})
 	if err != nil {
 		return domain.Run{}, mapErr("create run", err)
@@ -49,6 +51,15 @@ func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.Run, error) {
 	row, err := s.q.GetRun(ctx, id)
 	if err != nil {
 		return domain.Run{}, mapErr("get run", err)
+	}
+	return runFromRow(row)
+}
+
+// GetRunByTemporalRunID returns the Run created by one Temporal execution.
+func (s *Store) GetRunByTemporalRunID(ctx context.Context, temporalRunID string) (domain.Run, error) {
+	row, err := s.q.GetRunByTemporalRunID(ctx, &temporalRunID)
+	if err != nil {
+		return domain.Run{}, mapErr("get run by temporal run id", err)
 	}
 	return runFromRow(row)
 }
@@ -202,6 +213,7 @@ func runFromRow(r db.Run) (domain.Run, error) {
 		WorkflowSnapshot:   r.WorkflowSnapshot,
 		WorkflowVersion:    r.WorkflowVersion,
 		TemporalWorkflowID: r.TemporalWorkflowID,
+		TemporalRunID:      deref(r.TemporalRunID),
 		Status:             domain.ExecStatus(r.Status),
 		LoopCounts:         loops,
 		StartedAt:          r.StartedAt,

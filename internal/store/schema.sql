@@ -45,7 +45,10 @@ CREATE TABLE runs (
   issue_id             uuid        NOT NULL REFERENCES issues (id),
   workflow_snapshot    jsonb       NOT NULL,
   workflow_version     text        NOT NULL,
-  temporal_workflow_id text        NOT NULL UNIQUE,
+  -- Stable per issue (e.g. issue-gc-1) and reused by reruns; the Temporal run ID
+  -- identifies one execution, so it is what makes a Run unique.
+  temporal_workflow_id text        NOT NULL,
+  temporal_run_id      text        UNIQUE,
   status               text        NOT NULL DEFAULT 'pending' CHECK (status IN (
                          'pending', 'running', 'succeeded', 'failed', 'canceled')),
   loop_counts          jsonb       NOT NULL DEFAULT '{}',
@@ -89,3 +92,19 @@ CREATE TABLE events (
 );
 
 CREATE INDEX events_run_seq_idx ON events (run_id, seq);
+
+-- A change request (PR/MR) opened for an issue's branch; neutral across providers (D12).
+CREATE TABLE change_requests (
+  id           uuid        PRIMARY KEY,
+  issue_id     uuid        NOT NULL REFERENCES issues (id),
+  run_id       uuid        NOT NULL REFERENCES runs (id),
+  repo         text        NOT NULL,
+  number       integer     NOT NULL,
+  provider_ref text        NOT NULL,
+  branch       text        NOT NULL,
+  head_sha     text        NOT NULL,
+  status       text        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'merged', 'closed')),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT change_requests_repo_number_key UNIQUE (repo, number)
+);

@@ -83,7 +83,7 @@ func TestRunMigratesAndServes(t *testing.T) {
 		done <- Run(ctx, Config{
 			DatabaseURL: dbURL,
 			GitProxyKey: []byte("0123456789abcdef0123456789abcdef"),
-			Repos:       map[string]string{"misarescu/toy": "https://github.com/misarescu/toy.git"},
+			Repos:       []RepoConfig{{Name: "misarescu/toy", Upstream: "https://github.com/misarescu/toy.git", KeyPrefix: "toy", BaseBranch: "main"}},
 		}, Listeners{API: api, GitProxy: git}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	}()
 
@@ -107,6 +107,11 @@ func TestRunMigratesAndServes(t *testing.T) {
 	var tables int
 	if err := conn.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.tables WHERE table_name IN ('issues','runs','events')`).Scan(&tables); err != nil || tables != 3 {
 		t.Errorf("tables = %d, %v; want 3", tables, err)
+	}
+	// The configured repo became a project.
+	var prefix string
+	if err := conn.QueryRow(t.Context(), `SELECT key_prefix FROM projects WHERE name = 'misarescu/toy'`).Scan(&prefix); err != nil || prefix != "toy" {
+		t.Errorf("project prefix = %q, %v", prefix, err)
 	}
 	_ = conn.Close(t.Context())
 
@@ -146,7 +151,7 @@ func TestRunRejectsBadConfig(t *testing.T) {
 		t.Error("short signing key accepted")
 	}
 	if err := Run(t.Context(), Config{GitProxyKey: []byte("0123456789abcdef0123456789abcdef"),
-		Repos: map[string]string{"a/b": "git@github.com:a/b.git"}}, Listeners{}, quiet); err == nil {
+		Repos: []RepoConfig{{Name: "a/b", Upstream: "git@github.com:a/b.git", KeyPrefix: "ab"}}}, Listeners{}, quiet); err == nil {
 		t.Error("ssh upstream accepted")
 	}
 }

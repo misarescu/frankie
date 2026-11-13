@@ -11,7 +11,7 @@ previews:
   # Maximum concurrent preview environments; 0 disables previews.
   maxConcurrent: 4
 
-# Pod limits per pod type. The laptop numbers are the documented baseline (FR-PR-3).
+# Pod limits per pod type. The concrete-profile numbers are the documented baseline (FR-PR-3).
 podResources:
   coder:
     limits: { cpu: "2", memory: 3Gi }

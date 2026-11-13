@@ -94,7 +94,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 	}
 	limits := s.Limits.DeepCopy()
 	limits[corev1.ResourceEphemeralStorage] = s.WorkspaceSize
-	// Requests equal limits: agent pods are Guaranteed and never overcommit the laptop.
+	// Requests equal limits: agent pods are Guaranteed and never overcommit the node.
 	requests := limits.DeepCopy()
 
 	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, s.NoProxy...), ",")

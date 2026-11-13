@@ -1,4 +1,4 @@
-# kata-deploy Helm values for the laptop (homelab k3s) cluster.
+# kata-deploy Helm values for the homelab k3s cluster (concrete profile).
 # Protected path: Kata runtime class config requires a human gate (docs/spec/05-sandbox-and-toolchains.md).
 # Chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy, version pinned in deploy/kata/README.md.
 

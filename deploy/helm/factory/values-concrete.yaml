@@ -1,5 +1,5 @@
-# Laptop profile: 16 GiB, 4 cores, single-node k3s (docs/spec/09-deployment-profiles.md).
-profile: laptop
+# Concrete profile (D24): one 16 GiB, 4-core laptop running single-node k3s (docs/spec/09-deployment-profiles.md).
+profile: concrete
 
 scheduler:
   maxConcurrentIssues: 1
@@ -9,7 +9,7 @@ previews:
   maxConcurrent: 1
 
 egressProxy:
-  # No dependency proxy on the laptop: public package registries (docs/spec/09).
+  # No dependency proxy in the concrete profile: public package registries (docs/spec/09).
   allow:
     - proxy.golang.org
     - sum.golang.org

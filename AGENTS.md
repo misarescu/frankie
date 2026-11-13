@@ -15,7 +15,7 @@ Everything runs through mise tasks; tool versions are pinned in `mise.toml` (loc
 - `mise install` then `mise run doctor`: install pinned tools, then check tools, Docker and the cluster.
 - `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
 - Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
-- E2E tests carry the `//go:build e2e` tag and run against a real cluster (`e2e/`, see the package comment for the environment variables): `FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> mise run e2e`.
+- Cluster acceptance tests live in `e2e/`: Ginkgo v2 + Gomega (D25), build tag `e2e`, environment variables in `e2e/e2e_suite_test.go`. Run them with `FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> mise run e2e`; narrow with `mise exec -- ginkgo --tags=e2e --label-filter=sandbox ./e2e`. Unit tests stay on the standard `testing` package.
 - Platform images (`deploy/images/`) are built by CI and published to GHCR on merges to `main` (D23). Claude Code crashes under QEMU, so build the runner image locally only for your native platform.
 - `mise run test:race` runs the suite under the race detector (also in CI). `mise run test:smoke-claude` checks the Claude Code adapter against the real `claude` CLI; it spends model usage, so run it only when changing the adapter or upgrading Claude Code.
 - Store tests need Postgres: `mise run db:up` (Docker, port 55432; `db:down` removes it). Each test creates and drops its own database. Without Postgres they skip locally but fail in CI. `mise.toml` sets `FRANKIE_TEST_DATABASE_URL` and overrides the shell environment inside `mise run`/`mise exec`.
@@ -46,9 +46,9 @@ Use the spec's vocabulary in code and docs (defined under Terminology in `docs/s
 - Deployment: Helm chart in `deploy/helm/`, Flux manifests in `deploy/flux/`.
 - Tooling is declared in `mise.toml`.
 
-## Laptop profile
+## Concrete profile
 
-Every milestone must run on the **laptop profile**: a 16 GiB laptop running single-node k3s with reduced services (see `docs/spec/09-deployment-profiles.md`). Profile differences are configuration, not forks (D18). Check memory budgets and the profile's deferrals before adding a service or a pod.
+Every milestone must run on the **concrete profile**: a 16 GiB laptop running single-node k3s with reduced services (see `docs/spec/09-deployment-profiles.md`). Profile differences are configuration, not forks (D18). Check memory budgets and the profile's deferrals before adding a service or a pod.
 
 ## Invariants (never violate; changes need explicit human approval)
 

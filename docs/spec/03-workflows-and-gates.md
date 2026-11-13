@@ -107,4 +107,4 @@ Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code
 - **Overlap warning.** Before launching parallel issues, the scheduler compares `file_hints` and recent diffs by package; likely overlap produces a UI warning (and optionally serialization).
 - **Budgets.** Per-step, per-issue and per-release token/cost budgets enforced at the LLM gateway. Exceeding a budget aborts the step and escalates.
 - **Loop counts** are recorded per issue. High loop counts usually indicate a weak spec and surface in metrics.
-- **Concurrency of reviewers** is configurable; on the laptop profile reviewers run sequentially.
+- **Concurrency of reviewers** is configurable; on the concrete profile reviewers run sequentially.

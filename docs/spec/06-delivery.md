@@ -16,7 +16,7 @@ Each stage after the build loop is the same interpreter workflow with a differen
 
 ### Preview environments
 
-One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the laptop profile allows at most one at a time or none.
+One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the concrete profile allows at most one at a time or none.
 
 ## Merge queue
 

@@ -33,7 +33,7 @@ else
 	warn "docker daemon not reachable: needed by 'mise run db:diff' (Atlas dev database)"
 fi
 
-echo "== Cluster (laptop profile)"
+echo "== Cluster (concrete profile)"
 if ! command -v kubectl >/dev/null 2>&1; then
 	warn "kubectl not on PATH; skipping cluster checks"
 elif ! context=$(kubectl config current-context 2>/dev/null); then

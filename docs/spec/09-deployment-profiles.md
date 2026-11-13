@@ -1,8 +1,8 @@
 # 09 - Deployment profiles
 
-The same codebase supports two profiles. Differences are Helm values and driver/connector choices, not forks.
+The same codebase supports two profiles: **full** and **concrete** (called "laptop" before D24; it is sized for a single 16 GiB laptop host). Differences are Helm values and driver/connector choices, not forks.
 
-| Concern | Full profile | Laptop profile |
+| Concern | Full profile | Concrete profile |
 |---|---|---|
 | Kubernetes | Full cluster | **k3s, single node** |
 | Postgres | One instance, separate DBs for app/Temporal/LiteLLM | Same (shared instance) |
@@ -17,9 +17,9 @@ The same codebase supports two profiles. Differences are Helm values and driver/
 | Concurrency | Configurable | `maxConcurrentIssues = 1`; reviewers sequential |
 | Remote access | Ingress + OIDC | Tailscale (or similar) |
 
-Network allowlist differs accordingly: on the laptop profile, egress to public package registries is permitted in addition to the LLM gateway and git host, because there is no dependency proxy.
+Network allowlist differs accordingly: on the concrete profile, egress to public package registries is permitted in addition to the LLM gateway and git host, because there is no dependency proxy.
 
-## Laptop sizing (16 GiB RAM, 4 cores)
+## Concrete profile sizing (one laptop: 16 GiB RAM, 4 cores)
 
 Memory budget, GiB:
 
@@ -48,9 +48,9 @@ Concurrent pods:
 
 Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kernel and agent, typically a few hundred MiB per pod) or page cache. Measure it in M1 and adjust limits (open question).
 
-## Dropped or deferred on the laptop
+## Dropped or deferred in the concrete profile
 
-| Dropped or deferred | On the laptop instead |
+| Dropped or deferred | In the concrete profile instead |
 |---|---|
 | NATS | Stream events through Postgres LISTEN/NOTIFY, or in-process |
 | Observability stack | Temporal UI, the factory's run view and kubectl logs; a small VictoriaMetrics later for metrics |
@@ -72,5 +72,5 @@ Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kerne
 ## Profile-driven requirements
 
 - **FR-PR-1** Interfaces (event bus, registry client, dependency proxy config) are abstracted so a profile swaps implementations by Helm value.
-- **FR-PR-2** The platform must start and pass the M1 acceptance test on the laptop profile within the memory budget above.
-- **FR-PR-3** Resource requests/limits for platform and pod types are Helm values with the laptop numbers as the documented baseline.
+- **FR-PR-2** The platform must start and pass the M1 acceptance test on the concrete profile within the memory budget above.
+- **FR-PR-3** Resource requests/limits for platform and pod types are Helm values with the concrete-profile numbers as the documented baseline.

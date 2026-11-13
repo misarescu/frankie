@@ -136,9 +136,24 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// listRuns returns recent runs.
+const (
+	defaultRunsLimit = 50
+	maxRunsLimit     = 200
+)
+
+// listRuns returns recent runs, newest first. The optional limit query
+// parameter is a positive integer up to maxRunsLimit (default 50).
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.Store.ListRecentRuns(r.Context(), 50)
+	limit := defaultRunsLimit
+	if v, ok := r.URL.Query()["limit"]; ok {
+		n, err := strconv.Atoi(v[0])
+		if err != nil || n < 1 || n > maxRunsLimit {
+			http.Error(w, "limit must be an integer from 1 to 200", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	runs, err := s.Store.ListRecentRuns(r.Context(), limit)
 	if err != nil {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return

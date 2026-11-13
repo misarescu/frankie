@@ -156,3 +156,42 @@ func TestListEventsPages(t *testing.T) {
 		}
 	}
 }
+
+// frk-2: GET /api/runs takes an optional limit (default 50, 1 to 200).
+func TestListRunsLimit(t *testing.T) {
+	st, srv, run, _ := testServer(t)
+	is, err := st.GetIssue(t.Context(), run.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 54 {
+		ni, err := st.CreateIssue(t.Context(), store.NewIssue{ProjectID: is.ProjectID, Type: domain.IssueTask, Title: "t", Status: domain.IssueRunning, CreatedBy: "t"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateRun(t.Context(), store.NewRun{IssueID: ni.ID, WorkflowSnapshot: []byte(`{}`), WorkflowVersion: "1", TemporalWorkflowID: "issue-gc-x" + strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(body string) int {
+		var runs []json.RawMessage
+		if err := json.Unmarshal([]byte(body), &runs); err != nil {
+			t.Fatalf("body %q: %v", body, err)
+		}
+		return len(runs)
+	}
+	for _, c := range []struct {
+		query string
+		want  int
+	}{{"", 50}, {"?limit=3", 3}, {"?limit=1", 1}, {"?limit=200", 55}} {
+		code, body := get(t, srv.URL+"/api/runs"+c.query)
+		if code != http.StatusOK || count(body) != c.want {
+			t.Errorf("%q: status %d, %d runs, want %d", c.query, code, count(body), c.want)
+		}
+	}
+	for _, q := range []string{"abc", "0", "-1", "201", "", "1.5"} {
+		if code, _ := get(t, srv.URL+"/api/runs?limit="+q); code != http.StatusBadRequest {
+			t.Errorf("limit=%q = %d, want 400", q, code)
+		}
+	}
+}

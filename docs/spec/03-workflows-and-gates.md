@@ -47,14 +47,25 @@ steps:
 
 Notes versus the earliest sketch: `implement` and `e2e-tests` are in a `parallel` group because the e2e test agent runs in parallel with the coder (D9). Model names above are placeholders; real refs are resolved against provider profiles.
 
+### Where definitions come from (D39)
+
+The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. Until later milestones, the built-in `default-build` has no `e2e-tests` branch (M7), one Claude Code reviewer (M4) and ends with `change-request.open` (M6).
+
+Parsing fills in every default, so the snapshot is explicit: `harness: claude-code`; all inputs; `policy: blocking`; `onFail: fail` for blocking gates; `run: ["mise run lint", "mise run test"]` for command gates; `require: all`; human gates `timeout: 72h, onTimeout: fail`.
+
 ### Step kinds
 
 | Kind | Fields | Behavior |
 |---|---|---|
-| agent | `id, agent{role, harness, model}, inputs?, timeout?, budget?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. |
+| agent | `id, agent{role, harness, model}, inputs?, timeout?, budgetUSD?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. |
 | gate | `id, gate{type, ...}` | See below. |
-| parallel | list of steps, optional trailing `gate` | Run branches concurrently; gate evaluates after all finish. |
-| action | `id, action: <name>` | Built-in control plane action, e.g. `merge-queue.enqueue`, `release.create`, `issue.comment`. |
+| parallel | list of agent steps, optional trailing `gate`; `id` required when gated | Run branches concurrently; gate evaluates after all finish. A branch without an `id` is named after its role. |
+| action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`; `merge-queue.enqueue` (M6), `release.create` (M7) and `issue.comment` are rejected until they exist. |
+
+- `role` is a role name, optionally pinned as `name@version`.
+- `model` is a model ref `<provider>/<model>`; empty means the role's default model, then the platform's. Claude Code reaches the `anthropic` provider only.
+- `inputs` are `spec`, `acceptance_criteria`, `diff` and `feedback` (the findings of the gate that looped back). Until the native issue store (M5) separates them, `spec` and `acceptance_criteria` both come from the issue body.
+- A `goto` to a branch of an earlier parallel group re-runs only that branch, then continues with the step after the group.
 
 ### Gates
 
@@ -63,13 +74,13 @@ One concept, three types:
 | Type | Evaluation | Notes |
 |---|---|---|
 | `command` | Run commands in a **fresh pod** from the pushed commit with the project's toolchain image. Pass = all exit 0, as recorded by the kubelet per command (D33). | Deterministic gates always run before LLM gates. Agent-reported results are never accepted. |
-| `agent-verdict` | A reviewer agent returns JSON validated against a schema (`verdict: pass|fail`, `findings[]` with severity, file, line, message). | `require: all|any|majority` for multiple reviewers. |
-| `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|escalate|extend`. Used for spec approval, protected paths, production. |
+| `agent-verdict` | A reviewer agent returns JSON validated against a schema (`verdict: pass|fail`, `findings[]` with severity, file, line, message). | `require: all|any|majority` for multiple reviewers. Only on a parallel group (its branches are the reviewers), and only after a `command` gate. |
+| `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|extend` (`escalate` needs a notification channel; not yet). Always blocking; a rejection fails the run. Used for spec approval, protected paths, production. |
 
 Every gate has:
 
-- `policy: blocking | advisory`: advisory results are recorded and shown but do not stop the run.
-- `onFail`: `{ goto: <step-id>, maxLoops: N }`, `fail`, or `escalate` (route to a human gate).
+- `policy: blocking | advisory`: advisory results are recorded and shown but do not stop the run, so advisory gates have no `onFail`.
+- `onFail`: `{ goto: <step-id>, maxLoops: N }`, `fail`, or `escalate` (route to a human gate). `goto` targets an earlier agent step, parallel group or branch, never the gate's own group; `maxLoops` is 1 to 10.
 
 ### Built-in protections
 
@@ -77,7 +88,11 @@ Regardless of the definition, the interpreter forces a human gate when a change 
 
 ### Validation (at save time)
 
+Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks against roles and the repo arrive with them.
+
 - All `goto` targets exist and are earlier steps; each loop has `maxLoops`.
+- Step IDs are unique (branches included); each step is exactly one kind; gate fields match the gate type.
+- Harnesses and actions exist and are implemented.
 - Roles exist and are pinned to a version.
 - Harness/model compatibility (e.g. Claude Code requires an Anthropic-style API route; opencode and pi are multi-provider).
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.

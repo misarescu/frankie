@@ -112,7 +112,7 @@ deploy/
   flux/clusters/    Flux manifests per cluster (bootstrap path)
   kata/             kata-deploy values for the cluster runtime (protected)
 roles/              example role definitions
-workflows/          example workflow definitions
+workflows/          built-in workflow definitions, embedded in the control plane (D39)
 scripts/            helpers called by mise tasks
 e2e/                cluster acceptance tests (build tag e2e)
 docs/

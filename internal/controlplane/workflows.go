@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	tlog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
@@ -15,6 +17,7 @@ import (
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
+	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/intake"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
@@ -83,11 +86,20 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	}
 
 	gh := github.NewClient(cfg.GitHubToken, "")
+	var toolchain *images.Ensurer
+	if cfg.Toolchain.Enabled() {
+		toolchain = &images.Ensurer{
+			Registry: images.HTTPRegistry{BaseURL: cfg.Toolchain.RegistryURL, Client: &http.Client{Timeout: 15 * time.Second}},
+			Builder: images.KubeBuilder{Kube: cfg.Kube, Config: cfg.Toolchain.Build,
+				Heartbeat: func(ctx context.Context, details ...any) { activity.RecordHeartbeat(ctx, details...) }},
+			PullHost: cfg.Toolchain.PullHost,
+		}
+	}
 	// On shutdown, give running Activities time to finish before the pod exits
 	// (terminationGracePeriodSeconds in the chart is longer).
 	w := worker.New(c, workflow.TaskQueue, worker.Options{WorkerStopTimeout: 30 * time.Second})
 	w.RegisterWorkflow(workflow.IssueRun)
-	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Agent: cfg.Agent,
+	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent,
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()

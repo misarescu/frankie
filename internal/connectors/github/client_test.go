@@ -77,3 +77,53 @@ func TestStatusErrors(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestResolveRef(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/commits/main" || r.Header.Get("Accept") != "application/vnd.github.sha" {
+			http.Error(w, "unexpected request "+r.URL.String(), http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("0123456789abcdef0123456789abcdef01234567\n"))
+	}))
+	defer srv.Close()
+	sha, err := NewClient("pat", srv.URL).ResolveRef(t.Context(), "o/r", "main")
+	if err != nil || sha != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatalf("ResolveRef = %q, %v", sha, err)
+	}
+}
+
+func TestFileAt(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		body      string
+		wantFound bool
+		wantErr   bool
+	}{
+		{"present", http.StatusOK, "[tools]\n", true, false},
+		{"absent", http.StatusNotFound, `{"message":"Not Found"}`, false, false},
+		{"server error is not absence", http.StatusBadGateway, "oops", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/repos/o/r/contents/.factory/config.yaml" || r.URL.Query().Get("ref") != "abc" ||
+					r.Header.Get("Accept") != "application/vnd.github.raw+json" {
+					http.Error(w, "unexpected request "+r.URL.String(), http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			got, found, err := NewClient("pat", srv.URL).FileAt(t.Context(), "o/r", ".factory/config.yaml", "abc")
+			if (err != nil) != tt.wantErr || found != tt.wantFound {
+				t.Fatalf("FileAt = %q, %v, %v", got, found, err)
+			}
+			if found && string(got) != tt.body {
+				t.Errorf("content = %q", got)
+			}
+		})
+	}
+}

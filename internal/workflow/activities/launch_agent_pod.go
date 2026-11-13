@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -22,15 +23,21 @@ func podName(in IssueRunInput, run StartRunResult) string {
 	return fmt.Sprintf("%s-implement-%s", in.IssueKey, strings.ReplaceAll(run.StepRunID, "-", "")[24:])
 }
 
-// LaunchAgentPod creates the sandboxed agent pod and waits for its IP.
-func (a *Activities) LaunchAgentPod(ctx context.Context, in IssueRunInput, run StartRunResult) (AgentPod, error) {
-	spec, err := sandbox.AgentPod(sandbox.PodSpec{
-		Name: podName(in, run), Namespace: a.Agent.Namespace, Image: a.Agent.RunnerImage,
+// agentPodSpec is the sandboxed pod for the run's agent step. It runs in the
+// repo's toolchain image when the workflow resolved one, else the base image.
+func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult) (*corev1.Pod, error) {
+	return sandbox.AgentPod(sandbox.PodSpec{
+		Name: podName(in, run), Namespace: a.Agent.Namespace, Image: cmp.Or(run.ToolchainImage, a.Agent.RunnerImage),
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
 		Limits: a.Agent.Limits, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
 	})
+}
+
+// LaunchAgentPod creates the sandboxed agent pod and waits for its IP.
+func (a *Activities) LaunchAgentPod(ctx context.Context, in IssueRunInput, run StartRunResult) (AgentPod, error) {
+	spec, err := a.agentPodSpec(in, run)
 	if err != nil {
 		return AgentPod{}, temporal.NewNonRetryableApplicationError("invalid agent pod spec", "config", err)
 	}

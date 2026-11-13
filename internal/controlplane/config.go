@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
@@ -50,6 +52,61 @@ type fileConfig struct {
 		AuthorName     string   `json:"authorName"`
 		AuthorEmail    string   `json:"authorEmail"`
 	} `json:"agent"`
+	// Toolchains configures toolchain images (D30); an empty registryURL disables them.
+	Toolchains struct {
+		RegistryURL    string   `json:"registryURL"` // as the control plane reaches the registry
+		PushHost       string   `json:"pushHost"`    // as build pods reach it
+		PullHost       string   `json:"pullHost"`    // as nodes reach it
+		Namespace      string   `json:"namespace"`
+		BuildKitImage  string   `json:"buildkitImage"`
+		RuntimeClass   string   `json:"runtimeClass"`
+		ServiceAccount string   `json:"serviceAccount"`
+		EgressProxyURL string   `json:"egressProxyURL"`
+		NoProxy        []string `json:"noProxy"`
+		CPU            string   `json:"cpu"`
+		Memory         string   `json:"memory"`
+		ScratchSize    string   `json:"scratchSize"`
+		Deadline       string   `json:"deadline"`
+	} `json:"toolchains"`
+}
+
+// ToolchainConfig is how toolchain images are found and built; the zero value
+// disables them.
+type ToolchainConfig struct {
+	RegistryURL string // control plane -> registry, e.g. http://frankie-registry.frankie.svc:5000
+	PullHost    string // node -> registry, e.g. localhost:30500
+	Build       images.BuildConfig
+}
+
+// Enabled reports whether toolchain images are configured.
+func (t ToolchainConfig) Enabled() bool { return t.RegistryURL != "" }
+
+func (fc fileConfig) toolchain() (ToolchainConfig, error) {
+	t := fc.Toolchains
+	if t.RegistryURL == "" {
+		return ToolchainConfig{}, nil
+	}
+	cpu, err1 := resource.ParseQuantity(t.CPU)
+	mem, err2 := resource.ParseQuantity(t.Memory)
+	scratch, err3 := resource.ParseQuantity(t.ScratchSize)
+	deadline, err4 := time.ParseDuration(t.Deadline)
+	if err := errors.Join(err1, err2, err3, err4); err != nil {
+		return ToolchainConfig{}, fmt.Errorf("controlplane: config: toolchains cpu %q, memory %q, scratchSize %q or deadline %q invalid: %w",
+			t.CPU, t.Memory, t.ScratchSize, t.Deadline, err)
+	}
+	cfg := ToolchainConfig{
+		RegistryURL: t.RegistryURL, PullHost: t.PullHost,
+		Build: images.BuildConfig{
+			Namespace: t.Namespace, BuildKitImage: t.BuildKitImage, RuntimeClassName: t.RuntimeClass,
+			ServiceAccountName: t.ServiceAccount, PushHost: t.PushHost, EgressProxyURL: t.EgressProxyURL, NoProxy: t.NoProxy,
+			Deadline: deadline, ScratchSize: scratch,
+			Limits: corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: mem},
+		},
+	}
+	if t.PullHost == "" {
+		return ToolchainConfig{}, errors.New("controlplane: config: toolchains.pullHost is required with toolchains.registryURL")
+	}
+	return cfg, nil
 }
 
 // LoadConfigFile reads the non-secret configuration into cfg.
@@ -110,5 +167,8 @@ func LoadConfigFile(path string, cfg *Config) error {
 		agent.WorkspaceSize = q
 	}
 	cfg.Agent = agent
+	if cfg.Toolchain, err = fc.toolchain(); err != nil {
+		return err
+	}
 	return nil
 }

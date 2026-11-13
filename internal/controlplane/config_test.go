@@ -58,3 +58,48 @@ func TestLoadConfigFileErrors(t *testing.T) {
 		t.Error("missing file accepted")
 	}
 }
+
+func TestLoadConfigFileToolchains(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+
+	t.Run("configured", func(t *testing.T) {
+		cfg, err := load(t, `{"toolchains": {
+		  "registryURL": "http://frankie-registry.frankie.svc:5000", "pushHost": "frankie-registry.frankie.svc:5000",
+		  "pullHost": "localhost:30500", "namespace": "frankie-build", "buildkitImage": "moby/buildkit:v0.35.0",
+		  "runtimeClass": "kata", "serviceAccount": "frankie-build", "egressProxyURL": "http://proxy:3128",
+		  "cpu": "2", "memory": "3Gi", "scratchSize": "10Gi", "deadline": "30m"}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tc := cfg.Toolchain
+		if !tc.Enabled() || tc.PullHost != "localhost:30500" || tc.Build.PushHost != "frankie-registry.frankie.svc:5000" ||
+			tc.Build.Deadline != 30*time.Minute || tc.Build.ScratchSize.String() != "10Gi" || tc.Build.Limits.Memory().String() != "3Gi" {
+			t.Errorf("toolchain = %+v", tc)
+		}
+	})
+	t.Run("absent disables toolchain images", func(t *testing.T) {
+		cfg, err := load(t, `{}`)
+		if err != nil || cfg.Toolchain.Enabled() {
+			t.Errorf("enabled = %v, err = %v", cfg.Toolchain.Enabled(), err)
+		}
+	})
+	t.Run("invalid", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"bad deadline": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "soon"}}`,
+			"bad quantity": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "lots", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`,
+			"no pull host": `{"toolchains": {"registryURL": "http://r", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`,
+		} {
+			if _, err := load(t, body); err == nil {
+				t.Errorf("%s: accepted", name)
+			}
+		}
+	})
+}

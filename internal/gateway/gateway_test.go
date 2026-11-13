@@ -45,6 +45,12 @@ func TestCreateKey(t *testing.T) {
 	if (*paths)[0] != "/key/generate" || b["max_budget"] != 2.5 || b["duration"] != "7200s" || b["key_alias"] != "run-r1" {
 		t.Errorf("request %s %v", (*paths)[0], b)
 	}
+	if _, err := c.CreateKey(t.Context(), KeyRequest{RunID: "r1", Alias: "run-r1-attempt-2", Models: []string{"m"}, MaxBudgetUSD: 1, TTL: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*bodies)[1]["key_alias"]; got != "run-r1-attempt-2" {
+		t.Errorf("explicit alias = %v", got)
+	}
 	if models := b["models"].([]any); len(models) != 1 || models[0] != "claude-sonnet-5-5" {
 		t.Errorf("models = %v", b["models"])
 	}

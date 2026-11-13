@@ -18,6 +18,52 @@ stringData:
   # Signs git proxy tokens (D21). Rotating it invalidates tokens of running steps.
   gitproxy-key: {{ $key | quote }}
 ---
+# The control plane launches agent pods, and nothing else, in the agents namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-agents
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, watch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-agents
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-agents
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{- include "frankie.controlplaneConfig" . | nindent 4 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,6 +73,10 @@ metadata:
     app.kubernetes.io/component: controlplane
 spec:
   replicas: 1
+  # Never run two control plane versions at once: the new one migrates the
+  # schema at startup, and an old worker must not act on the new schema.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "frankie.componentLabels" (list . "controlplane") | nindent 6 }}
@@ -35,9 +85,12 @@ spec:
       labels:
         {{- include "frankie.componentLabels" (list . "controlplane") | nindent 8 }}
       annotations:
-        checksum/repos: {{ .Values.controlPlane.repos | toJson | sha256sum }}
+        checksum/config: {{ include "frankie.controlplaneConfig" . | sha256sum }}
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: {{ $name }}
+      terminationGracePeriodSeconds: 45
+      # Needed to launch agent pods; the Role above limits it to that.
+      automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -62,8 +115,11 @@ spec:
             - name: FRANKIE_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef: { name: {{ .Values.controlPlane.githubSecret }}, key: token, optional: true }
-            - name: FRANKIE_REPOS
-              value: {{ include "frankie.repos" . | quote }}
+            - name: FRANKIE_GATEWAY_MASTER_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ printf "%s-llm-gateway" (include "frankie.fullname" .) }}, key: master-key }
+            - name: FRANKIE_CONFIG
+              value: /etc/frankie/config.json
           ports:
             - name: api
               containerPort: {{ .Values.controlPlane.apiPort }}
@@ -86,6 +142,14 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/frankie
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
 ---
 apiVersion: v1
 kind: Service

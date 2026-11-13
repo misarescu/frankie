@@ -6,7 +6,7 @@ The same codebase supports two profiles: **full** and **concrete** (called "lapt
 |---|---|---|
 | Kubernetes | Full cluster | **k3s, single node** |
 | Postgres | One instance, separate DBs for app/Temporal/LiteLLM | Same (shared instance) |
-| Temporal | Production deployment | **Single binary on the shared Postgres** |
+| Temporal | Production deployment on Postgres | **Single binary (`temporal server start-dev`) on SQLite, D29** |
 | Event bus | NATS or Redis Streams | **Postgres LISTEN/NOTIFY, or in-process** |
 | LLM gateway | LiteLLM | LiteLLM (kept: keeps API keys out of sandboxes) |
 | Registry | Harbor (scanning, proxy cache) or Zot | **Plain `registry:2`** for toolchain images; platform images come from GHCR (D23) |
@@ -27,7 +27,7 @@ Memory budget, GiB:
 |---|---|---|---|
 | OS + k3s (single node) | 1.5 | 1.5 | k3s instead of full Kubernetes |
 | Postgres | 1.0 | 1.0 | One instance for app, Temporal and LiteLLM |
-| Temporal | 0.5 | 1.0 | Single binary on the shared Postgres |
+| Temporal | 0.15 | 0.5 | Single binary on SQLite (D29) |
 | Control plane API + UI | 0.3 | 0.3 | |
 | LiteLLM gateway | 0.5 | 0.5 | Kept: keeps API keys out of sandboxes |
 | Flux | 0.3 | 0.3 | |

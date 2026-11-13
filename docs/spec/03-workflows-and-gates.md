@@ -108,3 +108,10 @@ Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code
 - **Budgets.** Per-step, per-issue and per-release token/cost budgets enforced at the LLM gateway. Exceeding a budget aborts the step and escalates.
 - **Loop counts** are recorded per issue. High loop counts usually indicate a weak spec and surface in metrics.
 - **Concurrency of reviewers** is configurable; on the concrete profile reviewers run sequentially.
+
+## M1: the hardcoded workflow
+
+Until the generic interpreter (M3), `internal/workflow.IssueRun` runs every issue the same way: `StartRun` (Run + `implement` StepRun, issue `ready -> running`), `LaunchAgentPod` (Kata pod from `internal/sandbox`), `RunAgentSession` (mints the git proxy token and gateway virtual key, passes them to the runner over gRPC so they never enter the pod spec or the workflow history, persists every event, heartbeats the last stored `seq` so a retry resumes the stream), `DeleteAgentPod` (always, on a disconnected context), `OpenChangeRequest` (idempotent), `FinishRun` (issue `awaiting_human` on success, `failed` otherwise). Workflow ID `issue-<key>` with "use existing" on conflict, so intake polls never start a second concurrent run.
+
+Workflow types live one per file in `internal/workflow` (`issue_run.go` now; `interpret.go`, a per-repo merge queue and a release workflow later), sharing `TaskQueue` and Activity options from `workflow.go`. Their Activities are in `internal/workflow/activities`, one per file. `LaunchAgentPod`, `RunAgentSession`, `DeleteAgentPod`, `OpenChangeRequest` and `FinishRun` are meant to carry over to `Interpret`'s agent and action steps. `Interpret` will be a new workflow type rather than a changed `IssueRun`, so no `workflow.GetVersion` is needed: `IssueRun` stays registered (and its replay fixture valid) until its in-flight runs drain.
+

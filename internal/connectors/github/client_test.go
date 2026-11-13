@@ -1,0 +1,79 @@
+package github
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestListOpenIssuesSkipsPullRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer pat" || r.URL.Path != "/repos/o/r/issues" ||
+			r.URL.Query().Get("labels") != "factory" || r.URL.Query().Get("state") != "open" {
+			http.Error(w, "unexpected request "+r.URL.String(), http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`[
+		 {"number":1,"title":"Add search","body":"spec","html_url":"https://github.com/o/r/issues/1","user":{"login":"mi"},"labels":[{"name":"factory"}]},
+		 {"number":2,"title":"a PR","html_url":"https://github.com/o/r/pull/2","pull_request":{}}]`))
+	}))
+	defer srv.Close()
+	issues, err := NewClient("pat", srv.URL).ListOpenIssues(t.Context(), "o/r", "factory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Number != 1 || issues[0].URL != "https://github.com/o/r/issues/1" || issues[0].Author != "mi" {
+		t.Errorf("issues = %+v", issues)
+	}
+}
+
+func TestOpenPullRequest(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":9,"html_url":"https://github.com/o/r/pull/9","head":{"sha":"abc"}}`))
+	}))
+	defer srv.Close()
+	pr, err := NewClient("pat", srv.URL).OpenPullRequest(t.Context(), "o/r", "agent/gc-1/x", "main", "gc-1: title", "body")
+	if err != nil || pr.Number != 9 || pr.Head != "abc" {
+		t.Fatalf("pr = %+v, %v", pr, err)
+	}
+	if got["head"] != "agent/gc-1/x" || got["base"] != "main" || got["title"] != "gc-1: title" {
+		t.Errorf("request = %v", got)
+	}
+}
+
+// A retried Activity finds the PR it opened before.
+func TestOpenPullRequestReturnsExisting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"message":"A pull request already exists for o:agent/gc-1/x."}]}`))
+			return
+		}
+		if r.URL.Query().Get("head") != "o:agent/gc-1/x" {
+			http.Error(w, "bad head filter", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"number":9,"html_url":"https://github.com/o/r/pull/9","head":{"sha":"abc"}}]`))
+	}))
+	defer srv.Close()
+	pr, err := NewClient("pat", srv.URL).OpenPullRequest(t.Context(), "o/r", "agent/gc-1/x", "main", "t", "b")
+	if err != nil || pr.Number != 9 {
+		t.Fatalf("pr = %+v, %v", pr, err)
+	}
+}
+
+func TestStatusErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	_, err := NewClient("bad", srv.URL).ListOpenIssues(t.Context(), "o/r", "factory")
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Errorf("err = %v", err)
+	}
+}

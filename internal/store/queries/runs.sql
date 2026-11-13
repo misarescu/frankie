@@ -1,7 +1,10 @@
 -- name: CreateRun :one
-INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id)
-VALUES (@id, @issue_id, @workflow_snapshot, @workflow_version, @temporal_workflow_id)
+INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
+VALUES (@id, @issue_id, @workflow_snapshot, @workflow_version, @temporal_workflow_id, sqlc.narg('temporal_run_id'))
 RETURNING *;
+
+-- name: GetRunByTemporalRunID :one
+SELECT * FROM runs WHERE temporal_run_id = @temporal_run_id;
 
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;

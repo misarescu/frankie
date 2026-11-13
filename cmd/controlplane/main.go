@@ -1,13 +1,13 @@
 // Command controlplane runs the Frankie control plane: store, git proxy for
-// agent pods, API, and (as M1 proceeds) Temporal workers and connectors.
+// agent pods, API, Temporal worker and issue intake.
 //
-// Configuration comes from flags and the environment:
+// Non-secret configuration is a JSON file (FRANKIE_CONFIG, rendered by the Helm
+// chart); secrets come from the environment:
 //
-//	FRANKIE_DATABASE_URL  Postgres URL (required)
-//	FRANKIE_GITPROXY_KEY  git proxy token signing key, >= 32 bytes (required)
-//	FRANKIE_GITHUB_TOKEN  fine-grained PAT for the project repos (D26, optional)
-//	FRANKIE_REPOS         comma-separated name=upstream pairs, e.g.
-//	                      misarescu/frankie-toy=https://github.com/misarescu/frankie-toy.git
+//	FRANKIE_DATABASE_URL        Postgres URL (required)
+//	FRANKIE_GITPROXY_KEY        git proxy token signing key, >= 32 bytes (required)
+//	FRANKIE_GITHUB_TOKEN        fine-grained PAT for the project repos (D26)
+//	FRANKIE_GATEWAY_MASTER_KEY  LLM gateway admin key
 package main
 
 import (
@@ -19,8 +19,10 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/misarescu/frankie/internal/controlplane"
 )
@@ -35,20 +37,31 @@ func main() {
 func run() error {
 	apiAddr := flag.String("api-listen", ":8080", "API and health listen address")
 	gitAddr := flag.String("gitproxy-listen", ":8081", "git proxy listen address (agent pods)")
+	configPath := flag.String("config", os.Getenv("FRANKIE_CONFIG"), "JSON configuration file")
 	flag.Parse()
 
-	repos, err := parseRepos(os.Getenv("FRANKIE_REPOS"))
-	if err != nil {
-		return err
-	}
 	cfg := controlplane.Config{
-		DatabaseURL: os.Getenv("FRANKIE_DATABASE_URL"),
-		GitProxyKey: []byte(os.Getenv("FRANKIE_GITPROXY_KEY")),
-		GitHubToken: os.Getenv("FRANKIE_GITHUB_TOKEN"),
-		Repos:       repos,
+		DatabaseURL:      os.Getenv("FRANKIE_DATABASE_URL"),
+		GitProxyKey:      []byte(os.Getenv("FRANKIE_GITPROXY_KEY")),
+		GitHubToken:      os.Getenv("FRANKIE_GITHUB_TOKEN"),
+		GatewayMasterKey: os.Getenv("FRANKIE_GATEWAY_MASTER_KEY"),
 	}
 	if cfg.DatabaseURL == "" {
 		return errors.New("FRANKIE_DATABASE_URL is required")
+	}
+	if *configPath != "" {
+		if err := controlplane.LoadConfigFile(*configPath, &cfg); err != nil {
+			return err
+		}
+	}
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		rc, err := rest.InClusterConfig()
+		if err != nil {
+			return fmt.Errorf("kubernetes config: %w", err)
+		}
+		if cfg.Kube, err = kubernetes.NewForConfig(rc); err != nil {
+			return fmt.Errorf("kubernetes client: %w", err)
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -64,21 +77,4 @@ func run() error {
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	return controlplane.Run(ctx, cfg, controlplane.Listeners{API: apiLis, GitProxy: gitLis}, log)
-}
-
-// parseRepos reads "name=url,name=url".
-func parseRepos(s string) (map[string]string, error) {
-	repos := map[string]string{}
-	for _, pair := range strings.Split(s, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		name, upstream, ok := strings.Cut(pair, "=")
-		if !ok || name == "" || upstream == "" {
-			return nil, fmt.Errorf("FRANKIE_REPOS: %q is not name=upstream", pair)
-		}
-		repos[name] = upstream
-	}
-	return repos, nil
 }

@@ -54,7 +54,8 @@ type Run struct {
 	IssueID            uuid.UUID
 	WorkflowSnapshot   json.RawMessage // definition snapshotted at start (invariant 4)
 	WorkflowVersion    string
-	TemporalWorkflowID string
+	TemporalWorkflowID string // stable per issue, reused by reruns
+	TemporalRunID      string // one execution; unique
 	Status             ExecStatus
 	LoopCounts         map[string]int // step ID -> loops taken
 	StartedAt          *time.Time

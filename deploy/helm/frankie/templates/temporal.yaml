@@ -1,0 +1,89 @@
+# Temporal (D29): the CLI's single-binary dev server, persisted to SQLite on a
+# volume. Only the control plane connects; the UI (port 8233) via port-forward.
+{{- $name := printf "%s-temporal" (include "frankie.fullname" .) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "temporal") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "temporal") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: temporal
+          image: {{ .Values.temporal.image }}
+          args: [server, start-dev, --db-filename, /data/temporal.db, --ip, 0.0.0.0, --port, "7233",
+                 --ui-port, "8233", --namespace, {{ .Values.temporal.namespace }}]
+          ports:
+            - { name: grpc, containerPort: 7233 }
+            - { name: ui, containerPort: 8233 }
+          readinessProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.temporal.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.temporal.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "temporal") | nindent 4 }}
+  ports:
+    - { name: grpc, port: 7233, targetPort: grpc }
+    - { name: ui, port: 8233, targetPort: ui }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "temporal") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - { port: 7233, protocol: TCP }

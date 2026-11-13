@@ -32,13 +32,36 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- end -}}
 {{- end -}}
 
-{{/* FRANKIE_REPOS: comma-separated name=upstream pairs from .Values.controlPlane.repos */}}
-{{- define "frankie.repos" -}}
-{{- $pairs := list -}}
+{{/* The control plane's non-secret configuration (internal/controlplane/config.go). */}}
+{{- define "frankie.controlplaneConfig" -}}
+{{- $full := include "frankie.fullname" . -}}
+{{- $a := .Values.controlPlane.agent -}}
+{{- $coder := .Values.podResources.coder.limits -}}
+{{- $repos := list -}}
 {{- range .Values.controlPlane.repos -}}
-{{- $pairs = append $pairs (printf "%s=%s" (required "controlPlane.repos[].name is required" .name) (required "controlPlane.repos[].upstream is required" .upstream)) -}}
+{{- $repos = append $repos (dict "name" (required "controlPlane.repos[].name is required" .name) "upstream" (required "controlPlane.repos[].upstream is required" .upstream) "keyPrefix" (required "controlPlane.repos[].keyPrefix is required" .keyPrefix) "baseBranch" (default "main" .baseBranch)) -}}
 {{- end -}}
-{{- join "," $pairs -}}
+{{- $cfg := dict
+  "repos" $repos
+  "intakeLabel" .Values.controlPlane.intake.label
+  "pollInterval" .Values.controlPlane.intake.pollInterval
+  "temporal" (dict "address" (printf "%s-temporal:7233" $full) "namespace" .Values.temporal.namespace)
+  "gatewayAdminURL" (printf "http://%s-llm-gateway:%v" $full .Values.llmGateway.port)
+  "agent" (dict
+    "namespace" .Values.agents.namespace
+    "runnerImage" (include "frankie.image" (list . "runner"))
+    "runtimeClass" .Values.agents.runtimeClassName
+    "serviceAccount" .Values.agents.serviceAccountName
+    "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)
+    "cpu" (toString $coder.cpu) "memory" (toString $coder.memory)
+    "workspaceSize" $a.workspaceSize "podDeadline" $a.podDeadline
+    "gitProxyURL" (printf "http://%s-controlplane.%s.svc:%v" $full .Release.Namespace .Values.controlPlane.gitProxyPort)
+    "gatewayURL" (printf "http://%s-llm-gateway.%s.svc:%v" $full .Release.Namespace .Values.llmGateway.port)
+    "model" $a.model "budgetUSD" $a.budgetUSD
+    "sessionTimeout" $a.sessionTimeout "idleTimeout" $a.idleTimeout
+    "authorName" $a.authorName "authorEmail" $a.authorEmail)
+-}}
+{{- toPrettyJson $cfg -}}
 {{- end -}}
 
 {{/* Prisma settings for LiteLLM: no update check, a writable home for its cache. */}}

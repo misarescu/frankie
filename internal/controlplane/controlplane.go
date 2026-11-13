@@ -12,24 +12,36 @@ import (
 	"net/http"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/store"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
-// Config is the control plane's configuration.
+// Config is the control plane's configuration. Secrets come from the
+// environment; the rest from a JSON file rendered by the chart (LoadConfigFile).
 type Config struct {
 	DatabaseURL string
 	// GitProxyKey signs git proxy tokens (D21); at least 32 bytes.
 	GitProxyKey []byte
-	// Repos maps factory repo names to upstream URLs, e.g.
-	// "misarescu/frankie-toy" -> "https://github.com/misarescu/frankie-toy.git".
-	Repos map[string]string
-	// GitHubToken authenticates upstream git traffic (D26). Empty works for
-	// public repos, read-only.
+	Repos       []RepoConfig
+	// GitHubToken authenticates git traffic and the GitHub API (D26). Empty
+	// works for public repos, read-only, and disables intake.
 	GitHubToken string
-	// DBWait bounds how long startup waits for Postgres; default 2 minutes.
+	// DBWait bounds how long startup waits for Postgres (and Temporal); default 2 minutes.
 	DBWait time.Duration
+
+	// Workflows run only when TemporalAddress is set.
+	TemporalAddress   string
+	TemporalNamespace string
+	GatewayAdminURL   string
+	GatewayMasterKey  string
+	Agent             activities.AgentConfig
+	Kube              kubernetes.Interface // where agent pods are launched
+	IntakeLabel       string
+	PollInterval      time.Duration
 }
 
 // Listeners are where the control plane serves.
@@ -50,7 +62,11 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	} else {
 		log.Warn("no GitHub token configured: the git proxy can only read public repos")
 	}
-	resolver, err := gitproxy.StaticResolver(cfg.Repos, authorize)
+	upstreams := map[string]string{}
+	for _, r := range cfg.Repos {
+		upstreams[r.Name] = r.Upstream
+	}
+	resolver, err := gitproxy.StaticResolver(upstreams, authorize)
 	if err != nil {
 		return err
 	}
@@ -64,6 +80,17 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 		return err
 	}
 	log.Info("database ready", "repos", len(cfg.Repos))
+	projects, err := ensureProjects(ctx, st, cfg.Repos)
+	if err != nil {
+		return err
+	}
+	if cfg.TemporalAddress != "" {
+		stop, err := startWorkflows(ctx, cfg, st, signer, projects, log)
+		if err != nil {
+			return err
+		}
+		defer stop()
+	}
 
 	api := http.NewServeMux()
 	api.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

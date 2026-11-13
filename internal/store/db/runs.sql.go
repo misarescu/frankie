@@ -12,9 +12,9 @@ import (
 )
 
 const createRun = `-- name: CreateRun :one
-INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at
+INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
 `
 
 type CreateRunParams struct {
@@ -23,6 +23,7 @@ type CreateRunParams struct {
 	WorkflowSnapshot   []byte
 	WorkflowVersion    string
 	TemporalWorkflowID string
+	TemporalRunID      *string
 }
 
 func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, error) {
@@ -32,6 +33,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		arg.WorkflowSnapshot,
 		arg.WorkflowVersion,
 		arg.TemporalWorkflowID,
+		arg.TemporalRunID,
 	)
 	var i Run
 	err := row.Scan(
@@ -46,6 +48,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TemporalRunID,
 	)
 	return i, err
 }
@@ -91,7 +94,7 @@ func (q *Queries) CreateStepRun(ctx context.Context, arg CreateStepRunParams) (S
 }
 
 const getActiveRunForIssue = `-- name: GetActiveRunForIssue :one
-SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at FROM runs WHERE issue_id = $1 AND status IN ('pending', 'running')
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE issue_id = $1 AND status IN ('pending', 'running')
 `
 
 func (q *Queries) GetActiveRunForIssue(ctx context.Context, issueID uuid.UUID) (Run, error) {
@@ -109,12 +112,13 @@ func (q *Queries) GetActiveRunForIssue(ctx context.Context, issueID uuid.UUID) (
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TemporalRunID,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at FROM runs WHERE id = $1
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
@@ -132,6 +136,31 @@ func (q *Queries) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TemporalRunID,
+	)
+	return i, err
+}
+
+const getRunByTemporalRunID = `-- name: GetRunByTemporalRunID :one
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE temporal_run_id = $1
+`
+
+func (q *Queries) GetRunByTemporalRunID(ctx context.Context, temporalRunID *string) (Run, error) {
+	row := q.db.QueryRow(ctx, getRunByTemporalRunID, temporalRunID)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.WorkflowSnapshot,
+		&i.WorkflowVersion,
+		&i.TemporalWorkflowID,
+		&i.Status,
+		&i.LoopCounts,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TemporalRunID,
 	)
 	return i, err
 }
@@ -262,7 +291,7 @@ SET status      = $1::text,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'canceled') THEN now() ELSE finished_at END,
     updated_at  = now()
 WHERE id = $2 AND status = $3::text
-RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
 `
 
 type TransitionRunParams struct {
@@ -287,6 +316,7 @@ func (q *Queries) TransitionRun(ctx context.Context, arg TransitionRunParams) (R
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TemporalRunID,
 	)
 	return i, err
 }

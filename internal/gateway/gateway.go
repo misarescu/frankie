@@ -34,6 +34,7 @@ func New(baseURL, masterKey string) (*Client, error) {
 // KeyRequest describes a run's virtual key.
 type KeyRequest struct {
 	RunID        string
+	Alias        string        // unique across keys; default "run-<RunID>"
 	Models       []string      // the only models the key may call
 	MaxBudgetUSD float64       // spend cap enforced by the gateway
 	TTL          time.Duration // the key expires after this
@@ -51,11 +52,15 @@ func (c *Client) CreateKey(ctx context.Context, in KeyRequest) (string, error) {
 	case in.TTL < time.Second:
 		return "", errors.New("gateway: ttl must be at least a second")
 	}
+	alias := in.Alias
+	if alias == "" {
+		alias = "run-" + in.RunID
+	}
 	body := map[string]any{
 		"models":     in.Models,
 		"max_budget": in.MaxBudgetUSD,
 		"duration":   fmt.Sprintf("%ds", int(in.TTL.Seconds())),
-		"key_alias":  "run-" + in.RunID,
+		"key_alias":  alias,
 		"metadata":   map[string]string{"frankie_run_id": in.RunID},
 	}
 	var out struct {

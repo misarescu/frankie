@@ -6,7 +6,7 @@ Guidance for coding agents (and humans) working in this repository. `CLAUDE.md` 
 
 The Software Factory platform. The specs in `docs/spec/` are the source of truth; when code and spec disagree, fix one of them in the same PR. `docs/notes/` holds working notes (e.g. M0 exploration). Read `docs/spec/01-architecture.md` and the roadmap milestone you are working on before changing anything. `README.md` has a map of the spec files.
 
-**Status: M1 in progress** (`docs/spec/10-roadmap.md`). Done: domain model and Postgres store, the runner with the Claude Code adapter and git workspace, the pod sandbox (egress proxy, git proxy, agent namespace, NetworkPolicies, Kata pods; verified in-cluster by `e2e/`), the control plane with Postgres deployed on homelab. Next: Temporal and the hardcoded workflow, LiteLLM, the GitHub connector, the live log page. `cmd/factoryctl` is still a placeholder. The layout in `docs/spec/01-architecture.md` is the target.
+**Status: M1 nearly done** (`docs/spec/10-roadmap.md`). Done: store, runner with Claude Code and git workspace, pod sandbox (egress proxy, git proxy, Kata, NetworkPolicies), control plane with Postgres, LiteLLM gateway with per-run virtual keys, Temporal with the hardcoded issue workflow (`internal/workflow`), GitHub intake. Next: the live log page. `cmd/factoryctl` is still a placeholder. The layout in `docs/spec/01-architecture.md` is the target.
 
 ## Commands
 
@@ -21,6 +21,7 @@ Everything runs through mise tasks; tool versions are pinned in `mise.toml` (loc
 - `mise run test:race` runs the suite under the race detector (also in CI). `mise run test:smoke-claude` checks the Claude Code adapter against the real `claude` CLI; it spends model usage, so run it only when changing the adapter or upgrading Claude Code.
 - Store tests need Postgres: `mise run db:up` (Docker, port 55432; `db:down` removes it). Each test creates and drops its own database. Without Postgres they skip locally but fail in CI. `mise.toml` sets `FRANKIE_TEST_DATABASE_URL` and overrides the shell environment inside `mise run`/`mise exec`.
 - Schema changes: edit `internal/store/schema.sql`, then `mise run db:diff <name>` (needs Docker) to generate a goose migration. Never hand-edit generated migrations without `mise run db:hash`.
+- Migrations must stay safe for the previous control plane binary (expand, then contract): add columns and relax constraints in one release, drop or tighten them in a later one. The chart deploys the control plane with `Recreate`, but that is a safety net, not a licence to break the previous version.
 - `generate` and proto lint skip themselves until `proto/` or `internal/store/queries/` have files.
 
 ## How it fits together

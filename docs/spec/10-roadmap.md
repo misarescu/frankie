@@ -41,6 +41,17 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 - **Done when:** the example `default-build` workflow runs end to end including a reviewer-triggered loop back to `implement` and a human-gated protected-path change; replay tests pass. **The factory repo is onboarded as a project (self-hosting begins).**
 - **Done (2026-11-13):** on the homelab, Goodreads-Clone gc-5 ran `default-build` with its reviewer failing the first commit and the run looping back to `implement` (Goodreads-Clone#16); Frankie's first own issue, frk-1, passed its own lint and tests (with the replay tests) and review, then waited at the forced `protected-changes` gate for its `roles/` change until a person approved it in the inbox (frankie#37). Nine replay fixtures pass in CI.
 
+## M3.1 - Dependency images (build reuse)
+
+Agent steps and gates start every pod with empty dependency and build caches, so a repo's dependencies are downloaded and compiled on every run: Frankie's first gate (frk-1) took 17 minutes, most of it fetching Go modules and compiling dependencies, twice (once for `lint`, once for `test`). M3.1 bakes a repo's dependencies into an image layer, in a way that works for any ecosystem, not only Go.
+
+- `dependencies` in `.factory/config.yaml`: the files the warm-up reads (globs relative to the repo root, e.g. `go.mod`, `go.sum`, `**/pom.xml`, `build.gradle.kts`, `uv.lock`, `requirements*.txt`, `**/*.csproj`, `packages.lock.json`, `conanfile.txt`, `web/bun.lock`) and a `run` command, normally a mise task, that downloads them and pre-compiles them where the ecosystem allows. The platform has no per-language logic; the repo decides what to warm (docs/spec/05).
+- **Dependency image**: `FROM` the repo's toolchain image by digest, with the declared files at their repo paths and the warm-up run as the agent user with the sandbox environment, so every ecosystem's cache lands where it looks at run time. Tagged by a hash of the toolchain digest and the files; built, verified and recorded by digest like toolchain images (D45). Agent steps and gates run it in place of the toolchain image. Repos without `dependencies` keep today's behavior.
+- Changed dependency files rebuild only this layer (minutes), not the toolchain (about 13 minutes for Frankie); unchanged files reuse it.
+- Caches live only in image layers built from the declared files; whatever an agent or gate pod writes stays in that pod, so no run can poison another's cache (invariant 2).
+- Hosts a warm-up needs (Maven Central, NuGet, ...) go through the egress allowlist as usual.
+- **Done when:** Frankie's gate with unchanged dependencies takes at most 6 minutes on the concrete profile (17 at M3); unchanged dependency files reuse the dependency image and a changed `go.sum` rebuilds only the dependency layer (tested); a non-Go toy project (Python or Java) gets a working dependency image from its own declaration (e2e).
+
 ## M4 - Harnesses and models
 
 - opencode and pi adapters in the runner (ACP where it proves mature); normalized events across all three.

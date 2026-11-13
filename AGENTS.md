@@ -15,7 +15,8 @@ Everything runs through mise tasks; tool versions are pinned in `mise.toml` (loc
 - `mise install` then `mise run doctor`: install pinned tools, then check tools, Docker and the cluster.
 - `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
 - Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
-- E2E tests carry the `//go:build e2e` tag.
+- E2E tests carry the `//go:build e2e` tag and run against a real cluster (`e2e/`, see the package comment for the environment variables): `FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> mise run e2e`.
+- Platform images (`deploy/images/`) are built by CI and published to GHCR on merges to `main` (D23). Claude Code crashes under QEMU, so build the runner image locally only for your native platform.
 - `mise run test:race` runs the suite under the race detector (also in CI). `mise run test:smoke-claude` checks the Claude Code adapter against the real `claude` CLI; it spends model usage, so run it only when changing the adapter or upgrading Claude Code.
 - Store tests need Postgres: `mise run db:up` (Docker, port 55432; `db:down` removes it). Each test creates and drops its own database. Without Postgres they skip locally but fail in CI. `mise.toml` sets `FRANKIE_TEST_DATABASE_URL` and overrides the shell environment inside `mise run`/`mise exec`.
 - Schema changes: edit `internal/store/schema.sql`, then `mise run db:diff <name>` (needs Docker) to generate a goose migration. Never hand-edit generated migrations without `mise run db:hash`.

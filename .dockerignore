@@ -1,0 +1,11 @@
+# Build contexts are the repo root; send only what the Go builds need.
+.git
+.github
+.mcp.json
+.claude
+bin
+docs
+deploy/helm
+deploy/flux
+deploy/kata
+**/*_test.go

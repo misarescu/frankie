@@ -9,7 +9,7 @@ The same codebase supports two profiles. Differences are Helm values and driver/
 | Temporal | Production deployment | **Single binary on the shared Postgres** |
 | Event bus | NATS or Redis Streams | **Postgres LISTEN/NOTIFY, or in-process** |
 | LLM gateway | LiteLLM | LiteLLM (kept: keeps API keys out of sandboxes) |
-| Registry | Harbor (scanning, proxy cache) or Zot | **Plain `registry:2`** |
+| Registry | Harbor (scanning, proxy cache) or Zot | **Plain `registry:2`** for toolchain images; platform images come from GHCR (D23) |
 | Dependency proxies | Athens/Verdaccio/devpi or Nexus | **Egress to public registries + per-repo cache volumes** |
 | Image building | Rootless BuildKit as a service | **One-off Job when a toolchain image changes** |
 | Preview environments | One per change request | **At most one at a time, or off** |

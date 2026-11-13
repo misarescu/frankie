@@ -8,8 +8,8 @@ crd_schemas='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Gro
 kc=(kubeconform -strict -summary -schema-location default -schema-location "$crd_schemas")
 
 for profile_values in "$chart"/values-*.yaml; do
-	helm lint --strict "$chart" -f "$profile_values"
-	helm template factory "$chart" -f "$profile_values" | "${kc[@]}" -
+	helm lint --strict "$chart" -f "$profile_values" --set images.tag=sha-lint
+	helm template factory "$chart" -f "$profile_values" --set images.tag=sha-lint | "${kc[@]}" -
 done
 
 "${kc[@]}" deploy/flux

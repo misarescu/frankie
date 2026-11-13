@@ -7,3 +7,12 @@ scheduler:
 
 previews:
   maxConcurrent: 1
+
+egressProxy:
+  # No dependency proxy on the laptop: public package registries (docs/spec/09).
+  allow:
+    - proxy.golang.org
+    - sum.golang.org
+    - registry.npmjs.org
+    - pypi.org
+    - files.pythonhosted.org

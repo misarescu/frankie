@@ -184,6 +184,11 @@ rules:
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [create, get, update, delete]
+  # Read-only: the image digest is the build container's termination message
+  # in the pod status (D45). The control plane never creates build pods.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

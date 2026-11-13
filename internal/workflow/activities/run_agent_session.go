@@ -70,6 +70,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 				}
 			}
 		}()
+		start, err := a.startPoint(ctx, in)
+		if err != nil {
+			return SessionResult{}, err
+		}
 		token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: run.StepRunID}, a.Agent.SessionTimeout+10*time.Minute)
 		if err != nil {
 			return SessionResult{}, err
@@ -88,7 +92,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			IdleTimeout: durationpb.New(a.Agent.IdleTimeout),
 			Workspace: &runnerv1.Workspace{
 				CloneUrl: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
-				BaseRef: in.BaseBranch, Branch: run.Branch, CommitMessage: in.IssueKey + ": " + in.Title,
+				BaseRef: start.CloneRef, Branch: run.Branch, CommitMessage: in.IssueKey + ": " + in.Title,
 				AuthorName: a.Agent.AuthorName, AuthorEmail: a.Agent.AuthorEmail,
 			},
 		})
@@ -97,7 +101,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil && !isPrecondition(err, "already started") {
 			return SessionResult{}, fmt.Errorf("runner start: %w", err)
 		}
-		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: Prompt(in, run.Branch)}); err != nil && !isPrecondition(err, "already prompted") {
+		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: Prompt(in, run.Branch, start.Continuing)}); err != nil && !isPrecondition(err, "already prompted") {
 			return SessionResult{}, fmt.Errorf("runner prompt: %w", err)
 		}
 		started = true

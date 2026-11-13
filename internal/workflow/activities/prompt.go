@@ -31,14 +31,20 @@ Do not push and do not open pull requests: the factory commits, pushes and opens
 If something blocks you, explain it in your final message instead of guessing.`
 }
 
-// Prompt is the task given to the agent.
-func Prompt(in IssueRunInput, branch string) string {
+// Prompt is the task given to the agent. continuing means the branch already
+// holds an earlier attempt at the issue, which the agent should build on.
+func Prompt(in IssueRunInput, branch string, continuing bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Issue %s: %s\n", in.IssueKey, in.Title)
 	if in.SourceURL != "" {
 		fmt.Fprintf(&b, "Source: %s\n", in.SourceURL)
 	}
-	fmt.Fprintf(&b, "Your branch: %s (based on %s)\n\n", branch, in.BaseBranch)
+	fmt.Fprintf(&b, "Your branch: %s (based on %s)\n", branch, in.BaseBranch)
+	if continuing {
+		b.WriteString("The branch already has an earlier attempt at this issue (see git log). " +
+			"Review it, keep what is right and fix what is incomplete or failing; the lint and test checks must pass.\n")
+	}
+	b.WriteString("\n")
 	if s := strings.TrimSpace(in.Spec); s != "" {
 		b.WriteString(s)
 		b.WriteString("\n")

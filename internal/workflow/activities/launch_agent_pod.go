@@ -39,8 +39,12 @@ func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services
 
 // LaunchAgentPod creates the sandboxed agent pod and waits for its IP.
 func (a *Activities) LaunchAgentPod(ctx context.Context, in IssueRunInput, run StartRunResult) (AgentPod, error) {
-	// The agent clones the base branch, so its services come from there too.
-	services, err := a.projectServices(ctx, in.Repo, in.BaseBranch)
+	// Services come from the code the agent starts from.
+	start, err := a.startPoint(ctx, in)
+	if err != nil {
+		return AgentPod{}, err
+	}
+	services, err := a.projectServices(ctx, in.Repo, start.FilesRef)
 	if errors.Is(err, errInvalidProjectConfig) {
 		return AgentPod{}, temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
 	}

@@ -18,15 +18,15 @@ import (
 // Labels on every build Job and its ConfigMap. RoleLabel is what the build
 // namespace's NetworkPolicies select.
 const (
-	RoleLabel      = "frankie.dev/role"
-	RoleBuild      = "toolchain-build"
-	ImageTagLabel  = "frankie.dev/toolchain-tag"
-	contextMount   = "/ctx"
+	RoleLabel     = "frankie.dev/role"
+	RoleBuild     = "toolchain-build"
+	ImageTagLabel = "frankie.dev/toolchain-tag"
+	contextMount  = "/ctx"
 	// contextDir holds the build context as plain files. A ConfigMap volume's
 	// files are symlinks into a hidden ..data directory, which BuildKit, sending
 	// only what the Dockerfile's COPY patterns match, does not reliably follow:
 	// with a mise.lock present, mise.toml went missing from the context.
-	contextDir = "/tmp/context"
+	contextDir     = "/tmp/context"
 	agentHomeMise  = "/home/agent/.local/share/mise"
 	agentUID       = 10001
 	toolchainDir   = "/home/agent/toolchain"

@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -187,6 +188,51 @@ func (q *Queries) GetStepRun(ctx context.Context, id uuid.UUID) (StepRun, error)
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listRecentRuns = `-- name: ListRecentRuns :many
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title
+FROM runs r JOIN issues i ON i.id = r.issue_id
+ORDER BY r.created_at DESC
+LIMIT $1
+`
+
+type ListRecentRunsRow struct {
+	ID         uuid.UUID
+	Status     string
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+	IssueKey   string
+	IssueTitle string
+}
+
+func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRecentRunsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentRuns, maxRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentRunsRow
+	for rows.Next() {
+		var i ListRecentRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.IssueKey,
+			&i.IssueTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listStepRuns = `-- name: ListStepRuns :many

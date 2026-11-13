@@ -49,6 +49,9 @@ func (s *Store) AppendEvent(ctx context.Context, in NewEvent) (domain.Event, err
 	if err != nil {
 		return domain.Event{}, mapErr("append event", err)
 	}
+	if err := notifyEvent(ctx, s.q, in.RunID); err != nil {
+		return domain.Event{}, err
+	}
 	return eventFromRow(row), nil
 }
 

@@ -100,7 +100,18 @@ func appendStateChange(ctx context.Context, q *db.Queries, runID, stepRunID *uui
 		Type:      string(domain.EventStateChange),
 		Payload:   payload,
 	})
-	return mapErr("append state change", err)
+	if err != nil {
+		return mapErr("append state change", err)
+	}
+	return notifyEvent(ctx, q, runID)
+}
+
+// notifyEvent wakes live streams of the run (docs/spec/07, FR-OB-1).
+func notifyEvent(ctx context.Context, q *db.Queries, runID *uuid.UUID) error {
+	if runID == nil {
+		return nil
+	}
+	return mapErr("notify event", q.NotifyEvent(ctx, runID.String()))
 }
 
 func deref(s *string) string {

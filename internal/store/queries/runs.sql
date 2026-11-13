@@ -47,3 +47,9 @@ UPDATE step_runs SET pod_name = @pod_name, updated_at = now() WHERE id = @id RET
 
 -- name: SetStepRunCommit :one
 UPDATE step_runs SET commit_sha = @commit_sha, updated_at = now() WHERE id = @id RETURNING *;
+
+-- name: ListRecentRuns :many
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title
+FROM runs r JOIN issues i ON i.id = r.issue_id
+ORDER BY r.created_at DESC
+LIMIT @max_runs;

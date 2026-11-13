@@ -276,8 +276,8 @@ func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, s
 	}
 	opts := gateOptions
 	if g.Timeout > 0 {
-		// The gate may first build the commit's toolchain image (up to 40 minutes).
-		opts.StartToCloseTimeout = time.Duration(g.Timeout) + 50*time.Minute
+		// The gate may first build the commit's toolchain and dependency images.
+		opts.StartToCloseTimeout = time.Duration(g.Timeout) + 120*time.Minute
 	}
 	var outcome activities.GateOutcome
 	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunGate, it.in.Issue, activities.GateRequest{

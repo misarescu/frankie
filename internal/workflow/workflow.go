@@ -24,17 +24,19 @@ var (
 		StartToCloseTimeout: 2 * time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
 	}
-	// Resolving the toolchain image may wait for a BuildKit Job (its own deadline
-	// is 30 minutes); it heartbeats while it waits.
+	// Resolving a step's image may wait for two BuildKit Jobs, the toolchain
+	// image and the dependency image (M3.1), each bounded by its own deadline
+	// (50 minutes); it heartbeats while it waits.
 	toolchainOptions = workflow.ActivityOptions{
-		StartToCloseTimeout: 40 * time.Minute,
+		StartToCloseTimeout: 90 * time.Minute,
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 	}
-	// The command gate may build the commit's toolchain image, then waits for
-	// its pod (deadline from the gate config, 30 minutes by default).
+	// The command gate may build the commit's toolchain and dependency images,
+	// then waits for its pod (deadline from the gate config, 30 minutes by
+	// default).
 	gateOptions = workflow.ActivityOptions{
-		StartToCloseTimeout: 80 * time.Minute,
+		StartToCloseTimeout: 150 * time.Minute,
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 	}

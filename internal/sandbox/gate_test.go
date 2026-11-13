@@ -115,3 +115,17 @@ func envValue(env []corev1.EnvVar, name string) string {
 	}
 	return ""
 }
+
+func TestGatePodEnvReachesEveryCommand(t *testing.T) {
+	s := gateSpec()
+	s.Env = map[string]string{"GOPROXY": "http://frankie-athens.frankie.svc:3000"}
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if envValue(c.Env, "GOPROXY") != "http://frankie-athens.frankie.svc:3000" {
+			t.Errorf("container %s has no GOPROXY", c.Name)
+		}
+	}
+}

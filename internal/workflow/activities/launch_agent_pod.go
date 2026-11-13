@@ -33,7 +33,7 @@ func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
 		Limits: a.Agent.Limits, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
-		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, Services: services,
+		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env,
 	})
 }
 

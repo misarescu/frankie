@@ -1,0 +1,134 @@
+{{- if .Values.goModuleProxy.enabled }}
+# Go module proxy (Athens, D37): sandboxes fetch Go modules here instead of from
+# the internet. Athens fetches from the upstream proxy and keeps modules on disk.
+{{- $name := printf "%s-athens" (include "frankie.fullname" .) }}
+{{- $g := .Values.goModuleProxy }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ $g.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: athens
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "athens") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "athens") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: athens
+          image: {{ $g.image }}
+          ports:
+            - { name: http, containerPort: {{ $g.port }} }
+          env:
+            - { name: ATHENS_PORT, value: ":{{ $g.port }}" }
+            - { name: ATHENS_STORAGE_TYPE, value: disk }
+            - { name: ATHENS_DISK_STORAGE_ROOT, value: /var/lib/athens }
+            # Fetch through the upstream proxy rather than from version control.
+            - { name: ATHENS_GO_BINARY_ENV_VARS, value: "GOPROXY={{ $g.upstream }}" }
+            - { name: ATHENS_GOGET_WORKERS, value: "4" }
+            - { name: HOME, value: /tmp }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/athens }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+        - name: tmp
+          emptyDir: { sizeLimit: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "athens") | nindent 4 }}
+  ports:
+    - { name: http, port: {{ $g.port }}, targetPort: http }
+---
+# Only sandbox pods (agents, gates, toolchain builds) may use it; it may reach
+# only DNS and public addresses on 443.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "athens") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchExpressions:
+              - { key: frankie.dev/role, operator: In, values: [agent, gate] }
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.toolchains.build.namespace }}
+          podSelector:
+            matchLabels:
+              frankie.dev/role: toolchain-build
+      ports:
+        - port: {{ $g.port }}
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 127.0.0.0/8]
+      ports:
+        - { port: 443, protocol: TCP }
+{{- end }}

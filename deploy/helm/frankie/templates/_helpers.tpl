@@ -66,6 +66,7 @@ app.kubernetes.io/component: {{ index . 1 }}
   "gate" (dict
     "commands" $gate.commands "deadline" $gate.deadline "workspaceSize" $gate.workspaceSize
     "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory))
+  "sandboxEnv" (include "frankie.sandboxEnv" . | fromJson)
   "services" (dict
     "maxPerPod" .Values.controlPlane.services.maxPerPod
     "cpu" (toString .Values.controlPlane.services.cpu) "memory" (toString .Values.controlPlane.services.memory))
@@ -92,4 +93,30 @@ app.kubernetes.io/component: {{ index . 1 }}
   value: "1"
 - name: HOME
   value: /tmp
+{{- end -}}
+
+
+{{/* Egress rule letting a sandbox pod reach the Go module proxy (D37), if enabled. */}}
+{{- define "frankie.goModuleProxyEgress" -}}
+{{- if .Values.goModuleProxy.enabled }}
+- to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      podSelector:
+        matchLabels:
+          {{- include "frankie.componentLabels" (list . "athens") | nindent 10 }}
+  ports:
+    - port: {{ .Values.goModuleProxy.port }}
+      protocol: TCP
+{{- end }}
+{{- end -}}
+
+{{/* Environment for every sandbox pod (agents, gates, toolchain builds). */}}
+{{- define "frankie.sandboxEnv" -}}
+{{- $env := dict -}}
+{{- if .Values.goModuleProxy.enabled -}}
+{{- $_ := set $env "GOPROXY" (printf "http://%s-athens.%s.svc:%v" (include "frankie.fullname" .) .Release.Namespace .Values.goModuleProxy.port) -}}
+{{- end -}}
+{{- toJson $env -}}
 {{- end -}}

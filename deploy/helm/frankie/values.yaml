@@ -136,6 +136,20 @@ llmGateway:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: "1", memory: 768Mi }
 
+# In-cluster Go module proxy (Athens, D37, docs/spec/05 item 5). Agent, gate
+# and toolchain build pods get GOPROXY pointing here, so the sandboxes need
+# neither proxy.golang.org nor the Cloud Storage it redirects downloads to.
+goModuleProxy:
+  enabled: true
+  image: gomods/athens:v0.20.0
+  port: 3000
+  storage: 10Gi
+  # Where Athens itself fetches modules; it is platform code, not a sandbox.
+  upstream: https://proxy.golang.org
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
 # Hostname-allowlisting CONNECT proxy, the agents' only route out (D20).
 egressProxy:
   port: 3128

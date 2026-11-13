@@ -33,9 +33,10 @@ Memory budget, GiB:
 | Flux | 0.3 | 0.3 | |
 | Local registry | 0.1 | 0.1 | Plain registry:2 |
 | Egress proxy | 0.05 | 0.05 | D20; hostname allowlist for agent pods |
-| **Platform total** | **4.25** | **4.75** | |
+| Go module proxy (Athens) | 0.06 | 0.25 | D37; Go modules for sandboxes |
+| **Platform total** | **4.31** | **5.0** | |
 
-Available for agents, gates, previews: 16 - 4.75 = **11.25 GiB** (worst case).
+Available for agents, gates, previews: 16 - 5.0 = **11.0 GiB** (worst case).
 
 Concurrent pods:
 
@@ -44,7 +45,7 @@ Concurrent pods:
 | Coder / test writer | 3 | 2 | 6 | Builders compile and run tests; **CPU is the real limit on 4 cores** |
 | Reviewer | 2 | 0 | 0 | Run reviewers one after another, after the builders finish |
 | Command gate | 3 | 1 | 3 | Fresh build and tests from the pushed commit |
-| **Total** | | **3** | **9** | Fits in 11.25 GiB with 2.25 GiB headroom |
+| **Total** | | **3** | **9** | Fits in 11.0 GiB with 2.0 GiB headroom |
 
 Sidecar services (FR-SB-9) do not add to these numbers: their limits are taken out of their pod's limit (D35). The concrete profile allows one service per pod at 0.5 GiB, leaving 2.5 GiB for the step.
 

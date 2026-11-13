@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,7 +66,8 @@ type GatePodSpec struct {
 	Branch             string // agent branch holding the commit
 	CommitSHA          string // the commit under test
 	Commands           []string
-	Services           []Service // sidecars; their limits come out of Limits
+	Services           []Service         // sidecars; their limits come out of Limits
+	Env                map[string]string // extra environment for every container, e.g. GOPROXY
 }
 
 func (s GatePodSpec) validate() error {
@@ -119,6 +122,9 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 		corev1.EnvVar{Name: "MISE_TRUSTED_CONFIG_PATHS", Value: "/workspace"},
 		corev1.EnvVar{Name: "CI", Value: "true"},
 	)
+	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
+		env = append(env, corev1.EnvVar{Name: k, Value: s.Env[k]})
+	}
 
 	cred := base64.StdEncoding.EncodeToString([]byte("x-token:" + s.Token))
 	cloneEnv := append(append([]corev1.EnvVar{}, env...),

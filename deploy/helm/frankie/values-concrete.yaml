@@ -11,11 +11,9 @@ previews:
 egressProxy:
   # No dependency proxy in the concrete profile: public package registries (docs/spec/09).
   allow:
-    - proxy.golang.org
-    # proxy.golang.org redirects module zips to signed Cloud Storage URLs here.
-    # It opens all of Cloud Storage (the proxy sees hostnames only); the full
-    # profile avoids it with an in-cluster module proxy (docs/spec/05 item 5).
-    - storage.googleapis.com
+    # Go modules come from the in-cluster module proxy (goModuleProxy, D37), so
+    # neither proxy.golang.org nor the Cloud Storage it redirects to is listed.
+    # The checksum database stays reachable: go verifies every module against it.
     - sum.golang.org
     - registry.npmjs.org
     - pypi.org

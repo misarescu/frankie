@@ -1,0 +1,27 @@
+# Frankie's own guardrails (docs/spec/05, docs/spec/08), on top of the
+# platform's defaults: .factory/**, mise.toml and mise.lock, CI and lint
+# configuration. A change touching any of these waits for a human, whatever the
+# workflow says. This file is itself protected.
+paths:
+  # Everything that deploys the platform: the Helm chart (NetworkPolicies,
+  # RBAC, Pod Security, the egress allowlist, LLM budgets, limits), Flux, the
+  # Kata runtime class, host configuration and the platform images.
+  - deploy/**
+  # The runner and its contract.
+  - cmd/runner/**
+  - internal/runner/**
+  - proto/frankie/runner/**
+  # What enforces the sandbox and the gates.
+  - internal/sandbox/**
+  - internal/egress/**
+  - internal/gitproxy/**
+  - internal/gateway/**
+  - internal/images/**
+  - internal/guard/**
+  - internal/config/protected.go
+  # The workflow definitions and roles the platform ships.
+  - workflows/**
+  - roles/**
+  # Lint configuration and scripts.
+  - scripts/lint-*.sh
+  - buf.yaml

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -169,5 +171,36 @@ func TestResolveReadFailuresAreNotInvalid(t *testing.T) {
 	}
 	if _, err := Resolve(t.Context(), &repo{files: files}, "acme/app", "develop"); err == nil || errors.Is(err, ErrInvalid) {
 		t.Fatalf("unresolvable base branch: err = %v", err)
+	}
+}
+
+// Frankie is a factory project (docs/spec/08): its own .factory files must
+// resolve, or its issues would fail before any step.
+func TestFrankiesOwnConfigResolves(t *testing.T) {
+	files := map[string]string{}
+	for _, p := range []string{config.ProjectConfigPath, config.ProtectedPathsFile} {
+		b, err := os.ReadFile(filepath.Join("..", "..", p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[p] = string(b)
+	}
+	s, err := Resolve(t.Context(), &repo{files: files}, "misarescu/frankie", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.ParseProject([]byte(files[config.ProjectConfigPath]), 1); err != nil {
+		t.Fatalf("with one service per pod: %v", err)
+	}
+	for _, f := range []string{"deploy/helm/frankie/templates/agents.yaml", "internal/runner/server.go", "proto/frankie/runner/v1/runner.proto",
+		"roles/prompts/coder.md", "workflows/default-build.yaml", "internal/config/protected.go", ".factory/protected-paths.yaml", "mise.toml"} {
+		if _, ok := config.MatchProtected(s.ProtectedPaths, f); !ok {
+			t.Errorf("%s is not protected", f)
+		}
+	}
+	for _, f := range []string{"internal/api/approvals.go", "web/src/App.tsx", "docs/spec/03-workflows-and-gates.md", "internal/config/workflow.go"} {
+		if pattern, ok := config.MatchProtected(s.ProtectedPaths, f); ok {
+			t.Errorf("%s is protected by %s", f, pattern)
+		}
 	}
 }

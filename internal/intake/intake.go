@@ -13,7 +13,7 @@ import (
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
-	"github.com/misarescu/frankie/internal/workflow"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
 // IssueLister lists open issues carrying a label.
@@ -23,7 +23,7 @@ type IssueLister interface {
 
 // Starter starts an issue's run; starting one that is already running is a no-op.
 type Starter interface {
-	StartIssueRun(ctx context.Context, in workflow.IssueRunInput) error
+	StartIssueRun(ctx context.Context, in activities.IssueRunInput) error
 }
 
 // Project is a repo the factory takes issues from.
@@ -98,7 +98,7 @@ func (in *Intake) sync(ctx context.Context, p Project, gi github.Issue) error {
 	if is.Status != domain.IssueReady {
 		return nil
 	}
-	return in.Starter.StartIssueRun(ctx, workflow.IssueRunInput{
+	return in.Starter.StartIssueRun(ctx, activities.IssueRunInput{
 		IssueID: is.ID.String(), IssueKey: is.Key, Title: is.Title, Spec: is.Spec,
 		AcceptanceCriteria: is.AcceptanceCriteria, SourceURL: gi.URL, SourceNumber: gi.Number,
 		Repo: p.Repo, BaseBranch: p.BaseBranch,

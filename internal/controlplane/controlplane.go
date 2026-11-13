@@ -17,7 +17,7 @@ import (
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/store"
-	"github.com/misarescu/frankie/internal/workflow"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
 // Config is the control plane's configuration. Secrets come from the
@@ -38,7 +38,7 @@ type Config struct {
 	TemporalNamespace string
 	GatewayAdminURL   string
 	GatewayMasterKey  string
-	Agent             workflow.AgentConfig
+	Agent             activities.AgentConfig
 	Kube              kubernetes.Interface // where agent pods are launched
 	IntakeLabel       string
 	PollInterval      time.Duration

@@ -10,16 +10,18 @@ import (
 	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
+
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
-var testInput = IssueRunInput{IssueID: "0198f2a4-1111-7000-8000-000000000001", IssueKey: "gc-1", Title: "Add search",
+var testInput = activities.IssueRunInput{IssueID: "0198f2a4-1111-7000-8000-000000000001", IssueKey: "gc-1", Title: "Add search",
 	Spec: "Users can search books.", Repo: "misarescu/Goodreads-Clone", BaseBranch: "main", SourceNumber: 3}
 
-var testRun = StartRunResult{RunID: "0198f2a4-2222-7000-8000-000000000002", StepRunID: "0198f2a4-3333-7000-8000-000000000003", Branch: "agent/gc-1/add-search"}
+var testRun = activities.StartRunResult{RunID: "0198f2a4-2222-7000-8000-000000000002", StepRunID: "0198f2a4-3333-7000-8000-000000000003", Branch: "agent/gc-1/add-search"}
 
 type fixture struct {
 	env      *testsuite.TestWorkflowEnvironment
-	finished *FinishInput
+	finished *activities.FinishInput
 	deleted  []string
 }
 
@@ -27,14 +29,14 @@ func newEnv(t *testing.T) *fixture {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
 	f := &fixture{env: s.NewTestWorkflowEnvironment()}
-	a := &Activities{}
+	a := &activities.Activities{}
 	f.env.RegisterActivity(a)
 	f.env.OnActivity(a.StartRun, mock.Anything, testInput).Return(testRun, nil)
 	f.env.OnActivity(a.DeleteAgentPod, mock.Anything, mock.Anything).Return(func(_ context.Context, name string) error {
 		f.deleted = append(f.deleted, name)
 		return nil
 	})
-	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in FinishInput) error {
+	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.FinishInput) error {
 		f.finished = &in
 		return nil
 	})
@@ -59,10 +61,10 @@ func (f *fixture) run(t *testing.T) IssueRunResult {
 
 func TestIssueRunOpensChangeRequest(t *testing.T) {
 	f := newEnv(t)
-	a := &Activities{}
-	f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRun).Return(AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}, nil)
-	session := SessionResult{Status: "succeeded", Branch: testRun.Branch, CommitSHA: "abc", Pushed: true, Result: "Added search."}
-	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, testRun, AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}).Return(session, nil)
+	a := &activities.Activities{}
+	f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRun).Return(activities.AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}, nil)
+	session := activities.SessionResult{Status: "succeeded", Branch: testRun.Branch, CommitSHA: "abc", Pushed: true, Result: "Added search."}
+	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, testRun, activities.AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}).Return(session, nil)
 	f.env.OnActivity(a.OpenChangeRequest, mock.Anything, testInput, testRun, session).Return("https://github.com/misarescu/Goodreads-Clone/pull/4", nil)
 
 	out := f.run(t)
@@ -78,24 +80,24 @@ func TestIssueRunOpensChangeRequest(t *testing.T) {
 }
 
 func TestIssueRunFailures(t *testing.T) {
-	pod := AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}
+	pod := activities.AgentPod{Name: "gc-1-implement-x", IP: "10.42.0.9"}
 	tests := []struct {
 		name       string
 		launchErr  error
-		session    SessionResult
+		session    activities.SessionResult
 		wantReason string
 		wantDelete bool
 	}{
-		{name: "agent failed", session: SessionResult{Status: "failed", Reason: "tests did not pass"}, wantReason: "agent session failed", wantDelete: true},
-		{name: "no changes", session: SessionResult{Status: "succeeded"}, wantReason: "made no changes", wantDelete: true},
+		{name: "agent failed", session: activities.SessionResult{Status: "failed", Reason: "tests did not pass"}, wantReason: "agent session failed", wantDelete: true},
+		{name: "no changes", session: activities.SessionResult{Status: "succeeded"}, wantReason: "made no changes", wantDelete: true},
 		{name: "launch failed", launchErr: errors.New("ImagePullBackOff"), wantReason: "agent step failed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newEnv(t)
-			a := &Activities{}
+			a := &activities.Activities{}
 			if tt.launchErr != nil {
-				f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRun).Return(AgentPod{}, tt.launchErr)
+				f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRun).Return(activities.AgentPod{}, tt.launchErr)
 			} else {
 				f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, testRun).Return(pod, nil)
 				f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, testRun, pod).Return(tt.session, nil)

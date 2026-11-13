@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/misarescu/frankie/internal/workflow"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
 // RepoConfig is a project repo the factory serves and takes issues from.
@@ -88,7 +88,7 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.PollInterval = poll
 	a := fc.Agent
-	agent := workflow.AgentConfig{
+	agent := activities.AgentConfig{
 		Namespace: a.Namespace, RunnerImage: a.RunnerImage, RuntimeClass: a.RuntimeClass, ServiceAccount: a.ServiceAccount,
 		EgressProxyURL: a.EgressProxyURL, NoProxy: a.NoProxy, PodDeadline: deadline, GitProxyURL: a.GitProxyURL,
 		GatewayURL: a.GatewayURL, Model: a.Model, BudgetUSD: a.BudgetUSD, SessionTimeout: session, IdleTimeout: idle,

@@ -5,55 +5,15 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
-
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
-	"github.com/misarescu/frankie/internal/workflow"
+	"github.com/misarescu/frankie/internal/store/storetest"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
-
-// testStore returns a store on a fresh, migrated database (skips locally without
-// Postgres, fails in CI), like the store tests.
-func testStore(t *testing.T) *store.Store {
-	t.Helper()
-	admin := os.Getenv("FRANKIE_TEST_DATABASE_URL")
-	conn, err := pgx.Connect(t.Context(), admin)
-	if admin == "" || err != nil {
-		if os.Getenv("CI") != "" {
-			t.Fatalf("test database required in CI: %v", err)
-		}
-		t.Skip("test database unavailable; run `mise run db:up`")
-	}
-	defer func() { _ = conn.Close(context.Background()) }()
-	name := "frankie_intake_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if _, err := conn.Exec(t.Context(), "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if c, err := pgx.Connect(context.Background(), admin); err == nil {
-			_, _ = c.Exec(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
-			_ = c.Close(context.Background())
-		}
-	})
-	cfg, _ := pgxpool.ParseConfig(admin)
-	cfg.ConnConfig.Database = name
-	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := store.Migrate(t.Context(), pool); err != nil {
-		t.Fatal(err)
-	}
-	return store.New(pool)
-}
 
 type fakeSource struct {
 	issues []github.Issue
@@ -64,15 +24,15 @@ func (f *fakeSource) ListOpenIssues(context.Context, string, string) ([]github.I
 	return f.issues, f.err
 }
 
-type fakeStarter struct{ started []workflow.IssueRunInput }
+type fakeStarter struct{ started []activities.IssueRunInput }
 
-func (f *fakeStarter) StartIssueRun(_ context.Context, in workflow.IssueRunInput) error {
+func (f *fakeStarter) StartIssueRun(_ context.Context, in activities.IssueRunInput) error {
 	f.started = append(f.started, in)
 	return nil
 }
 
 func TestPollTakesInLabeledIssuesOnce(t *testing.T) {
-	s := testStore(t)
+	s := storetest.New(t)
 	p, err := s.CreateProject(t.Context(), "misarescu/Goodreads-Clone", "gc")
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +81,7 @@ func TestPollTakesInLabeledIssuesOnce(t *testing.T) {
 }
 
 func TestPollReportsSourceErrors(t *testing.T) {
-	s := testStore(t)
+	s := storetest.New(t)
 	p, _ := s.CreateProject(t.Context(), "o/r", "or")
 	in := &Intake{Store: s, Source: &fakeSource{err: errors.New("401 bad credentials")}, Starter: &fakeStarter{},
 		Label: "factory", Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Projects: []Project{{ID: p.ID, Repo: "o/r"}}}

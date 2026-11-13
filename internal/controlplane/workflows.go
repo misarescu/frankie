@@ -18,6 +18,7 @@ import (
 	"github.com/misarescu/frankie/internal/intake"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
+	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
 // ensureProjects creates a project per configured repo (idempotent).
@@ -43,7 +44,7 @@ func ensureProjects(ctx context.Context, st *store.Store, repos []RepoConfig) ([
 // start while a run is in flight returns the existing one.
 type temporalStarter struct{ c client.Client }
 
-func (t temporalStarter) StartIssueRun(ctx context.Context, in workflow.IssueRunInput) error {
+func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueRunInput) error {
 	_, err := t.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                       "issue-" + in.IssueKey,
 		TaskQueue:                workflow.TaskQueue,
@@ -86,7 +87,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	// (terminationGracePeriodSeconds in the chart is longer).
 	w := worker.New(c, workflow.TaskQueue, worker.Options{WorkerStopTimeout: 30 * time.Second})
 	w.RegisterWorkflow(workflow.IssueRun)
-	w.RegisterActivity(&workflow.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Agent: cfg.Agent,
+	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Agent: cfg.Agent,
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()

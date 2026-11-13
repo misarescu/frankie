@@ -13,7 +13,7 @@ The Software Factory platform. The specs in `docs/spec/` are the source of truth
 Everything runs through mise tasks; tool versions are pinned in `mise.toml` (locked in `mise.lock`). If a task is missing, add it to `mise.toml` rather than inventing a command.
 
 - `mise install` then `mise run doctor`: install pinned tools, then check tools, Docker and the cluster.
-- Watch runs: `kubectl -n frankie port-forward svc/frankie-controlplane 8080`, then open http://localhost:8080 (run list and live transcripts).
+- Watch runs: `kubectl -n frankie port-forward svc/frankie-web 3000`, then open http://localhost:3000 (run list and live transcripts). Develop the UI with `mise run web:dev` (proxies `/api` to `CONTROLPLANE_URL`, default http://localhost:8080). The UI is React + Bun in `web/`; `mise run lint` and `mise run test` include its type check and `bun test`.
 - `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
 - Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
 - Cluster acceptance tests live in `e2e/`: Ginkgo v2 + Gomega (D25), build tag `e2e`, environment variables in `e2e/e2e_suite_test.go`. Run them with `FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> FRANKIE_E2E_REPO=misarescu/Goodreads-Clone mise run e2e`; narrow with `mise exec -- ginkgo --tags=e2e --label-filter=sandbox ./e2e`. Unit tests stay on the standard `testing` package.

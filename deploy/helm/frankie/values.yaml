@@ -116,3 +116,9 @@ temporal:
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { cpu: "1", memory: 512Mi }
+
+# Web UI (React + Bun).
+web:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }

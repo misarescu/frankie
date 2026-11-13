@@ -24,5 +24,19 @@ app.kubernetes.io/component: {{ index . 1 }}
 
 {{- define "frankie.image" -}}
 {{- $root := index . 0 -}}
+{{- $override := index $root.Values.images.overrides (index . 1) -}}
+{{- if $override -}}
+{{ $override }}
+{{- else -}}
 {{ $root.Values.images.registry }}/frankie-{{ index . 1 }}:{{ required "images.tag is required, e.g. --set images.tag=sha-<commit>" $root.Values.images.tag }}
+{{- end -}}
+{{- end -}}
+
+{{/* FRANKIE_REPOS: comma-separated name=upstream pairs from .Values.controlPlane.repos */}}
+{{- define "frankie.repos" -}}
+{{- $pairs := list -}}
+{{- range .Values.controlPlane.repos -}}
+{{- $pairs = append $pairs (printf "%s=%s" (required "controlPlane.repos[].name is required" .name) (required "controlPlane.repos[].upstream is required" .upstream)) -}}
+{{- end -}}
+{{- join "," $pairs -}}
 {{- end -}}

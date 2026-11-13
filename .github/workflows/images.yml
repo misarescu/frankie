@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [runner, egress-proxy]
+        image: [runner, egress-proxy, controlplane]
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4

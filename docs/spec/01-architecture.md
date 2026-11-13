@@ -88,6 +88,7 @@ internal/
   scheduler/
   workflow/         interpreter workflow, activities, replay fixtures
   mergequeue/
+  controlplane/     process wiring: store, git proxy, API (cmd/controlplane is just config)
   connectors/
     github/
   drivers/          driver host + built-in drivers (flux, flux-preview, flagd)

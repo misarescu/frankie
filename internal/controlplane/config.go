@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
@@ -24,11 +25,20 @@ type RepoConfig struct {
 	BaseBranch string `json:"baseBranch"` // default "main"
 }
 
+// Models are what the LLM gateway serves (docs/spec/04).
+type Models struct {
+	Providers config.Providers
+	// Default is the model ref of steps whose definition and role name none.
+	Default string
+}
+
 // fileConfig is the non-secret configuration, rendered by the Helm chart.
 type fileConfig struct {
-	Repos        []RepoConfig `json:"repos"`
-	IntakeLabel  string       `json:"intakeLabel"`
-	PollInterval string       `json:"pollInterval"`
+	Repos []RepoConfig `json:"repos"`
+	// Providers are the LLM gateway's provider profiles (llmGateway.providers).
+	Providers    config.Providers `json:"providers"`
+	IntakeLabel  string           `json:"intakeLabel"`
+	PollInterval string           `json:"pollInterval"`
 	Temporal     struct {
 		Address   string `json:"address"`
 		Namespace string `json:"namespace"`
@@ -47,7 +57,7 @@ type fileConfig struct {
 		PodDeadline    string   `json:"podDeadline"`
 		GitProxyURL    string   `json:"gitProxyURL"`
 		GatewayURL     string   `json:"gatewayURL"`
-		Model          string   `json:"model"`
+		Model          string   `json:"model"` // model ref, served by Providers
 		BudgetUSD      float64  `json:"budgetUSD"`
 		SessionTimeout string   `json:"sessionTimeout"`
 		IdleTimeout    string   `json:"idleTimeout"`
@@ -247,7 +257,7 @@ func LoadConfigFile(path string, cfg *Config) error {
 	agent := activities.AgentConfig{
 		Namespace: a.Namespace, RunnerImage: a.RunnerImage, RuntimeClass: a.RuntimeClass, ServiceAccount: a.ServiceAccount,
 		EgressProxyURL: a.EgressProxyURL, NoProxy: a.NoProxy, PodDeadline: deadline, GitProxyURL: a.GitProxyURL,
-		GatewayURL: a.GatewayURL, Model: a.Model, BudgetUSD: a.BudgetUSD, SessionTimeout: session, IdleTimeout: idle,
+		GatewayURL: a.GatewayURL, Model: config.GatewayModel(a.Model), BudgetUSD: a.BudgetUSD, SessionTimeout: session, IdleTimeout: idle,
 		AuthorName: a.AuthorName, AuthorEmail: a.AuthorEmail,
 	}
 	if a.CPU != "" || a.Memory != "" {
@@ -280,5 +290,21 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Agent.Env = fc.SandboxEnv
 	cfg.Toolchain.Build.Env = fc.SandboxEnv
+	if cfg.Models, err = fc.models(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// models validates the provider profiles and the default model, which they
+// must serve: a default nobody serves would fail every run's key.
+func (fc fileConfig) models() (Models, error) {
+	if err := fc.Providers.Validate(); err != nil {
+		return Models{}, fmt.Errorf("controlplane: config: %w", err)
+	}
+	m := Models{Providers: fc.Providers, Default: fc.Agent.Model}
+	if m.Default != "" && !m.Providers.Serves(m.Default) {
+		return Models{}, fmt.Errorf("controlplane: config: agent.model %q must be a model ref <provider>/<model> served by providers", m.Default)
+	}
+	return m, nil
 }

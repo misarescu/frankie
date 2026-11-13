@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/workflow"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
@@ -36,6 +37,7 @@ steps:
 
 func TestChooseWorkflow(t *testing.T) {
 	in := activities.IssueRunInput{IssueKey: "gc-9", Repo: "acme/app", BaseBranch: "main"}
+	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
 	tests := []struct {
 		name      string
 		files     map[string]string
@@ -46,10 +48,15 @@ func TestChooseWorkflow(t *testing.T) {
 		{"an invalid selection fails on the run", map[string]string{".factory/config.yaml": "workflow: nope\n"}, "neither in .factory/workflows nor built in"},
 		{"a definition with an action that does not exist yet fails on the run", map[string]string{".factory/config.yaml": "workflow: shipping\n",
 			".factory/workflows/shipping.yaml": strings.Replace(runnableDefinition, "name: fast", "name: shipping", 1) + "  - id: ship\n    action: merge-queue.enqueue\n"}, `"merge-queue.enqueue" is not available yet`},
+		{"a model the gateway does not serve fails on the run", map[string]string{".factory/config.yaml": "workflow: fast\n",
+			".factory/workflows/fast.yaml": strings.Replace(runnableDefinition, "{role: coder}", "{role: coder, model: anthropic/claude-opus-5-5}", 1)},
+			"the platform does not serve this workflow's models: steps[0].agent: model anthropic/claude-opus-5-5 is not served"},
+		{"a repo role defaulting to an unserved model fails on the run", map[string]string{".factory/roles/coder.yaml": "name: coder\nversion: 1\nsystem_prompt_file: c.md\ndefault_model: anthropic/claude-haiku-5-5\n",
+			".factory/roles/c.md": "Code.\n"}, "role coder default model anthropic/claude-haiku-5-5 is not served"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, in)
+			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, models, in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +74,7 @@ func TestChooseWorkflow(t *testing.T) {
 	}
 
 	t.Run("a read failure is retried by the next poll", func(t *testing.T) {
-		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, in); err == nil {
+		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, models, in); err == nil {
 			t.Fatal("no error")
 		}
 	})

@@ -315,14 +315,6 @@ func TestCheckSupported(t *testing.T) {
 	}
 }
 
-func TestGatewayModel(t *testing.T) {
-	for ref, want := range map[string]string{"anthropic/claude-sonnet-5-5": "claude-sonnet-5-5", "": "", "plain": "plain"} {
-		if got := gatewayModel(ref); got != want {
-			t.Errorf("gatewayModel(%q) = %q, want %q", ref, got, want)
-		}
-	}
-}
-
 // interpretHistories are recorded histories of Interpret (record_test.go), oldest
 // first. Each must keep replaying (invariant 3, FR-WF-6); a failure means a
 // change broke determinism and needs workflow.GetVersion.

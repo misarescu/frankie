@@ -40,12 +40,15 @@ type Config struct {
 	GatewayAdminURL   string
 	GatewayMasterKey  string
 	Agent             activities.AgentConfig
-	Gate              activities.GateConfig
-	Services          activities.ServicesConfig
-	Toolchain         ToolchainConfig
-	Kube              kubernetes.Interface // where agent pods are launched
-	IntakeLabel       string
-	PollInterval      time.Duration
+	// Models are the gateway's provider profiles and the platform's default
+	// model ref; runs are checked against them when they start.
+	Models       Models
+	Gate         activities.GateConfig
+	Services     activities.ServicesConfig
+	Toolchain    ToolchainConfig
+	Kube         kubernetes.Interface // where agent pods are launched
+	IntakeLabel  string
+	PollInterval time.Duration
 }
 
 // Listeners are where the control plane serves.

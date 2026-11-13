@@ -148,9 +148,8 @@ func ResolveRoles(w Workflow, lookup RoleLookup) (map[string]Role, error) {
 			errs = append(errs, fmt.Errorf("%s.agent.role: %s pins version %s, the role is at version %d", path, a.Role, pin, r.Version))
 		}
 		if a.Model == "" && r.DefaultModel != "" {
-			provider, _, _ := strings.Cut(r.DefaultModel, "/")
-			if h := harnesses[a.Harness]; h.providers != nil && !slices.Contains(h.providers, provider) {
-				errs = append(errs, fmt.Errorf("%s.agent: role %s defaults to %s, which harness %s cannot use; set a model", path, name, r.DefaultModel, a.Harness))
+			if err := harnessCanUse(a.Harness, r.DefaultModel); err != nil {
+				errs = append(errs, fmt.Errorf("%s.agent: role %s defaults to %s, which harness %s cannot use (%w); set a model", path, name, r.DefaultModel, a.Harness, err))
 			}
 		}
 		switch reviewer := r.OutputContract == ContractReviewVerdict; {

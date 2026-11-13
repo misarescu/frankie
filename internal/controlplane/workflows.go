@@ -14,6 +14,7 @@ import (
 	tlog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
@@ -47,12 +48,13 @@ func ensureProjects(ctx context.Context, st *store.Store, repos []RepoConfig) ([
 // temporalStarter starts one workflow per issue: the ID is stable, so a start
 // while a run is in flight returns the existing one.
 type temporalStarter struct {
-	c     client.Client
-	files snapshot.FileReader
+	c      client.Client
+	files  snapshot.FileReader
+	models Models
 }
 
 func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueRunInput) error {
-	wf, arg, err := chooseWorkflow(ctx, t.files, in)
+	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, in)
 	if err != nil {
 		return err
 	}
@@ -67,11 +69,12 @@ func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueR
 
 // chooseWorkflow snapshots what the issue's run will execute (invariant 4) and
 // runs it with Interpret: the project's workflow, or the default one. An invalid
-// or not yet runnable configuration still starts Interpret, which fails the run
-// with the reason so it shows up on the run. A failure to read the repo returns
-// an error, and intake tries again on its next poll. IssueRun is no longer
-// started; it stays registered until its runs drain.
-func chooseWorkflow(ctx context.Context, files snapshot.FileReader, in activities.IssueRunInput) (any, any, error) {
+// or not yet runnable configuration, or one naming models the gateway does not
+// serve, still starts Interpret, which fails the run with the reason so it
+// shows up on the run. A failure to read the repo returns an error, and intake
+// tries again on its next poll. IssueRun is no longer started; it stays
+// registered until its runs drain.
+func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, in activities.IssueRunInput) (any, any, error) {
 	snap, err := snapshot.Resolve(ctx, files, in.Repo, in.BaseBranch)
 	switch {
 	case errors.Is(err, snapshot.ErrInvalid):
@@ -81,6 +84,8 @@ func chooseWorkflow(ctx context.Context, files snapshot.FileReader, in activitie
 	default:
 		if err := workflow.CheckSupported(snap.Workflow); err != nil {
 			snap = snapshot.Snapshot{Error: "the interpreter cannot run this yet: " + err.Error()}
+		} else if err := config.CheckModels(snap.Workflow, snap.Roles, models.Default, models.Providers); err != nil {
+			snap = snapshot.Snapshot{Error: "the platform does not serve this workflow's models: " + err.Error()}
 		}
 	}
 	return workflow.Interpret, workflow.InterpretInput{Issue: in, Snapshot: snap}, nil
@@ -140,7 +145,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	log.Info("temporal worker started", "address", cfg.TemporalAddress, "taskQueue", workflow.TaskQueue)
 
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
-		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c: c, files: gh}, Projects: projects,
+		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c: c, files: gh, models: cfg.Models}, Projects: projects,
 			Label: cfg.IntakeLabel, Interval: max(cfg.PollInterval, 10*time.Second), Log: log.With("component", "intake")}
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)

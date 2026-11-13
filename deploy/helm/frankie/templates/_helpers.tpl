@@ -41,6 +41,10 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- range .Values.controlPlane.repos -}}
 {{- $repos = append $repos (dict "name" (required "controlPlane.repos[].name is required" .name) "upstream" (required "controlPlane.repos[].upstream is required" .upstream) "keyPrefix" (required "controlPlane.repos[].keyPrefix is required" .keyPrefix) "baseBranch" (default "main" .baseBranch)) -}}
 {{- end -}}
+{{- $providers := list -}}
+{{- range .Values.llmGateway.providers -}}
+{{- $providers = append $providers (dict "name" .name "models" .models) -}}
+{{- end -}}
 {{- $tc := .Values.toolchains -}}
 {{- $gate := .Values.controlPlane.gate -}}
 {{- $gateLimits := .Values.podResources.commandGate.limits -}}
@@ -50,6 +54,7 @@ app.kubernetes.io/component: {{ index . 1 }}
   "pollInterval" .Values.controlPlane.intake.pollInterval
   "temporal" (dict "address" (printf "%s-temporal:7233" $full) "namespace" .Values.temporal.namespace)
   "gatewayAdminURL" (printf "http://%s-llm-gateway:%v" $full .Values.llmGateway.port)
+  "providers" $providers
   "agent" (dict
     "namespace" .Values.agents.namespace
     "runnerImage" (include "frankie.image" (list . "runner"))
@@ -83,6 +88,11 @@ app.kubernetes.io/component: {{ index . 1 }}
     "scratchSize" $tc.build.scratchSize "deadline" $tc.build.deadline)
 -}}
 {{- toPrettyJson $cfg -}}
+{{- end -}}
+
+{{/* Environment variable holding a provider's API key in the LLM gateway, e.g. OPENROUTER_API_KEY. */}}
+{{- define "frankie.providerKeyEnv" -}}
+{{- printf "%s_API_KEY" (. | replace "-" "_" | upper) -}}
 {{- end -}}
 
 {{/* Prisma settings for LiteLLM: no update check, a writable home for its cache. */}}

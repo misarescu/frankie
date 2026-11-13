@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
@@ -178,7 +177,7 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	}
 	role := it.in.Snapshot.Roles[s.Agent.RoleName()]
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
-		Model: gatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), BudgetUSD: s.BudgetUSD, Timeout: time.Duration(s.Timeout),
+		Model: config.GatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), BudgetUSD: s.BudgetUSD, Timeout: time.Duration(s.Timeout),
 		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract}
 	if slices.Contains(s.Inputs, "feedback") && step.Contract == "" {
 		step.Feedback = it.feedback
@@ -368,14 +367,4 @@ func (it *interpreter) action(ctx workflow.Context, s config.Step) string {
 		return "opening the change request failed: " + err.Error()
 	}
 	return ""
-}
-
-// gatewayModel turns a model ref ("anthropic/claude-sonnet-5-5") into the name
-// the LLM gateway serves it under; "" stays "" (the platform's model).
-func gatewayModel(ref string) string {
-	_, name, found := strings.Cut(ref, "/")
-	if !found {
-		return ref
-	}
-	return name
 }

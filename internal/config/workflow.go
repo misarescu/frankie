@@ -200,15 +200,16 @@ const (
 	maxStepsPerDefinition = 50
 )
 
-// Harnesses the definition may name; the value says whether the runner supports
-// it yet (docs/spec/10-roadmap.md: opencode and pi arrive in M4).
+// Harnesses the definition may name: whether the runner supports it yet
+// (docs/spec/10-roadmap.md: opencode and pi arrive in M4) and the gateway APIs
+// it speaks, which decide the providers it can use (providerAPIs).
 var harnesses = map[string]struct {
 	available bool
-	providers []string // model ref providers it can reach; nil means any
+	apis      []API
 }{
-	"claude-code": {available: true, providers: []string{"anthropic"}},
-	"opencode":    {available: false},
-	"pi":          {available: false},
+	"claude-code": {available: true, apis: []API{APIAnthropic}},
+	"opencode":    {available: false, apis: []API{APIAnthropic, APIOpenAI}},
+	"pi":          {available: false, apis: []API{APIAnthropic, APIOpenAI}},
 }
 
 // Actions the control plane knows; the value says whether it is implemented yet.
@@ -226,7 +227,9 @@ var stepInputs = []string{"spec", "acceptance_criteria", "diff", "feedback"}
 var (
 	identifierRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	roleRefRE    = regexp.MustCompile(`^[a-z][a-z0-9-]*(@[1-9][0-9]*)?$`)
-	modelRefRE   = regexp.MustCompile(`^([a-z][a-z0-9-]*)/[A-Za-z0-9][A-Za-z0-9._:-]*$`)
+	// A model ref is <provider>/<model id>; the id may itself contain slashes
+	// (OpenRouter's "openai/gpt-5").
+	modelRefRE = regexp.MustCompile(`^[a-z][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._:-]*(/[A-Za-z0-9][A-Za-z0-9._:-]*)*$`)
 )
 
 // ParseWorkflow parses a workflow definition, fills in defaults and validates
@@ -417,12 +420,13 @@ func (v *validator) agent(path string, s Step) {
 		v.errf(path+".agent.harness", "%q is not available yet", a.Harness)
 	}
 	if a.Model != "" {
-		m := modelRefRE.FindStringSubmatch(a.Model)
 		switch {
-		case m == nil:
+		case !modelRefRE.MatchString(a.Model):
 			v.errf(path+".agent.model", "%q must be a model ref <provider>/<model>", a.Model)
-		case ok && h.providers != nil && !slices.Contains(h.providers, m[1]):
-			v.errf(path+".agent.model", "harness %s cannot use provider %q (it supports %s)", a.Harness, m[1], strings.Join(h.providers, ", "))
+		case ok:
+			if err := harnessCanUse(a.Harness, a.Model); err != nil {
+				v.errf(path+".agent.model", "%s", err)
+			}
 		}
 	}
 	for _, in := range s.Inputs {

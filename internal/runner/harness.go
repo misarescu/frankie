@@ -32,6 +32,9 @@ type SessionConfig struct {
 	SystemPrompt string
 	Env          map[string]string
 	MaxTurns     int
+	// AllowedTools are harness-neutral tool names (StartRequest.allowed_tools);
+	// empty means the harness's defaults.
+	AllowedTools []string
 }
 
 // Emit appends a normalized event to the session's stream. A harness must emit

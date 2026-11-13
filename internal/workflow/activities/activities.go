@@ -64,6 +64,32 @@ type AgentStep struct {
 	// Feedback is what the gate that looped back to this step found, when the
 	// step takes the feedback input.
 	Feedback string
+	// AllowedTools are the role's harness-neutral tools; empty means all.
+	AllowedTools []string `json:",omitempty"`
+	// Contract is the role's output contract, e.g. review-verdict. A step with
+	// a contract reviews: its workspace is read-only and its final message is
+	// the result.
+	Contract string `json:",omitempty"`
+}
+
+// Review is one reviewer branch's session, for an agent-verdict gate.
+type Review struct {
+	StepID    string
+	Role      string
+	StepRunID string
+	CommitSHA string // the commit the reviewer checked out
+	Result    string // the reviewer's final message, which should be the verdict
+}
+
+// VerdictGateRequest is one execution of an agent-verdict gate.
+type VerdictGateRequest struct {
+	RunID     string
+	StepRunID string
+	StepID    string
+	Require   string // all, any or majority
+	Policy    domain.GatePolicy
+	CommitSHA string // the commit under review
+	Reviews   []Review
 }
 
 // StepStart identifies one execution of a step; StartStep creates its StepRun.
@@ -162,8 +188,11 @@ type GateOutcome struct {
 	Passed    bool
 	Summary   string // e.g. "mise run test exited 1"
 	// Feedback tells the agent a loop goes back to what failed: the failed
-	// commands with the tail of their output.
+	// commands with the tail of their output, or the reviewers' findings.
 	Feedback string `json:",omitempty"`
+	// Inconclusive means the gate could not judge the change (a reviewer
+	// returned no valid verdict); looping back to the coder would not help.
+	Inconclusive bool `json:",omitempty"`
 }
 
 // Activities do the workflow's I/O. Every Activity is idempotent.

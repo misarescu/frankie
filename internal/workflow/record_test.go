@@ -32,8 +32,9 @@ import (
 // stubActivities answer for the Activities in a recording; failGate decides
 // whether a gate execution fails.
 type stubActivities struct {
-	failGate func(req activities.GateRequest) bool
-	pushes   int
+	failGate   func(req activities.GateRequest) bool
+	failReview func(req activities.VerdictGateRequest) bool
+	pushes     int
 }
 
 func (s *stubActivities) StartWorkflowRun(context.Context, activities.IssueRunInput, snapshot.Snapshot) (activities.StartRunResult, error) {
@@ -55,9 +56,21 @@ func (s *stubActivities) LaunchAgentPod(_ context.Context, _ activities.IssueRun
 }
 
 func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+	if run.Step.Contract != "" { // a reviewer reads the head and pushes nothing
+		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("%040d", s.pushes),
+			Result: `{"verdict":"fail","summary":"Missing test.","findings":[{"severity":"major","file":"internal/server/version.go","line":3,"message":"add a handler test"}]}`}, nil
+	}
 	s.pushes++
 	return activities.SessionResult{Status: "succeeded", Result: "Done.", Branch: run.Branch,
 		CommitSHA: fmt.Sprintf("%040d", s.pushes), Pushed: true}, nil
+}
+
+func (s *stubActivities) RunVerdictGate(_ context.Context, req activities.VerdictGateRequest) (activities.GateOutcome, error) {
+	if s.failReview != nil && s.failReview(req) {
+		return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "code-reviewer: fail (1 major)",
+			Feedback: "Review by code-reviewer: Missing test.\n- [major] internal/server/version.go:3: add a handler test\n"}, nil
+	}
+	return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "code-reviewer: pass"}, nil
 }
 
 func (s *stubActivities) DeleteAgentPod(context.Context, string) error { return nil }
@@ -90,29 +103,38 @@ func TestRecordInterpretHistories(t *testing.T) {
 	defer c.Close()
 
 	scenarios := []struct {
-		file     string
-		failGate func(req activities.GateRequest) bool
+		file       string
+		snap       snapshot.Snapshot
+		failGate   func(req activities.GateRequest) bool
+		failReview func(req activities.VerdictGateRequest) bool
 	}{
 		// The first command gate fails, the loop back to implement fixes it.
-		{"interpret_loop_then_success.json", func(req activities.GateRequest) bool {
+		{"interpret_loop_then_success.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool {
 			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
-		}},
+		}, nil},
 		// The command gate keeps failing until maxLoops is used up.
-		{"interpret_loops_exhausted.json", func(req activities.GateRequest) bool { return req.StepID == "checks" }},
+		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil},
+		// default-build: the reviewer fails the first commit, the loop back to
+		// implement fixes it.
+		{"interpret_default_build_review_loop.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false },
+			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }},
 	}
 	for i, sc := range scenarios {
+		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
+			continue // never rewrite a fixture that already exists by accident
+		}
 		t.Run(sc.file, func(t *testing.T) {
 			queue := fmt.Sprintf("record-%d-%d", time.Now().UnixNano(), i)
 			w := worker.New(c, queue, worker.Options{})
 			w.RegisterWorkflow(Interpret)
-			w.RegisterActivity(&stubActivities{failGate: sc.failGate})
+			w.RegisterActivity(&stubActivities{failGate: sc.failGate, failReview: sc.failReview})
 			if err := w.Start(); err != nil {
 				t.Fatal(err)
 			}
 			defer w.Stop()
 
 			run, err := c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: "issue-gc-1-" + queue, TaskQueue: queue},
-				Interpret, InterpretInput{Issue: testInput, Snapshot: loopSnapshot(t, loopDefinition)})
+				Interpret, InterpretInput{Issue: testInput, Snapshot: sc.snap})
 			if err != nil {
 				t.Fatal(err)
 			}

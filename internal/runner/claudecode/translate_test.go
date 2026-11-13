@@ -116,14 +116,19 @@ func TestTranslateTruncatesLargeOutput(t *testing.T) {
 }
 
 func TestArgs(t *testing.T) {
-	got := strings.Join(Args(runner.SessionConfig{Model: "opus", SystemPrompt: "be terse", MaxTurns: 7}), " ")
+	args, err := Args(runner.SessionConfig{Model: "opus", SystemPrompt: "be terse", MaxTurns: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(args, " ")
 	for _, want := range []string{"-p", "--input-format stream-json", "--output-format stream-json", "--verbose",
 		"--dangerously-skip-permissions", "--model opus", "--append-system-prompt be terse", "--max-turns 7"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("args %q missing %q", got, want)
 		}
 	}
-	if bare := strings.Join(Args(runner.SessionConfig{}), " "); strings.Contains(bare, "--model") || strings.Contains(bare, "--max-turns") {
+	bareArgs, _ := Args(runner.SessionConfig{})
+	if bare := strings.Join(bareArgs, " "); strings.Contains(bare, "--model") || strings.Contains(bare, "--max-turns") {
 		t.Errorf("empty config produced optional flags: %q", bare)
 	}
 }

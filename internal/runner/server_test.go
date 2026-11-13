@@ -160,12 +160,13 @@ func TestRunnerLifecycle(t *testing.T) {
 	resp, err := c.Start(ctx, &runnerv1.StartRequest{
 		StepRunId: "step-1", Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE,
 		Model: "opus", SystemPrompt: "you are a coder", MaxTurns: 9,
-		Env: map[string]string{"ANTHROPIC_BASE_URL": "http://gateway"},
+		Env: map[string]string{"ANTHROPIC_BASE_URL": "http://gateway"}, AllowedTools: []string{"read", "bash:readonly"},
 	})
 	if err != nil || resp.GetSessionId() == "" {
 		t.Fatalf("Start = %v, %v", resp, err)
 	}
-	if h.cfg.Workdir != "/workspace" || h.cfg.Model != "opus" || h.cfg.MaxTurns != 9 || h.cfg.Env["ANTHROPIC_BASE_URL"] != "http://gateway" {
+	if h.cfg.Workdir != "/workspace" || h.cfg.Model != "opus" || h.cfg.MaxTurns != 9 || h.cfg.Env["ANTHROPIC_BASE_URL"] != "http://gateway" ||
+		!slices.Equal(h.cfg.AllowedTools, []string{"read", "bash:readonly"}) {
 		t.Errorf("harness config = %+v", h.cfg)
 	}
 	_, err = c.Start(ctx, &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE})
@@ -348,8 +349,8 @@ func newWorkspaceRunner(t *testing.T, pub *fakePublisher, prepareErr error) (run
 
 var testWorkspace = &runnerv1.Workspace{
 	CloneUrl: "http://controlplane:8081/git/misarescu/toy.git", Token: "fgp1.t.s",
-	BaseRef: "main", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
-	AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid",
+	BaseRef: "agent/frk-42/fix", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
+	AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid", CompareRef: "main",
 }
 
 func startWithWorkspace(t *testing.T, c runnerv1.RunnerServiceClient) {
@@ -377,8 +378,8 @@ func TestRunnerPublishesWorkspaceOnSuccess(t *testing.T) {
 	c, h := newWorkspaceRunner(t, pub, nil)
 	startWithWorkspace(t, c)
 	want := workspace.Config{Dir: "/workspace", CloneURL: testWorkspace.GetCloneUrl(), Token: testWorkspace.GetToken(),
-		BaseRef: "main", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
-		AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid"}
+		BaseRef: "agent/frk-42/fix", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
+		AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid", CompareRef: "main"}
 	if pub.cfg != want {
 		t.Errorf("workspace config = %+v, want %+v", pub.cfg, want)
 	}

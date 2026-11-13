@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,6 +60,10 @@ type interpretFixture struct {
 	gate func(req activities.GateRequest) activities.GateOutcome
 	// push decides whether the n-th agent session pushes (default true).
 	push func(n int) bool
+	head string // the branch head after the last push
+	// verdict decides an agent-verdict gate; nil passes.
+	verdict  func(req activities.VerdictGateRequest) activities.GateOutcome
+	verdicts []activities.VerdictGateRequest
 }
 
 func newInterpretFixture(t *testing.T) *interpretFixture {
@@ -84,8 +89,22 @@ func newInterpretFixture(t *testing.T) *interpretFixture {
 	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
 		f.sessions = append(f.sessions, run)
 		n := len(f.sessions)
+		if run.Step.Contract != "" { // a reviewer checks out the head and pushes nothing
+			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head,
+				Result: `{"verdict":"pass","findings":[]}`}, nil
+		}
 		pushed := f.push == nil || f.push(n)
+		if pushed {
+			f.head = fmt.Sprintf("sha%d", n)
+		}
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("sha%d", n), Pushed: pushed}, nil
+	})
+	f.env.OnActivity(a.RunVerdictGate, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.VerdictGateRequest) (activities.GateOutcome, error) {
+		f.verdicts = append(f.verdicts, req)
+		if f.verdict != nil {
+			return f.verdict(req), nil
+		}
+		return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "code-reviewer: pass"}, nil
 	})
 	f.env.OnActivity(a.DeleteAgentPod, mock.Anything, mock.Anything).Return(nil)
 	f.env.OnActivity(a.RunGate, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, req activities.GateRequest) (activities.GateOutcome, error) {
@@ -245,8 +264,8 @@ func TestCheckSupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckSupported(def); err == nil || !strings.Contains(err.Error(), "parallel steps are not supported yet") {
-		t.Errorf("default-build: err = %v", err)
+	if err := CheckSupported(def); err != nil {
+		t.Errorf("default-build: %v", err)
 	}
 	escalating := loopSnapshot(t, strings.Replace(loopDefinition, "onFail: {goto: implement, maxLoops: 2}", "onFail: escalate", 1))
 	if err := CheckSupported(escalating.Workflow); err == nil || !strings.Contains(err.Error(), "escalate needs human gates") {
@@ -272,6 +291,7 @@ func TestGatewayModel(t *testing.T) {
 var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_loop_then_success.json", "M3: command gate fails, loop back to implement, change request"},
 	{"testdata/interpret_loops_exhausted.json", "M3: command gate fails until maxLoops is used up"},
+	{"testdata/interpret_default_build_review_loop.json", "M3: default-build, reviewer fails, loop back to implement"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -283,5 +303,120 @@ func TestInterpretReplaysRecordedHistories(t *testing.T) {
 				t.Fatalf("replay %s: %v", h.file, err)
 			}
 		})
+	}
+}
+
+func defaultBuildSnapshot(t *testing.T) snapshot.Snapshot {
+	t.Helper()
+	w, err := workflows.Get(workflows.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := config.ResolveRoles(w, roles.Get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.Snapshot{Workflow: w, Roles: rs, Source: "built-in", BaseSHA: "base"}
+}
+
+// M3 acceptance: default-build runs end to end, the reviewer reading the
+// commit the checks passed.
+func TestInterpretDefaultBuild(t *testing.T) {
+	f := newInterpretFixture(t)
+	out := f.run(t, defaultBuildSnapshot(t))
+	if !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1" {
+		t.Errorf("steps = %s", got)
+	}
+	rev := f.sessions[1].Step
+	if rev.StepID != "code-reviewer" || rev.Contract != "review-verdict" || !slices.Contains(rev.AllowedTools, "bash:readonly") || rev.Feedback != "" {
+		t.Errorf("reviewer step = %+v", rev)
+	}
+	if coder := f.sessions[0].Step; coder.Contract != "" || len(coder.AllowedTools) != 0 {
+		t.Errorf("coder step = %+v", coder)
+	}
+	if len(f.verdicts) != 1 {
+		t.Fatalf("verdict gates = %d", len(f.verdicts))
+	}
+	v := f.verdicts[0]
+	if v.StepID != "review" || v.Require != "all" || v.CommitSHA != "sha1" || len(v.Reviews) != 1 ||
+		v.Reviews[0].CommitSHA != "sha1" || !strings.Contains(v.Reviews[0].Result, `"verdict":"pass"`) {
+		t.Errorf("verdict request = %+v", v)
+	}
+	if !f.ended["sr-code-reviewer-1"] {
+		t.Errorf("reviewer step not ended as succeeded: %v", f.ended)
+	}
+}
+
+// M3 acceptance: a reviewer-triggered loop back to implement.
+func TestInterpretReviewLoopsBackToImplement(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.verdict = func(req activities.VerdictGateRequest) activities.GateOutcome {
+		if req.CommitSHA == "sha1" {
+			return activities.GateOutcome{Summary: "code-reviewer: fail (1 blocker)",
+				Feedback: "Review by code-reviewer:\n- [blocker] internal/server/version.go:12: the encode error is dropped\n"}
+		}
+		return activities.GateOutcome{Passed: true}
+	}
+	out := f.run(t, defaultBuildSnapshot(t))
+	if !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	want := "implement/1 checks/1 code-reviewer/1 review/1 implement/2 checks/2 code-reviewer/2 review/2 open-change-request/1"
+	if got := f.stepIDs(); got != want {
+		t.Errorf("steps = %s\nwant    %s", got, want)
+	}
+	if strings.Join(f.loops, ",") != "review=1" {
+		t.Errorf("loops = %v", f.loops)
+	}
+	second := f.sessions[2].Step
+	if second.StepID != "implement" || !strings.Contains(second.Feedback, "`review` check failed") || !strings.Contains(second.Feedback, "encode error is dropped") {
+		t.Errorf("second implement step = %+v", second)
+	}
+	if f.verdicts[1].CommitSHA != "sha3" {
+		t.Errorf("second review judged %s, want the new commit", f.verdicts[1].CommitSHA)
+	}
+}
+
+func TestInterpretInconclusiveReviewFailsTheRun(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.verdict = func(activities.VerdictGateRequest) activities.GateOutcome {
+		return activities.GateOutcome{Inconclusive: true, Summary: "code-reviewer returned no valid verdict (the final message holds no JSON verdict)"}
+	}
+	out := f.run(t, defaultBuildSnapshot(t))
+	if out.Succeeded || !strings.HasPrefix(out.Reason, "step review: gate inconclusive: code-reviewer returned no valid verdict") || len(f.loops) != 0 {
+		t.Fatalf("result = %+v, loops %v", out, f.loops)
+	}
+}
+
+// A loop back to a branch re-runs only that branch, then continues after its group.
+func TestInterpretGotoIntoABranch(t *testing.T) {
+	const def = `
+name: split
+version: 1
+steps:
+  - parallel:
+      - id: implement
+        agent: {role: coder}
+      - id: docs
+        agent: {role: coder}
+        inputs: [spec]
+  - id: checks
+    gate: {type: command, onFail: {goto: implement, maxLoops: 1}}
+  - id: open
+    action: change-request.open
+`
+	f := newInterpretFixture(t)
+	f.gate = func(req activities.GateRequest) activities.GateOutcome {
+		return activities.GateOutcome{Passed: req.CommitSHA != "sha2", Summary: "mise run test exited 1"}
+	}
+	out := f.run(t, loopSnapshot(t, def))
+	if !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); got != "implement/1 docs/1 checks/1 implement/2 checks/2 open/1" {
+		t.Errorf("steps = %s", got)
 	}
 }

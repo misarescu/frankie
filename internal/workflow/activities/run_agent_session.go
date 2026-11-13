@@ -52,12 +52,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	defer func() { _ = conn.Close() }()
 	runner := runnerv1.NewRunnerServiceClient(conn)
 
-	model, budget, timeout := a.Agent.Model, a.Agent.BudgetUSD, a.Agent.SessionTimeout
-	systemPrompt := SystemPrompt()
-	if s := run.Step; s != nil {
-		model, budget, timeout = cmp.Or(s.Model, model), cmp.Or(s.BudgetUSD, budget), cmp.Or(s.Timeout, timeout)
-		systemPrompt = s.SystemPrompt
-	}
+	set := a.sessionSettings(run)
 
 	var vkey string
 	if !progress.Started {
@@ -66,7 +61,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		// Aliases are unique in the gateway; each attempt mints its own key.
 		vkey, err = a.Gateway.CreateKey(ctx, gateway.KeyRequest{RunID: run.RunID,
 			Alias:  fmt.Sprintf("run-%s-attempt-%d", run.RunID, activity.GetInfo(ctx).Attempt),
-			Models: []string{model}, MaxBudgetUSD: budget, TTL: timeout + 10*time.Minute})
+			Models: []string{set.model}, MaxBudgetUSD: set.budget, TTL: set.timeout + 10*time.Minute})
 		if err != nil {
 			return SessionResult{}, err
 		}
@@ -82,28 +77,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil {
 			return SessionResult{}, err
 		}
-		token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: run.StepRunID}, timeout+10*time.Minute)
+		token, err := a.Signer.Issue(a.sessionGrant(in, run, set), set.timeout+10*time.Minute)
 		if err != nil {
 			return SessionResult{}, err
 		}
-		_, err = runner.Start(ctx, &runnerv1.StartRequest{
-			StepRunId: run.StepRunID, Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Model: model,
-			SystemPrompt: systemPrompt,
-			Env: map[string]string{
-				"ANTHROPIC_BASE_URL":   a.Agent.GatewayURL,
-				"ANTHROPIC_AUTH_TOKEN": vkey,
-				// Background tasks must stay on a model the key allows.
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
-				"ANTHROPIC_SMALL_FAST_MODEL":    model,
-			},
-			Timeout:     durationpb.New(timeout),
-			IdleTimeout: durationpb.New(a.Agent.IdleTimeout),
-			Workspace: &runnerv1.Workspace{
-				CloneUrl: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
-				BaseRef: start.CloneRef, Branch: run.Branch, CommitMessage: in.IssueKey + ": " + in.Title,
-				AuthorName: a.Agent.AuthorName, AuthorEmail: a.Agent.AuthorEmail,
-			},
-		})
+		_, err = runner.Start(ctx, a.startRequest(in, run, set, start, token, vkey))
 		// Only "already started" means an earlier attempt got this far; any other
 		// failure (e.g. the workspace clone) is the real error.
 		if err != nil && !isPrecondition(err, "already started") {
@@ -160,6 +138,57 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			return SessionResult{}, err
 		}
 		return SessionResult{Status: done.Status, Reason: done.Reason, Result: done.Result, Branch: done.Branch, CommitSHA: done.CommitSHA, Pushed: done.Pushed}, nil
+	}
+}
+
+// sessionSettings is how one agent session runs: the definition's step when
+// there is one (Interpret), else the platform's M2 settings (IssueRun).
+type sessionSettings struct {
+	model, systemPrompt string
+	budget              float64
+	timeout             time.Duration
+	allowedTools        []string
+	readOnly            bool // a reviewer: read-only token and workspace
+}
+
+func (a *Activities) sessionSettings(run StartRunResult) sessionSettings {
+	set := sessionSettings{model: a.Agent.Model, budget: a.Agent.BudgetUSD, timeout: a.Agent.SessionTimeout, systemPrompt: SystemPrompt()}
+	if s := run.Step; s != nil {
+		set.model, set.budget, set.timeout = cmp.Or(s.Model, set.model), cmp.Or(s.BudgetUSD, set.budget), cmp.Or(s.Timeout, set.timeout)
+		set.systemPrompt, set.allowedTools, set.readOnly = s.SystemPrompt, s.AllowedTools, s.Contract != ""
+	}
+	return set
+}
+
+// sessionGrant is the git proxy grant of the session's token (D21): push to the
+// issue's agent branches, or read only for a reviewer.
+func (a *Activities) sessionGrant(in IssueRunInput, run StartRunResult, set sessionSettings) gitproxy.Grant {
+	return gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: run.StepRunID, ReadOnly: set.readOnly}
+}
+
+// startRequest is the runner's Start for the session. Credentials travel only
+// here, over gRPC, never in the pod spec or the workflow history.
+func (a *Activities) startRequest(in IssueRunInput, run StartRunResult, set sessionSettings, start StartPoint, token, vkey string) *runnerv1.StartRequest {
+	return &runnerv1.StartRequest{
+		StepRunId: run.StepRunID, Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Model: set.model,
+		SystemPrompt: set.systemPrompt,
+		Env: map[string]string{
+			"ANTHROPIC_BASE_URL":   a.Agent.GatewayURL,
+			"ANTHROPIC_AUTH_TOKEN": vkey,
+			// Background tasks must stay on a model the key allows.
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL": set.model,
+			"ANTHROPIC_SMALL_FAST_MODEL":    set.model,
+		},
+		Timeout:     durationpb.New(set.timeout),
+		IdleTimeout: durationpb.New(a.Agent.IdleTimeout),
+		Workspace: &runnerv1.Workspace{
+			CloneUrl: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
+			BaseRef: start.CloneRef, Branch: run.Branch, CommitMessage: in.IssueKey + ": " + in.Title,
+			AuthorName: a.Agent.AuthorName, AuthorEmail: a.Agent.AuthorEmail,
+			// Reviewers cannot push: their workspace is read-only as well as their token.
+			ReadOnly: set.readOnly, CompareRef: in.BaseBranch,
+		},
+		AllowedTools: set.allowedTools,
 	}
 }
 

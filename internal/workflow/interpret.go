@@ -28,10 +28,17 @@ const actionOpenChangeRequest = "change-request.open"
 
 // CheckSupported reports the parts of a valid definition this interpreter
 // cannot run yet, so a project selecting one fails before its run starts work.
-// Parallel groups and agent-verdict gates arrive together, then human gates
-// and escalation.
+// Human gates and escalation to them come next.
 func CheckSupported(w config.Workflow) error {
 	var errs []error
+	gate := func(i int, g *config.Gate) {
+		if g.Type == domain.GateHuman {
+			errs = append(errs, fmt.Errorf("steps[%d]: human gates are not supported yet", i))
+		}
+		if o := g.OnFail; o != nil && o.Action == config.OnFailEscalate {
+			errs = append(errs, fmt.Errorf("steps[%d]: onFail escalate needs human gates, which are not supported yet", i))
+		}
+	}
 	for i, s := range w.Steps {
 		switch s.Kind() {
 		case config.StepAgent:
@@ -40,11 +47,10 @@ func CheckSupported(w config.Workflow) error {
 				errs = append(errs, fmt.Errorf("steps[%d]: action %q is not supported yet", i, s.Action))
 			}
 		case config.StepGate:
-			if s.Gate.Type != domain.GateCommand {
-				errs = append(errs, fmt.Errorf("steps[%d]: %s gates are not supported yet", i, s.Gate.Type))
-			}
-			if o := s.Gate.OnFail; o != nil && o.Action == config.OnFailEscalate {
-				errs = append(errs, fmt.Errorf("steps[%d]: onFail escalate needs human gates, which are not supported yet", i))
+			gate(i, s.Gate)
+		case config.StepParallel:
+			if s.Gate != nil {
+				gate(i, s.Gate)
 			}
 		default:
 			errs = append(errs, fmt.Errorf("steps[%d]: %s steps are not supported yet", i, s.Kind()))
@@ -61,7 +67,9 @@ func CheckSupported(w config.Workflow) error {
 // either fails the run or loops back to an earlier step, at most maxLoops
 // times, with what the gate found as the agent's feedback. Agent steps
 // continue the issue's agent branch (D36), so git history carries the work
-// from one step and one loop to the next.
+// from one step and one loop to the next. A parallel group runs its branches
+// one after another (D42); branches whose role returns a review verdict
+// review the last pushed commit, read-only, for the group's agent-verdict gate.
 func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) {
 	var a *activities.Activities
 	var run activities.StartRunResult
@@ -99,6 +107,9 @@ type interpreter struct {
 	// session is the last agent step's result: the commit gates check.
 	session       activities.SessionResult
 	changeRequest string
+	// only is the branch a loop back targets: the next parallel group runs
+	// just that branch, then the run continues after the group.
+	only string
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -114,6 +125,10 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 			next, reason = it.gate(ctx, pc, s)
 		case config.StepAction:
 			reason = it.action(ctx, s)
+		case config.StepParallel:
+			only := it.only
+			it.only = ""
+			next, reason = it.parallel(ctx, pc, s, only)
 		default:
 			reason = fmt.Sprintf("%s steps are not supported yet", s.Kind())
 		}
@@ -141,16 +156,50 @@ func (it *interpreter) finishStep(ctx workflow.Context, stepRunID string, succee
 	_ = workflow.ExecuteActivity(cleanup, it.a.FinishStep, activities.StepEnd{StepRunID: stepRunID, Succeeded: succeeded}).Get(cleanup, nil)
 }
 
+// agent runs one execution of a coding agent step, which must push.
 func (it *interpreter) agent(ctx workflow.Context, s config.Step) string {
+	session, stepRunID, reason := it.agentSession(ctx, s)
+	if stepRunID == "" {
+		return reason
+	}
+	if reason == "" && !session.Pushed {
+		reason = "agent session made no changes"
+	}
+	it.finishStep(ctx, stepRunID, reason == "")
+	if reason == "" {
+		it.session, it.feedback = session, ""
+	}
+	return reason
+}
+
+// reviewer runs one execution of a reviewing agent step on the last pushed
+// commit; its final message is the verdict.
+func (it *interpreter) reviewer(ctx workflow.Context, s config.Step) (activities.Review, string) {
+	if it.session.CommitSHA == "" {
+		return activities.Review{}, "no agent step has pushed a commit to review"
+	}
+	session, stepRunID, reason := it.agentSession(ctx, s)
+	if stepRunID == "" {
+		return activities.Review{}, reason
+	}
+	it.finishStep(ctx, stepRunID, reason == "")
+	return activities.Review{StepID: s.ID, Role: s.Agent.RoleName(), StepRunID: stepRunID, CommitSHA: session.CommitSHA,
+		Result: session.Result}, reason
+}
+
+// agentSession starts the step's StepRun and runs its session in a pod. It
+// returns why the session failed, if it did, and leaves ending the StepRun to
+// the caller; an empty stepRunID means no StepRun was created.
+func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activities.SessionResult, string, string) {
 	stepRunID, err := it.startStep(ctx, s.ID, domain.StepAgent)
 	if err != nil {
-		return err.Error()
+		return activities.SessionResult{}, "", err.Error()
 	}
 	role := it.in.Snapshot.Roles[s.Agent.RoleName()]
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
 		Model: gatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), BudgetUSD: s.BudgetUSD, Timeout: time.Duration(s.Timeout),
-		Inputs: s.Inputs}
-	if slices.Contains(s.Inputs, "feedback") {
+		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract}
+	if slices.Contains(s.Inputs, "feedback") && step.Contract == "" {
 		step.Feedback = it.feedback
 	}
 	run := activities.StartRunResult{RunID: it.run.RunID, StepRunID: stepRunID, Branch: it.run.Branch, Step: step}
@@ -177,20 +226,55 @@ func (it *interpreter) agent(ctx workflow.Context, s config.Step) string {
 		_ = workflow.ExecuteActivity(cleanup, it.a.DeleteAgentPod, pod.Name).Get(cleanup, nil)
 	}
 
-	var reason string
 	switch {
 	case err != nil:
-		reason = "agent step failed: " + err.Error()
+		return session, stepRunID, "agent step failed: " + err.Error()
 	case session.Status != "succeeded":
-		reason = "agent session " + session.Status + ": " + session.Reason
-	case !session.Pushed:
-		reason = "agent session made no changes"
+		return session, stepRunID, "agent session " + session.Status + ": " + session.Reason
 	}
-	it.finishStep(ctx, stepRunID, reason == "")
-	if reason == "" {
-		it.session, it.feedback = session, ""
+	return session, stepRunID, ""
+}
+
+// parallel runs a group's branches one after another (D42), or only the branch
+// a loop back targets, then judges the group's gate.
+func (it *interpreter) parallel(ctx workflow.Context, pc int, s config.Step, only string) (int, string) {
+	var reviews []activities.Review
+	for _, b := range s.Parallel {
+		if only != "" && b.ID != only {
+			continue
+		}
+		if it.in.Snapshot.Roles[b.Agent.RoleName()].OutputContract != "" {
+			r, reason := it.reviewer(ctx, b)
+			if reason != "" {
+				return 0, fmt.Sprintf("branch %s: %s", b.ID, reason)
+			}
+			reviews = append(reviews, r)
+			continue
+		}
+		if reason := it.agent(ctx, b); reason != "" {
+			return 0, fmt.Sprintf("branch %s: %s", b.ID, reason)
+		}
 	}
-	return reason
+	if only != "" || s.Gate == nil {
+		return pc + 1, ""
+	}
+	if s.Gate.Type != domain.GateAgentVerdict {
+		return it.gate(ctx, pc, s)
+	}
+	stepRunID, err := it.startStep(ctx, s.ID, domain.StepGate)
+	if err != nil {
+		return 0, err.Error()
+	}
+	var outcome activities.GateOutcome
+	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.RunVerdictGate, activities.VerdictGateRequest{
+		RunID: it.run.RunID, StepRunID: stepRunID, StepID: s.ID, Require: string(s.Gate.Require), Policy: s.Gate.Policy,
+		CommitSHA: it.session.CommitSHA, Reviews: reviews,
+	}).Get(ctx, &outcome)
+	if err != nil {
+		it.finishStep(ctx, stepRunID, false)
+		return 0, "gate could not run: " + err.Error()
+	}
+	return it.judge(ctx, pc, s, outcome)
 }
 
 func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, string) {
@@ -219,8 +303,17 @@ func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, s
 		it.finishStep(ctx, stepRunID, false)
 		return 0, "gate could not run: " + err.Error()
 	}
-	if outcome.Passed || g.Policy == domain.GateAdvisory {
+	return it.judge(ctx, pc, s, outcome)
+}
+
+// judge continues after a passed or advisory gate, fails the run on an
+// inconclusive one, and applies onFail to a failed blocking one.
+func (it *interpreter) judge(ctx workflow.Context, pc int, s config.Step, outcome activities.GateOutcome) (int, string) {
+	switch {
+	case outcome.Passed || s.Gate.Policy == domain.GateAdvisory:
 		return pc + 1, ""
+	case outcome.Inconclusive:
+		return 0, "gate inconclusive: " + outcome.Summary
 	}
 	return it.onFail(ctx, s, outcome)
 }
@@ -235,16 +328,33 @@ func (it *interpreter) onFail(ctx workflow.Context, s config.Step, outcome activ
 	if it.loops[s.ID] >= o.MaxLoops {
 		return 0, fmt.Sprintf("%s (looped back to %s %d times, the limit)", failed, o.Goto, it.loops[s.ID])
 	}
-	target := slices.IndexFunc(it.in.Snapshot.Workflow.Steps, func(t config.Step) bool { return t.ID == o.Goto })
+	target, branch := it.locate(o.Goto)
 	if target < 0 {
-		return 0, fmt.Sprintf("onFail goes to %q, which is not a top-level step", o.Goto)
+		return 0, fmt.Sprintf("onFail goes to %q, which is not a step", o.Goto)
 	}
 	it.loops[s.ID]++
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.RecordLoop, it.run.RunID, s.ID, it.loops[s.ID]).Get(ctx, nil); err != nil {
 		return 0, "recording the loop failed: " + err.Error()
 	}
 	it.feedback = fmt.Sprintf("The `%s` check failed on your last commit: %s\n\n%s", s.ID, outcome.Summary, outcome.Feedback)
+	it.only = branch
 	return target, ""
+}
+
+// locate finds a step by ID: its top-level index, and the branch ID when the
+// step is a branch of a parallel group. -1 when there is no such step.
+func (it *interpreter) locate(id string) (int, string) {
+	for i, s := range it.in.Snapshot.Workflow.Steps {
+		if s.ID == id {
+			return i, ""
+		}
+		for _, b := range s.Parallel {
+			if b.ID == id {
+				return i, id
+			}
+		}
+	}
+	return -1, ""
 }
 
 func (it *interpreter) action(ctx workflow.Context, s config.Step) string {

@@ -65,17 +65,15 @@ func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueR
 	return err
 }
 
-// chooseWorkflow snapshots what the issue's run will execute (invariant 4). A
-// project that selects a workflow runs it with Interpret; an invalid or not yet
-// runnable selection still starts Interpret, which fails the run with the
-// reason so it shows up on the run. A project that selects none keeps the M2
-// IssueRun until the interpreter runs the default workflow. A failure to read
-// the repo returns an error, and intake tries again on its next poll.
+// chooseWorkflow snapshots what the issue's run will execute (invariant 4) and
+// runs it with Interpret: the project's workflow, or the default one. An invalid
+// or not yet runnable configuration still starts Interpret, which fails the run
+// with the reason so it shows up on the run. A failure to read the repo returns
+// an error, and intake tries again on its next poll. IssueRun is no longer
+// started; it stays registered until its runs drain.
 func chooseWorkflow(ctx context.Context, files snapshot.FileReader, in activities.IssueRunInput) (any, any, error) {
 	snap, err := snapshot.Resolve(ctx, files, in.Repo, in.BaseBranch)
 	switch {
-	case errors.Is(err, snapshot.ErrNoWorkflow):
-		return workflow.IssueRun, in, nil
 	case errors.Is(err, snapshot.ErrInvalid):
 		snap = snapshot.Snapshot{Error: err.Error()}
 	case err != nil:

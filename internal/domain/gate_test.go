@@ -35,3 +35,28 @@ func TestGateEnumsValid(t *testing.T) {
 		t.Error("GateVerdict.Valid")
 	}
 }
+
+func TestAgentVerdictDetailsPassed(t *testing.T) {
+	pass, fail := ReviewResult{Verdict: GatePass}, ReviewResult{Verdict: GateFail}
+	broken := ReviewResult{Error: "no JSON in the final message"}
+	tests := []struct {
+		require      string
+		reviews      []ReviewResult
+		passed, inco bool
+	}{
+		{"all", []ReviewResult{pass, pass}, true, false},
+		{"all", []ReviewResult{pass, fail}, false, false},
+		{"any", []ReviewResult{fail, pass}, true, false},
+		{"any", []ReviewResult{fail, fail}, false, false},
+		{"majority", []ReviewResult{pass, pass, fail}, true, false},
+		{"majority", []ReviewResult{pass, fail}, false, false},
+		{"any", []ReviewResult{pass, broken}, false, true},
+		{"all", nil, false, true},
+	}
+	for _, tt := range tests {
+		d := AgentVerdictDetails{Require: tt.require, Reviews: tt.reviews}
+		if d.Passed() != tt.passed || d.Inconclusive() != tt.inco {
+			t.Errorf("%s %+v: passed %v inconclusive %v", tt.require, tt.reviews, d.Passed(), d.Inconclusive())
+		}
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -35,7 +36,14 @@ type Config struct {
 	CommitMessage string
 	AuthorName    string
 	AuthorEmail   string
+	// ReadOnly checkouts (reviewers) are never committed or pushed.
+	ReadOnly bool
+	// CompareRef is fetched as origin/<CompareRef> when it is not BaseRef, so
+	// the agent can diff against the issue's base branch.
+	CompareRef string
 }
+
+var refRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/-]*$`)
 
 // Validate checks the config before anything touches the disk.
 func (c Config) Validate() error {
@@ -53,8 +61,10 @@ func (c Config) Validate() error {
 		return errors.New("workspace: empty base ref")
 	case !strings.HasPrefix(c.Branch, "agent/"):
 		return fmt.Errorf("workspace: branch %q is not an agent branch", c.Branch)
-	case c.CommitMessage == "" || c.AuthorName == "" || c.AuthorEmail == "":
+	case !c.ReadOnly && (c.CommitMessage == "" || c.AuthorName == "" || c.AuthorEmail == ""):
 		return errors.New("workspace: commit message and author are required")
+	case c.CompareRef != "" && (!refRE.MatchString(c.CompareRef) || strings.Contains(c.CompareRef, "..")):
+		return fmt.Errorf("workspace: compare ref %q is not a branch name", c.CompareRef)
 	}
 	return nil
 }
@@ -91,11 +101,16 @@ func Prepare(ctx context.Context, cfg Config) (*Workspace, error) {
 	if _, err := w.git(ctx, "", "clone", "--no-tags", "--single-branch", "--branch", cfg.BaseRef, "--", cfg.CloneURL, cfg.Dir); err != nil {
 		return nil, err
 	}
-	for _, args := range [][]string{
-		{"checkout", "-B", cfg.Branch},
-		{"config", "user.name", cfg.AuthorName},
-		{"config", "user.email", cfg.AuthorEmail},
-	} {
+	steps := [][]string{{"checkout", "-B", cfg.Branch}}
+	if cfg.CompareRef != "" && cfg.CompareRef != cfg.BaseRef {
+		// The clone is single-branch; fetch the base branch for diffs.
+		steps = append(steps, []string{"fetch", "--no-tags", "--", cfg.CloneURL,
+			"+refs/heads/" + cfg.CompareRef + ":refs/remotes/origin/" + cfg.CompareRef})
+	}
+	if !cfg.ReadOnly {
+		steps = append(steps, []string{"config", "user.name", cfg.AuthorName}, []string{"config", "user.email", cfg.AuthorEmail})
+	}
+	for _, args := range steps {
 		if _, err := w.git(ctx, cfg.Dir, args...); err != nil {
 			return nil, err
 		}
@@ -116,8 +131,12 @@ func (w *Workspace) Branch() string { return w.cfg.Branch }
 
 // Publish commits remaining changes, and if the branch moved past the base,
 // collects per-file diffs and pushes it. Agent commits made during the session
-// are kept and pushed as they are.
+// are kept and pushed as they are. A read-only workspace only reports the
+// commit it was checked out at; whatever the agent changed is discarded.
 func (w *Workspace) Publish(ctx context.Context) (Result, error) {
+	if w.cfg.ReadOnly {
+		return Result{CommitSHA: w.baseSHA}, nil
+	}
 	dir := w.cfg.Dir
 	if _, err := w.git(ctx, dir, "add", "-A"); err != nil {
 		return Result{}, err

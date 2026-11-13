@@ -25,7 +25,8 @@ import (
 //
 // Permission prompts are disabled (--dangerously-skip-permissions): the agent pod
 // is the sandbox (docs/spec/05-sandbox-and-toolchains.md). Claude Code refuses
-// that flag as root, which matches the non-root pod requirement (FR-SB-1).
+// that flag as root, which matches the non-root pod requirement (FR-SB-1). A
+// role's allowed_tools narrows the tools instead (tools.go).
 type Harness struct {
 	// Binary is the claude executable; default "claude".
 	Binary string
@@ -38,14 +39,17 @@ type Harness struct {
 var _ runner.Harness = (*Harness)(nil)
 
 // Args returns the claude command-line flags for a session.
-func Args(cfg runner.SessionConfig) []string {
-	args := []string{
+func Args(cfg runner.SessionConfig) ([]string, error) {
+	tools, err := toolArgs(cfg.AllowedTools)
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{
 		"-p",
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
-		"--dangerously-skip-permissions",
-	}
+	}, tools...)
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
 	}
@@ -55,7 +59,7 @@ func Args(cfg runner.SessionConfig) []string {
 	if cfg.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(cfg.MaxTurns))
 	}
-	return args
+	return args, nil
 }
 
 // Start launches claude and begins translating its output.
@@ -68,8 +72,12 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 	if grace <= 0 {
 		grace = 5 * time.Second
 	}
+	args, err := Args(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// ctx is the session context; it is not canceled, Abort stops the process.
-	cmd := exec.CommandContext(ctx, bin, append(slices.Clone(h.prefixArgs), Args(cfg)...)...)
+	cmd := exec.CommandContext(ctx, bin, append(slices.Clone(h.prefixArgs), args...)...)
 	cmd.Dir = cfg.Workdir
 	cmd.Env = os.Environ()
 	for _, k := range slices.Sorted(maps.Keys(cfg.Env)) {

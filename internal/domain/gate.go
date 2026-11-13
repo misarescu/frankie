@@ -86,3 +86,57 @@ func (d CommandGateDetails) Passed() bool {
 	}
 	return true
 }
+
+// ReviewResult is one reviewer's verdict in an agent-verdict gate. Error is set
+// instead of the verdict when the reviewer returned none that the contract
+// accepts.
+type ReviewResult struct {
+	Step      string      `json:"step"`
+	Role      string      `json:"role"`
+	CommitSHA string      `json:"commit"`
+	Verdict   GateVerdict `json:"verdict,omitempty"`
+	Summary   string      `json:"summary,omitempty"`
+	Findings  []Finding   `json:"findings,omitempty"`
+	Error     string      `json:"error,omitempty"`
+}
+
+// AgentVerdictDetails is the Details of an agent-verdict gate result.
+type AgentVerdictDetails struct {
+	Require string         `json:"require"` // all, any or majority
+	Reviews []ReviewResult `json:"reviews"`
+}
+
+// Inconclusive reports a gate that cannot be judged: a reviewer returned no
+// valid verdict, or there were no reviews.
+func (d AgentVerdictDetails) Inconclusive() bool {
+	if len(d.Reviews) == 0 {
+		return true
+	}
+	for _, r := range d.Reviews {
+		if r.Error != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Passed combines the reviewers' verdicts as Require says (docs/spec/03).
+func (d AgentVerdictDetails) Passed() bool {
+	if d.Inconclusive() {
+		return false
+	}
+	passes := 0
+	for _, r := range d.Reviews {
+		if r.Verdict == GatePass {
+			passes++
+		}
+	}
+	switch d.Require {
+	case "any":
+		return passes > 0
+	case "majority":
+		return 2*passes > len(d.Reviews)
+	default: // all
+		return passes == len(d.Reviews)
+	}
+}

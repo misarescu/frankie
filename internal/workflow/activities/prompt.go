@@ -95,7 +95,11 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep) s
 		b.WriteString(strings.TrimRight(s.Feedback, "\n"))
 		b.WriteString("\n")
 	}
-	b.WriteString("\nWhen you are done, summarize what you did and how you verified it.")
+	if s.Contract != "" {
+		b.WriteString("\nYour final message must be only the JSON result your instructions describe.")
+	} else {
+		b.WriteString("\nWhen you are done, summarize what you did and how you verified it.")
+	}
 	return b.String()
 }
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 // unavailable skips locally but fails in CI, so a missing database can never
@@ -75,4 +78,40 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("migrate: %v", err)
 	}
 	return New(pool)
+}
+
+func mustProject(t *testing.T, s *Store) domain.Project {
+	t.Helper()
+	id := uuid.NewString()
+	p, err := s.CreateProject(t.Context(), "proj-"+id[:8], "p"+strings.ReplaceAll(id[:8], "-", ""))
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	return p
+}
+
+func mustIssue(t *testing.T, s *Store, projectID uuid.UUID, status domain.IssueStatus) domain.Issue {
+	t.Helper()
+	is, err := s.CreateIssue(t.Context(), NewIssue{
+		ProjectID: projectID, Type: domain.IssueTask, Title: "do the thing",
+		Status: status, CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	return is
+}
+
+func mustRun(t *testing.T, s *Store, issueID uuid.UUID) domain.Run {
+	t.Helper()
+	r, err := s.CreateRun(t.Context(), NewRun{
+		IssueID:            issueID,
+		WorkflowSnapshot:   json.RawMessage(`{"name":"default-build","steps":[]}`),
+		WorkflowVersion:    "1",
+		TemporalWorkflowID: "wf-" + uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	return r
 }

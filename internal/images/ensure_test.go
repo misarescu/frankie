@@ -3,66 +3,121 @@ package images
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
 
+// fakeRegistry holds manifests by repository@digest and records tags.
 type fakeRegistry struct {
-	have map[string]bool // repository:tag
-	err  error
+	manifests map[string]bool
+	tags      map[string]string // repository:tag -> digest
+	err       error
 }
 
-func (f *fakeRegistry) Has(_ context.Context, repository, tag string) (bool, error) {
-	return f.have[repository+":"+tag], f.err
+func (f *fakeRegistry) HasManifest(_ context.Context, repository, digest string) (bool, error) {
+	return f.manifests[repository+"@"+digest], f.err
 }
 
-// fakeBuilder behaves like a registry: building makes the image exist.
+func (f *fakeRegistry) Tag(_ context.Context, repository, digest, tag string) error {
+	f.tags[repository+":"+tag] = digest
+	return nil
+}
+
+type memDigests map[string]string
+
+func (m memDigests) Lookup(_ context.Context, repository, tag string) (string, bool, error) {
+	d, ok := m[repository+":"+tag]
+	return d, ok, nil
+}
+
+func (m memDigests) Record(_ context.Context, repository, tag, digest string) error {
+	m[repository+":"+tag] = digest
+	return nil
+}
+
+// fakeBuilder pushes a manifest by digest, the way a build does.
 type fakeBuilder struct {
 	registry *fakeRegistry
 	builds   []BuildRequest
 	err      error
+	report   string // overrides the digest the build reports
 }
 
-func (f *fakeBuilder) Build(_ context.Context, r BuildRequest) error {
+func (f *fakeBuilder) Build(_ context.Context, r BuildRequest) (string, error) {
 	f.builds = append(f.builds, r)
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
-	f.registry.have[r.Repository+":"+r.Inputs.Tag()] = true
-	return nil
+	digest := fmt.Sprintf("sha256:%064x", len(f.builds))
+	f.registry.manifests[r.Repository+"@"+digest] = true
+	if f.report != "" {
+		return f.report, nil
+	}
+	return digest, nil
 }
 
-func newEnsurer() (Ensurer, *fakeBuilder) {
-	reg := &fakeRegistry{have: map[string]bool{}}
+func newEnsurer() (Ensurer, *fakeBuilder, *fakeRegistry, memDigests) {
+	reg := &fakeRegistry{manifests: map[string]bool{}, tags: map[string]string{}}
 	b := &fakeBuilder{registry: reg}
-	return Ensurer{Registry: reg, Builder: b, PullHost: "localhost:30500"}, b
+	d := memDigests{}
+	return Ensurer{Registry: reg, Builder: b, Digests: d, PullHost: "localhost:30500"}, b, reg, d
 }
 
-// An unchanged mise.toml reuses the image instead of rebuilding it (M2 done-when).
+var testInputs = Inputs{Base: "ghcr.io/x/runner:sha-1", MiseToml: []byte("[tools]\ngo = \"1.27\"\n")}
+
+// An unchanged mise.toml reuses the image instead of rebuilding it (M2 done-when),
+// and pods get it by digest (D45).
 func TestEnsureReusesImageForUnchangedToolchain(t *testing.T) {
-	e, b := newEnsurer()
-	in := Inputs{Base: "ghcr.io/x/runner:sha-1", MiseToml: []byte("[tools]\ngo = \"1.27\"\n")}
-
-	first, err := e.Ensure(context.Background(), "misarescu/Repo", in)
+	e, b, reg, d := newEnsurer()
+	first, err := e.Ensure(context.Background(), "misarescu/Repo", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Built || len(b.builds) != 1 {
-		t.Fatalf("first call: built = %v, builds = %d; want one build", first.Built, len(b.builds))
+	digest := fmt.Sprintf("sha256:%064x", 1)
+	if !first.Built || len(b.builds) != 1 || first.Ref != "localhost:30500/toolchains/misarescu/repo@"+digest {
+		t.Fatalf("first = %+v, builds = %d", first, len(b.builds))
 	}
-	if want := "localhost:30500/toolchains/misarescu/repo:" + in.Tag(); first.Ref != want {
-		t.Errorf("ref = %q, want %q", first.Ref, want)
+	if d["toolchains/misarescu/repo:"+testInputs.Tag()] != digest || reg.tags["toolchains/misarescu/repo:"+testInputs.Tag()] != digest {
+		t.Errorf("recorded %v, tagged %v", d, reg.tags)
 	}
 
-	second, err := e.Ensure(context.Background(), "misarescu/Repo", in)
+	second, err := e.Ensure(context.Background(), "misarescu/Repo", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Built || len(b.builds) != 1 {
-		t.Fatalf("second call rebuilt: built = %v, builds = %d", second.Built, len(b.builds))
+	if second.Built || len(b.builds) != 1 || second.Ref != first.Ref {
+		t.Fatalf("second = %+v, builds = %d; want the recorded image", second, len(b.builds))
 	}
-	if second.Ref != first.Ref {
-		t.Errorf("ref changed: %q vs %q", second.Ref, first.Ref)
+}
+
+// Open question 15: a tag in the registry proves nothing. An image someone
+// pushed under the tag is never used; only a build on record is.
+func TestEnsureIgnoresTagsItDidNotRecord(t *testing.T) {
+	e, b, reg, _ := newEnsurer()
+	reg.tags["toolchains/o/r:"+testInputs.Tag()] = "sha256:" + strings.Repeat("e", 64) // pushed by another build pod
+	reg.manifests["toolchains/o/r@sha256:"+strings.Repeat("e", 64)] = true
+	got, err := e.Ensure(context.Background(), "o/r", testInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Built || len(b.builds) != 1 || strings.Contains(got.Ref, strings.Repeat("e", 64)) {
+		t.Fatalf("image = %+v; want a build of its own", got)
+	}
+}
+
+func TestEnsureRebuildsWhenTheRegistryLostTheImage(t *testing.T) {
+	e, b, reg, _ := newEnsurer()
+	if _, err := e.Ensure(context.Background(), "o/r", testInputs); err != nil {
+		t.Fatal(err)
+	}
+	clear(reg.manifests) // the registry's storage was reset
+	got, err := e.Ensure(context.Background(), "o/r", testInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Built || len(b.builds) != 2 || !strings.HasSuffix(got.Ref, fmt.Sprintf("@sha256:%064x", 2)) {
+		t.Fatalf("image = %+v, builds = %d", got, len(b.builds))
 	}
 }
 
@@ -77,8 +132,8 @@ func TestEnsureRebuildsWhenInputsChange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e, b := newEnsurer()
-			in := Inputs{Base: "ghcr.io/x/runner:sha-1", MiseToml: []byte("[tools]\ngo = \"1.27\"\n")}
+			e, b, _, _ := newEnsurer()
+			in := testInputs
 			if _, err := e.Ensure(context.Background(), "o/r", in); err != nil {
 				t.Fatal(err)
 			}
@@ -95,23 +150,37 @@ func TestEnsureRebuildsWhenInputsChange(t *testing.T) {
 }
 
 func TestEnsureErrors(t *testing.T) {
-	in := Inputs{Base: "b", MiseToml: []byte("x")}
-	t.Run("registry unreachable does not trigger a build", func(t *testing.T) {
-		e, b := newEnsurer()
-		e.Registry.(*fakeRegistry).err = errors.New("connection refused")
-		if _, err := e.Ensure(context.Background(), "o/r", in); err == nil || len(b.builds) != 0 {
-			t.Fatalf("err = %v, builds = %d; want an error and no build", err, len(b.builds))
+	t.Run("registry unreachable does not use the record blindly", func(t *testing.T) {
+		e, _, reg, d := newEnsurer()
+		d["toolchains/o/r:"+testInputs.Tag()] = fmt.Sprintf("sha256:%064x", 9)
+		reg.err = errors.New("connection refused")
+		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil {
+			t.Fatal("expected an error")
 		}
 	})
 	t.Run("build failure is returned", func(t *testing.T) {
-		e, b := newEnsurer()
+		e, b, _, _ := newEnsurer()
 		b.err = errors.New("boom")
-		if _, err := e.Ensure(context.Background(), "o/r", in); err == nil || !strings.Contains(err.Error(), "boom") {
+		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || !strings.Contains(err.Error(), "boom") {
 			t.Fatalf("err = %v, want boom", err)
 		}
 	})
+	t.Run("a reported digest that is not a digest", func(t *testing.T) {
+		e, b, _, d := newEnsurer()
+		b.report = "latest"
+		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || len(d) != 0 {
+			t.Fatalf("err = %v, recorded %v", err, d)
+		}
+	})
+	t.Run("a reported digest the registry does not hold", func(t *testing.T) {
+		e, b, _, d := newEnsurer()
+		b.report = "sha256:" + strings.Repeat("f", 64)
+		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || !strings.Contains(err.Error(), "not in the registry") || len(d) != 0 {
+			t.Fatalf("err = %v, recorded %v", err, d)
+		}
+	})
 	t.Run("invalid inputs", func(t *testing.T) {
-		e, _ := newEnsurer()
+		e, _, _, _ := newEnsurer()
 		if _, err := e.Ensure(context.Background(), "o/r", Inputs{}); err == nil {
 			t.Fatal("expected a validation error")
 		}

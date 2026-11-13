@@ -2,6 +2,7 @@ package images
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,11 +24,12 @@ type KubeBuilder struct {
 	Heartbeat func(ctx context.Context, details ...any)
 }
 
-// Build implements Builder.
-func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) error {
+// Build implements Builder. The digest comes from the build container's
+// termination message (MetadataFile), as the kubelet recorded it.
+func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) (string, error) {
 	cm, job, err := BuildResources(b.Config, r)
 	if err != nil {
-		return err
+		return "", err
 	}
 	jobs := b.Kube.BatchV1().Jobs(b.Config.Namespace)
 	cms := b.Kube.CoreV1().ConfigMaps(b.Config.Namespace)
@@ -37,7 +39,7 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) error {
 	}
 
 	if _, err := cms.Create(ctx, cm, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create build context: %w", err)
+		return "", fmt.Errorf("create build context: %w", err)
 	}
 	live, err := jobs.Create(ctx, job, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
@@ -45,10 +47,10 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) error {
 		live, err = jobs.Get(ctx, job.Name, metav1.GetOptions{})
 	}
 	if err != nil {
-		return fmt.Errorf("start build job: %w", err)
+		return "", fmt.Errorf("start build job: %w", err)
 	}
 	if err := b.adopt(ctx, cm.Name, live); err != nil {
-		return err
+		return "", err
 	}
 
 	done, failure := jobState(live)
@@ -58,11 +60,11 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) error {
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
 		case <-time.After(interval):
 		}
 		if live, err = jobs.Get(ctx, job.Name, metav1.GetOptions{}); err != nil {
-			return fmt.Errorf("get build job: %w", err)
+			return "", fmt.Errorf("get build job: %w", err)
 		}
 		done, failure = jobState(live)
 	}
@@ -70,9 +72,38 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) error {
 		// Remove the failed Job so the next request builds again instead of
 		// finding the same failure.
 		_ = b.cleanup(context.WithoutCancel(ctx), job.Name)
-		return fmt.Errorf("build job %s failed: %s", job.Name, failure)
+		return "", fmt.Errorf("build job %s failed: %s", job.Name, failure)
 	}
-	return nil
+	return b.reportedDigest(ctx, live)
+}
+
+// reportedDigest reads containerimage.digest from the termination message of
+// the Job's succeeded build container.
+func (b KubeBuilder) reportedDigest(ctx context.Context, job *batchv1.Job) (string, error) {
+	pods, err := b.Kube.CoreV1().Pods(b.Config.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
+	if err != nil {
+		return "", fmt.Errorf("list build pods: %w", err)
+	}
+	for _, p := range pods.Items {
+		if p.Status.Phase != corev1.PodSucceeded {
+			continue
+		}
+		for _, c := range p.Status.ContainerStatuses {
+			if c.Name != buildContainer || c.State.Terminated == nil {
+				continue
+			}
+			var meta map[string]any
+			if err := json.Unmarshal([]byte(c.State.Terminated.Message), &meta); err != nil {
+				return "", fmt.Errorf("build job %s: its result is not JSON: %w", job.Name, err)
+			}
+			digest, _ := meta["containerimage.digest"].(string)
+			if digest == "" {
+				return "", fmt.Errorf("build job %s reported no image digest", job.Name)
+			}
+			return digest, nil
+		}
+	}
+	return "", fmt.Errorf("build job %s: no succeeded build pod to read the digest from", job.Name)
 }
 
 // jobState reports whether the Job finished and, if it failed, why.

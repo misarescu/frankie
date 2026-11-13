@@ -144,3 +144,14 @@ CREATE TABLE approvals (
 );
 
 CREATE INDEX approvals_status_idx ON approvals (status, created_at);
+
+-- The digest each toolchain image was built as (open question 15, D45). Pods
+-- run toolchain images by this digest only: the registry is writable by build
+-- pods, so a tag there proves nothing.
+CREATE TABLE toolchain_images (
+  repository text        NOT NULL,
+  tag        text        NOT NULL,
+  digest     text        NOT NULL CHECK (digest ~ '^sha256:[0-9a-f]{64}$'),
+  built_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (repository, tag)
+);

@@ -71,10 +71,26 @@ func fakeRepoWithReads(t *testing.T, files map[string]string) (*github.Client, *
 
 var shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
+// memRegistry holds manifests by repository@digest.
 type memRegistry map[string]bool
 
-func (m memRegistry) Has(_ context.Context, repository, tag string) (bool, error) {
-	return m[repository+":"+tag], nil
+func (m memRegistry) HasManifest(_ context.Context, repository, digest string) (bool, error) {
+	return m[repository+"@"+digest], nil
+}
+
+func (m memRegistry) Tag(context.Context, string, string, string) error { return nil }
+
+// memDigests is the control plane's record of built images.
+type memDigests map[string]string
+
+func (m memDigests) Lookup(_ context.Context, repository, tag string) (string, bool, error) {
+	d, ok := m[repository+":"+tag]
+	return d, ok, nil
+}
+
+func (m memDigests) Record(_ context.Context, repository, tag, digest string) error {
+	m[repository+":"+tag] = digest
+	return nil
 }
 
 type memBuilder struct {
@@ -83,13 +99,14 @@ type memBuilder struct {
 	err    error
 }
 
-func (b *memBuilder) Build(_ context.Context, r images.BuildRequest) error {
+func (b *memBuilder) Build(_ context.Context, r images.BuildRequest) (string, error) {
 	b.builds = append(b.builds, r)
 	if b.err != nil {
-		return b.err
+		return "", b.err
 	}
-	b.reg[r.Repository+":"+r.Inputs.Tag()] = true
-	return nil
+	digest := fmt.Sprintf("sha256:%064x", len(b.builds))
+	b.reg[r.Repository+"@"+digest] = true
+	return digest, nil
 }
 
 func toolchainActivities(t *testing.T, files map[string]string) (*Activities, *memBuilder) {
@@ -98,7 +115,7 @@ func toolchainActivities(t *testing.T, files map[string]string) (*Activities, *m
 	b := &memBuilder{reg: reg}
 	return &Activities{
 		GitHub:    fakeRepo(t, files),
-		Toolchain: &images.Ensurer{Registry: reg, Builder: b, PullHost: "localhost:30500"},
+		Toolchain: &images.Ensurer{Registry: reg, Builder: b, Digests: memDigests{}, PullHost: "localhost:30500"},
 		Agent:     AgentConfig{RunnerImage: "ghcr.io/misarescu/frankie-runner:sha-abc"},
 		Log:       quietLog(),
 	}, b
@@ -123,7 +140,7 @@ func TestEnsureToolchainImageBuildsThenReuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(first, "localhost:30500/toolchains/misarescu/goodreads-clone:tc-") {
+	if !strings.HasPrefix(first, "localhost:30500/toolchains/misarescu/goodreads-clone@sha256:") {
 		t.Errorf("ref = %q", first)
 	}
 	second, err := ensure(t, a)

@@ -120,6 +120,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	if cfg.Toolchain.Enabled() {
 		toolchain = &images.Ensurer{
 			Registry: images.HTTPRegistry{BaseURL: cfg.Toolchain.RegistryURL, Client: &http.Client{Timeout: 15 * time.Second}},
+			Digests:  store.ToolchainDigests{Store: st},
 			Builder: images.KubeBuilder{Kube: cfg.Kube, Config: cfg.Toolchain.Build,
 				Heartbeat: func(ctx context.Context, details ...any) { activity.RecordHeartbeat(ctx, details...) }},
 			PullHost: cfg.Toolchain.PullHost,

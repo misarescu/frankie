@@ -111,7 +111,11 @@ var _ = Describe("Dependency images", Ordered, Label("dependencies"), func() {
 			WorkspaceSize:  resource.MustParse("1Gi"),
 			Deadline:       5 * time.Minute,
 			EgressProxyURL: proxyURL,
+			// Like an agent or gate pod: the repo's mise.toml in the checkout,
+			// which is how mise resolves the toolchain's python.
+			Env: map[string]string{"MISE_TOML": miseToml},
 			Command: []string{"/bin/sh", "-c", `
+mkdir -p /workspace/repo && cd /workspace/repo && printf '%s' "$MISE_TOML" > mise.toml
 echo "RESULT six $(python -c 'import six; print(six.__version__)' 2>&1 | tail -1)"
 echo "RESULT deps_dir $(test -e /workspace/deps/requirements.txt && echo visible || echo hidden)"
 `},

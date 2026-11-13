@@ -66,13 +66,18 @@ func TestBuildResources(t *testing.T) {
 		c := spec.Containers[0]
 		args := strings.Join(c.Args, " ")
 		for _, want := range []string{
-			"name=frankie-registry.frankie.svc:5000/toolchains/misarescu/repo:" + req.Inputs.Tag() + ",push=true",
+			"name=frankie-registry.frankie.svc:5000/toolchains/misarescu/repo,push=true,push-by-digest=true",
 			"build-arg:HTTPS_PROXY=http://egress.frankie.svc:3128",
 			"build-arg:NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local",
+			// D45: the digest is reported through the kubelet, never a tag pushed.
+			"--metadata-file /dev/termination-log",
 		} {
 			if !strings.Contains(args, want) {
 				t.Errorf("args missing %q:\n%s", want, args)
 			}
+		}
+		if strings.Contains(args, ":"+req.Inputs.Tag()) {
+			t.Errorf("the build pushes a tag; only the control plane tags:\n%s", args)
 		}
 		// D31: rootless BuildKit does not work on Kata (no file capabilities on virtiofs), and
 		// an unprivileged rootful one cannot create cgroups.

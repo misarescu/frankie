@@ -118,3 +118,10 @@ type StepRun struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
+
+type ToolchainImage struct {
+	Repository string
+	Tag        string
+	Digest     string
+	BuiltAt    time.Time
+}

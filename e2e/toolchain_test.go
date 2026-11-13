@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -21,26 +22,29 @@ import (
 
 // M2 (docs/spec/10, D30): a toolchain image is built in-cluster from a repo's
 // mise.toml on top of the platform base image, pushed to the in-cluster registry,
-// pulled by the node, and reused for an unchanged mise.toml.
+// pulled by the node, and reused for an unchanged mise.toml. Since D45 it is
+// pushed by digest, recorded, tagged by the control plane and run by digest.
 //
 //	FRANKIE_E2E_BUILDKIT_IMAGE  default moby/buildkit:v0.35.0
 var _ = Describe("Toolchain images", Ordered, Label("toolchain"), func() {
 	var (
-		ensurer images.Ensurer
-		in      images.Inputs
-		first   images.Image
+		ensurer  images.Ensurer
+		registry images.HTTPRegistry
+		in       images.Inputs
+		first    images.Image
 	)
 
 	BeforeAll(func() {
 		httpClient, err := rest.HTTPClientFor(restConfig)
 		Expect(err).NotTo(HaveOccurred())
 		// The registry is cluster-internal; the API server proxies to it.
-		registry := images.HTTPRegistry{
+		registry = images.HTTPRegistry{
 			BaseURL: strings.TrimSuffix(restConfig.Host, "/") + "/api/v1/namespaces/" + platformNS + "/services/http:frankie-registry:5000/proxy",
 			Client:  httpClient,
 		}
 		ensurer = images.Ensurer{
 			Registry: registry,
+			Digests:  memDigests{},
 			Builder: images.KubeBuilder{
 				Kube: cs,
 				Config: images.BuildConfig{
@@ -75,8 +79,17 @@ run = "jq --version"
 		first, err = ensurer.Ensure(ctx, repo, in)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(first.Built).To(BeTrue())
-		Expect(first.Ref).To(HavePrefix("localhost:30500/toolchains/"))
+		Expect(first.Ref).To(MatchRegexp(`^localhost:30500/toolchains/[^@:]+@sha256:[0-9a-f]{64}$`))
 	}, SpecTimeout(30*time.Minute))
+
+	It("verified the reported digest in the registry and tagged it", func(ctx SpecContext) {
+		repository, err := images.Repository(repo)
+		Expect(err).NotTo(HaveOccurred())
+		digest := first.Ref[strings.LastIndex(first.Ref, "@")+1:]
+		Expect(registry.HasManifest(ctx, repository, digest)).To(BeTrue())
+		// The tag the control plane set resolves to the same manifest.
+		Expect(registry.Tag(ctx, repository, digest, in.Tag())).To(Succeed())
+	}, SpecTimeout(2*time.Minute))
 
 	It("reuses the image for an unchanged mise.toml instead of rebuilding", func(ctx SpecContext) {
 		second, err := ensurer.Ensure(ctx, repo, in)
@@ -114,3 +127,16 @@ echo "RESULT task $(mise run test 2>&1 | tail -1)"
 		Expect(probeResults(ctx, created.Name)).To(HaveKeyWithValue("task", "jq-1.7.1"))
 	}, SpecTimeout(8*time.Minute))
 })
+
+// memDigests stands in for the control plane's record of built images.
+type memDigests map[string]string
+
+func (m memDigests) Lookup(_ context.Context, repository, tag string) (string, bool, error) {
+	d, ok := m[repository+":"+tag]
+	return d, ok, nil
+}
+
+func (m memDigests) Record(_ context.Context, repository, tag, digest string) error {
+	m[repository+":"+tag] = digest
+	return nil
+}

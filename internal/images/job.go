@@ -26,6 +26,7 @@ const (
 	agentUID       = 10001
 	toolchainDir   = "/home/agent/toolchain"
 	dockerfileName = "Dockerfile"
+	buildContainer = "buildkit"
 )
 
 // BuildConfig describes how toolchain images are built; it comes from the
@@ -86,10 +87,16 @@ func (r BuildRequest) JobName() string {
 	return "tc-" + strings.TrimPrefix(r.Inputs.Tag(), "tc-")[:20]
 }
 
-// Image is the reference the build pushes to.
+// Image is the repository the build pushes to, by digest only (D45): the
+// control plane tags the image once it verified and recorded the digest.
 func (r BuildRequest) Image(c BuildConfig) string {
-	return fmt.Sprintf("%s/%s:%s", c.PushHost, r.Repository, r.Inputs.Tag())
+	return fmt.Sprintf("%s/%s", c.PushHost, r.Repository)
 }
+
+// MetadataFile is where buildctl writes the build result, including
+// containerimage.digest. It is the container's termination message, which the
+// kubelet records in the pod status: the build's own RUN steps cannot write it.
+const MetadataFile = "/dev/termination-log"
 
 // Dockerfile is the build recipe: the base image plus the tools mise.toml pins,
 // installed where the agent user finds them at run time. args are build
@@ -147,7 +154,8 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 		"--opt", "build-arg:HTTPS_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:HTTP_PROXY=" + c.EgressProxyURL,
 		"--opt", "build-arg:NO_PROXY=" + noProxy,
-		"--output", fmt.Sprintf("type=image,name=%s,push=true,registry.insecure=true", r.Image(c)),
+		"--output", fmt.Sprintf("type=image,name=%s,push=true,push-by-digest=true,registry.insecure=true", r.Image(c)),
+		"--metadata-file", MetadataFile,
 	}
 	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
 		args = append(args, "--opt", "build-arg:"+k+"="+c.Env[k])
@@ -169,7 +177,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 					EnableServiceLinks:           ptrTo(false),
 					RestartPolicy:                corev1.RestartPolicyNever,
 					Containers: []corev1.Container{{
-						Name:    "buildkit",
+						Name:    buildContainer,
 						Image:   c.BuildKitImage,
 						Command: []string{"buildctl-daemonless.sh"},
 						Args:    args,

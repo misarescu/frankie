@@ -5,7 +5,7 @@ kind: Namespace
 metadata:
   name: {{ .Values.agents.namespace }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
     pod-security.kubernetes.io/enforce: {{ .Values.agents.podSecurity }}
     pod-security.kubernetes.io/warn: {{ .Values.agents.podSecurity }}
 ---
@@ -16,7 +16,7 @@ metadata:
   name: {{ .Values.agents.serviceAccountName }}
   namespace: {{ .Values.agents.namespace }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 automountServiceAccountToken: false
 ---
 # Everything in the agents namespace is denied unless a policy below allows it.
@@ -26,7 +26,7 @@ metadata:
   name: default-deny
   namespace: {{ .Values.agents.namespace }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
@@ -39,7 +39,7 @@ metadata:
   name: agent
   namespace: {{ .Values.agents.namespace }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
@@ -52,7 +52,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
           podSelector:
             matchLabels:
-              {{- include "factory.componentLabels" (list . "controlplane") | nindent 14 }}
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
       ports:
         - port: {{ .Values.agents.runnerPort }}
           protocol: TCP
@@ -73,7 +73,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
           podSelector:
             matchLabels:
-              {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 14 }}
+              {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 14 }}
       ports:
         - port: {{ .Values.egressProxy.port }}
           protocol: TCP
@@ -83,7 +83,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
           podSelector:
             matchLabels:
-              {{- include "factory.componentLabels" (list . "controlplane") | nindent 14 }}
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
       ports:
         - port: {{ .Values.controlPlane.gitProxyPort }}
           protocol: TCP
@@ -93,7 +93,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
           podSelector:
             matchLabels:
-              {{- include "factory.componentLabels" (list . "llm-gateway") | nindent 14 }}
+              {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 14 }}
       ports:
         - port: {{ .Values.llmGateway.port }}
           protocol: TCP

@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 // proxy's answer to CONNECT.
 const probeScript = `
 r() { echo "RESULT $1 $2"; }
+r node_ip "${NODE_IP:-unset}"
 r uid "$(id -u)"
 r kernel "$(uname -r)"
 r sa_token "$(test -e /var/run/secrets/kubernetes.io/serviceaccount/token && echo present || echo absent)"
@@ -39,7 +41,7 @@ r direct_k8s_api "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' h
 
 // M1 acceptance (docs/spec/10) and FR-SB-1/2/5: an agent pod runs in a Kata VM
 // without cluster credentials and reaches the internet only through the egress proxy.
-var _ = Describe("Agent sandbox", Ordered, Label("sandbox"), func() {
+var _ = Describe("Agent sandbox", Ordered, ContinueOnFailure, Label("sandbox"), func() {
 	var (
 		results    map[string]string
 		hostKernel string
@@ -51,12 +53,16 @@ var _ = Describe("Agent sandbox", Ordered, Label("sandbox"), func() {
 		Expect(nodes.Items).NotTo(BeEmpty())
 		node := nodes.Items[0]
 		hostKernel = node.Status.NodeInfo.KernelVersion
+		// The LAN probes use the node's IPv4 address; nodes can also list a global
+		// IPv6 InternalIP, which would need URL brackets and is not the LAN.
 		var nodeIP string
 		for _, a := range node.Status.Addresses {
-			if a.Type == corev1.NodeInternalIP {
+			if ip, err := netip.ParseAddr(a.Address); err == nil && a.Type == corev1.NodeInternalIP && ip.Is4() {
 				nodeIP = a.Address
+				break
 			}
 		}
+		Expect(nodeIP).NotTo(BeEmpty(), "node has no IPv4 InternalIP: %v", node.Status.Addresses)
 
 		id := domain.NewID().String()
 		pod, err := sandbox.AgentPod(sandbox.PodSpec{

@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "factory.fullname" . }}-platform
+  name: {{ include "frankie.fullname" . }}-platform
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 data:
   platform.yaml: |
     profile: {{ .Values.profile }}

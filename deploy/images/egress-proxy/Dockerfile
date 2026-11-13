@@ -12,6 +12,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/egress-proxy /egress-proxy
-USER nonroot:nonroot
+# Numeric (distroless "nonroot") so runAsNonRoot can be verified by the kubelet.
+USER 65532:65532
 EXPOSE 3128
 ENTRYPOINT ["/egress-proxy"]

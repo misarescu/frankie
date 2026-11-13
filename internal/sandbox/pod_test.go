@@ -20,8 +20,8 @@ func validSpec() PodSpec {
 		},
 		WorkspaceSize:  resource.MustParse("10Gi"),
 		Deadline:       2 * time.Hour,
-		EgressProxyURL: "http://factory-egress-proxy.frankie.svc:3128",
-		NoProxy:        []string{"factory-controlplane.frankie"},
+		EgressProxyURL: "http://frankie-egress-proxy.frankie.svc:3128",
+		NoProxy:        []string{"frankie-controlplane.frankie"},
 		Env:            map[string]string{"ANTHROPIC_BASE_URL": "http://gateway:4000", "A_FIRST": "1"},
 	}
 }
@@ -87,11 +87,11 @@ func TestAgentPodProxyEnvironment(t *testing.T) {
 		order = append(order, e.Name)
 	}
 	for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
-		if env[k] != "http://factory-egress-proxy.frankie.svc:3128" {
+		if env[k] != "http://frankie-egress-proxy.frankie.svc:3128" {
 			t.Errorf("%s = %q", k, env[k])
 		}
 	}
-	for _, want := range []string{".svc", ".cluster.local", "localhost", "factory-controlplane.frankie"} {
+	for _, want := range []string{".svc", ".cluster.local", "localhost", "frankie-controlplane.frankie"} {
 		if !strings.Contains(env["NO_PROXY"], want) || env["no_proxy"] != env["NO_PROXY"] {
 			t.Errorf("NO_PROXY %q missing %q", env["NO_PROXY"], want)
 		}

@@ -42,9 +42,13 @@ Single deployable with these internal modules:
 - **drivers host**: loads `ReleaseDriver` plugins over gRPC (hashicorp/go-plugin).
 - **events**: normalized event stream ingestion, persistence and fan-out.
 - **images**: toolchain image hashing/building/registry lookup.
+- **gitproxy**: git smart-HTTP proxy for agent pods (D21). Validates the per-step token, allows reads of the bound repo and ref updates only under `refs/heads/agent/<issue-key>/`, and forwards with the `GitProvider` credential.
 
 ### Runner (Go, runs inside every agent pod)
 Small binary next to the harness. The control plane talks to it over one gRPC interface (`Start`, `Prompt`, `Steer`, `Abort`, `Events`). Details in `04-agents-harnesses-models.md`.
+
+### Egress proxy (Go, separate deployment)
+CONNECT-only forward proxy for agent pods with a hostname allowlist (D20). The only route from an agent pod to the internet; it never dials loopback, link-local or private addresses.
 
 ### Temporal
 Runs the generic interpreter workflow and the per-repo merge queue workflow. Human gates are Signals with timeouts. Temporal's UI is kept for debugging.
@@ -62,8 +66,8 @@ FluxCD reconciles environments from a GitOps repo. Preview environments via Flux
 
 | Boundary | Rule |
 |---|---|
-| Control plane <-> agent pod | gRPC to the runner only. Pod egress is allowlisted. |
-| Agent pod <-> git | Clone + push to `agent/*` branches with a short-lived scoped token. Git history is the workspace handoff between steps. |
+| Control plane <-> agent pod | gRPC to the runner; the pod reaches back only to the git proxy. Pod egress goes through the egress proxy (D20). |
+| Agent pod <-> git | Clone + push through the control plane git proxy with a short-lived per-step token, limited to `agent/<issue-key>/*` (D21). Git history is the workspace handoff between steps. |
 | Core <-> provider | Neutral interfaces; no GitHub/Flux types in `internal/domain`. |
 | Workflow <-> world | All I/O in Activities. Workflow code is deterministic. |
 | Agent <-> deployment | None directly. Optional MCP server exposes scoped driver tools: reversible/harmless calls (e.g. `Status`, publish to beta) allowed; irreversible ones (publish to stable) block on a human gate. |
@@ -75,6 +79,7 @@ cmd/
   controlplane/     main for API + workers
   runner/           in-pod runner
   factoryctl/       CLI (start issues, approve gates, tail runs)
+  egress-proxy/     hostname-allowlisting CONNECT proxy for agent pods
 internal/
   api/
   domain/           entities, state machines (no provider types)
@@ -89,6 +94,8 @@ internal/
   gateway/          LiteLLM admin client (virtual keys, budgets)
   events/
   images/
+  gitproxy/         git smart-HTTP proxy for agent pods
+  egress/           egress proxy policy and server
   config/           YAML schemas, validation
   runner/           in-pod runner: RunnerService server, event log, harness adapters (claudecode/)
 proto/              runner.proto, driver.proto

@@ -1,10 +1,13 @@
 -- name: CreateIssue :one
-INSERT INTO issues (id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
-VALUES (@id, @project_id, @type, @title, @spec, @acceptance_criteria, @status, @priority, sqlc.narg('source_ref'), @labels, @created_by)
+INSERT INTO issues (id, project_id, number, key, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
+VALUES (@id, @project_id, @number, @key, @type, @title, @spec, @acceptance_criteria, @status, @priority, sqlc.narg('source_ref'), @labels, @created_by)
 RETURNING *;
 
 -- name: GetIssue :one
 SELECT * FROM issues WHERE id = @id;
+
+-- name: GetIssueByKey :one
+SELECT * FROM issues WHERE key = @key;
 
 -- name: GetIssueBySourceRef :one
 SELECT * FROM issues WHERE project_id = @project_id AND source_ref = @source_ref;

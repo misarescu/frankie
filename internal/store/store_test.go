@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,7 +15,8 @@ import (
 
 func mustProject(t *testing.T, s *Store) domain.Project {
 	t.Helper()
-	p, err := s.CreateProject(t.Context(), "proj-"+uuid.NewString()[:8])
+	id := uuid.NewString()
+	p, err := s.CreateProject(t.Context(), "proj-"+id[:8], "p"+strings.ReplaceAll(id[:8], "-", ""))
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -64,7 +67,7 @@ func TestMigrateConcurrentAndRepeated(t *testing.T) {
 	if err := Migrate(t.Context(), pool); err != nil {
 		t.Fatalf("repeated Migrate: %v", err)
 	}
-	if _, err := New(pool).CreateProject(t.Context(), "after-migrate"); err != nil {
+	if _, err := New(pool).CreateProject(t.Context(), "after-migrate", "am"); err != nil {
 		t.Fatalf("schema not usable after migrate: %v", err)
 	}
 }
@@ -340,5 +343,84 @@ func TestStoreValidation(t *testing.T) {
 	}
 	if _, err := s.GetRun(ctx, domain.NewID()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetRun(unknown) err = %v, want ErrNotFound", err)
+	}
+}
+
+// D22: issues get <prefix>-<n> keys, numbered per project from 1.
+func TestIssueKeys(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	frk, err := s.CreateProject(ctx, "frankie", "frk")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	toy, err := s.CreateProject(ctx, "toy", "toy")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	for _, bad := range []string{"", "f", "Frk", "frk-1", "12ab", "abcdefghijk"} {
+		if _, err := s.CreateProject(ctx, "bad-"+bad, bad); err == nil {
+			t.Errorf("CreateProject accepted key prefix %q", bad)
+		}
+	}
+	if _, err := s.CreateProject(ctx, "other", "frk"); !errors.Is(err, ErrConflict) {
+		t.Errorf("duplicate key prefix: err = %v, want ErrConflict", err)
+	}
+
+	a, b := mustIssue(t, s, frk.ID, ""), mustIssue(t, s, frk.ID, "")
+	c := mustIssue(t, s, toy.ID, "")
+	if a.Key != "frk-1" || a.Number != 1 || b.Key != "frk-2" || c.Key != "toy-1" {
+		t.Fatalf("keys = %s(%d), %s, %s", a.Key, a.Number, b.Key, c.Key)
+	}
+	got, err := s.GetIssueByKey(ctx, "frk-2")
+	if err != nil || got.ID != b.ID {
+		t.Fatalf("GetIssueByKey = %v, %v", got.ID, err)
+	}
+	if _, err := s.GetIssueByKey(ctx, "frk-99"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown key: err = %v, want ErrNotFound", err)
+	}
+
+	// A rejected create rolls back its number allocation.
+	in := NewIssue{ProjectID: frk.ID, Type: domain.IssueTask, Title: "t", CreatedBy: "test", SourceRef: "gh#1"}
+	if _, err := s.CreateIssue(ctx, in); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	if _, err := s.CreateIssue(ctx, in); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate source ref: err = %v", err)
+	}
+	if next := mustIssue(t, s, frk.ID, ""); next.Key != "frk-4" {
+		t.Errorf("after a rejected create, next key = %s, want frk-4", next.Key)
+	}
+}
+
+func TestIssueNumbersUniqueUnderConcurrency(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	const n = 20
+	keys := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			is, err := s.CreateIssue(t.Context(), NewIssue{ProjectID: p.ID, Type: domain.IssueTask,
+				Title: fmt.Sprint("t", i), CreatedBy: "test"})
+			if err != nil {
+				t.Errorf("CreateIssue %d: %v", i, err)
+				return
+			}
+			keys[i] = is.Key
+		})
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if seen[k] {
+			t.Fatalf("duplicate key %s in %v", k, keys)
+		}
+		seen[k] = true
+	}
+	for i := 1; i <= n; i++ {
+		if !seen[domain.IssueKey(p.KeyPrefix, i)] {
+			t.Errorf("number %d not allocated; keys %v", i, keys)
+		}
 	}
 }

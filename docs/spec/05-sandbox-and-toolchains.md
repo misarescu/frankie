@@ -5,8 +5,8 @@ Safe unattended running depends on this document. Treat every statement as a req
 ## Sandbox
 
 - **FR-SB-1** One Kubernetes pod per agent step (and per `command` gate), using a Kata Containers runtime class. No host mounts. Non-root user.
-- **FR-SB-2** `NetworkPolicy` egress allowlist: LLM gateway, git host, in-cluster registry/dependency proxy (full profile) or public package registries (laptop profile). Everything else denied.
-- **FR-SB-3** Git credentials: a short-lived token scoped to push **only** to `agent/*` branches (and to read the target repo).
+- **FR-SB-2** Egress allowlist (D20). `NetworkPolicy` lets agent pods reach only cluster DNS, the LLM gateway, the control plane (git proxy) and the egress proxy; everything else is dropped. The egress proxy allows HTTPS `CONNECT` only to listed hostnames: in-cluster registry/dependency proxy (full profile) or public package registries (laptop profile). It refuses plain HTTP, IP literals that are not listed, and any destination resolving to a loopback, link-local, private or other non-public address, so an allowlisted name cannot be pointed at the LAN or a metadata service. Pods get `HTTPS_PROXY`, and `NO_PROXY` for cluster-internal names.
+- **FR-SB-3** Git credentials (D21): the pod gets a short-lived token for the control plane's git proxy, never a git provider credential. The token is bound to one repo and one issue; the proxy allows reading the repo and updating refs only under `refs/heads/agent/<issue-key>/`.
 - **FR-SB-4** Model credentials: a short-lived LiteLLM virtual key with budget. Real provider keys never reach the pod.
 - **FR-SB-5** Agents never receive `kubectl` or any cluster credentials. ServiceAccount for agent pods has no RBAC bindings (`automountServiceAccountToken: false`).
 - **FR-SB-6** Workspace handoff between steps is the git branch. Each step clones, works, commits, pushes. Steps are stateless and reproducible, and git history is the audit log. A PVC per issue is a possible faster, stateful alternative later.

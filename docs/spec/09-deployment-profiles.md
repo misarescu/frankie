@@ -32,9 +32,10 @@ Memory budget, GiB:
 | LiteLLM gateway | 0.5 | 0.5 | Kept: keeps API keys out of sandboxes |
 | Flux | 0.3 | 0.3 | |
 | Local registry | 0.1 | 0.1 | Plain registry:2 |
-| **Platform total** | **4.2** | **4.7** | |
+| Egress proxy | 0.05 | 0.05 | D20; hostname allowlist for agent pods |
+| **Platform total** | **4.25** | **4.75** | |
 
-Available for agents, gates, previews: 16 - 4.7 = **11.3 GiB** (worst case).
+Available for agents, gates, previews: 16 - 4.75 = **11.25 GiB** (worst case).
 
 Concurrent pods:
 
@@ -43,7 +44,7 @@ Concurrent pods:
 | Coder / test writer | 3 | 2 | 6 | Builders compile and run tests; **CPU is the real limit on 4 cores** |
 | Reviewer | 2 | 0 | 0 | Run reviewers one after another, after the builders finish |
 | Command gate | 3 | 1 | 3 | Fresh build and tests from the pushed commit |
-| **Total** | | **3** | **9** | Fits in 11.3 GiB with 2.3 GiB headroom |
+| **Total** | | **3** | **9** | Fits in 11.25 GiB with 2.25 GiB headroom |
 
 Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kernel and agent, typically a few hundred MiB per pod) or page cache. Measure it in M1 and adjust limits (open question).
 

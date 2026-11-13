@@ -21,13 +21,14 @@ Project 1--* WorkflowDefinition (versioned)   Role (versioned)
 ```
 
 ### Project
-`id, name, repos[], issue_source, git_provider, workflow_ref, stages[], features{flags: bool}, toolchain_ref, budgets, created_at`. Per-project config lives in `.factory/config.yaml` in the repo and is synced to the DB; the repo copy is authoritative.
+`id, name, key_prefix, repos[], issue_source, git_provider, workflow_ref, stages[], features{flags: bool}, toolchain_ref, budgets, created_at`. Per-project config lives in `.factory/config.yaml` in the repo and is synced to the DB; the repo copy is authoritative. `key_prefix` (D22) is 2-10 lowercase letters or digits starting with a letter, unique, and immutable.
 
 ### Issue
-`id, project_id, parent_id?, type (epic|story|task|bug), title, spec (markdown), acceptance_criteria[], flag_name?, depends_on[], status, priority/order, source_ref? (e.g. GitHub issue URL), file_hints[]? (for overlap warnings), created_by, labels`.
+`id, project_id, number, key, parent_id?, type (epic|story|task|bug), title, spec (markdown), acceptance_criteria[], flag_name?, depends_on[], status, priority/order, source_ref? (e.g. GitHub issue URL), file_hints[]? (for overlap warnings), created_by, labels`.
 
+- `number` is allocated per project starting at 1; `key` is `<key_prefix>-<number>` (e.g. `frk-42`), globally unique (D22). Agent branches are `agent/<key>/<slug>`.
 - `flag_name` is required for type `story|task` features when flags are enabled; empty for bug fixes.
-- Acceptance criteria are first-class: the e2e test agent writes tests from them and tags each test with the issue ID.
+- Acceptance criteria are first-class: the e2e test agent writes tests from them and tags each test with the issue key.
 
 **Issue status**
 
@@ -67,7 +68,7 @@ Every status change (Issue, Run, StepRun) is a compare-and-set on the expected c
 - `GateResult`: `id, step_run_id, gate_type, policy (blocking|advisory), verdict (pass|fail|escalated), details jsonb`.
 
 ### ChangeRequest
-`id, issue_id, repo_id, provider_ref, branch (agent/<issue-id>/...), head_sha, status, preview_env?`.
+`id, issue_id, repo_id, provider_ref, branch (agent/<issue-key>/...), head_sha, status, preview_env?`.
 
 ### MergeQueueEntry
 `id, change_request_id, position, state (waiting|rebasing|testing|merging|returned|merged), reason?`.
@@ -88,7 +89,8 @@ Append-only: `id, seq, run_id?, step_run_id?, session_id?, ts, type, payload jso
 ```go
 type GitProvider interface {
     CloneURL(ctx context.Context, repo RepoRef) (url string, err error)
-    ScopedPushToken(ctx context.Context, repo RepoRef, branchPrefix string, ttl time.Duration) (Token, error)
+    // UpstreamCredential is used only by the control plane git proxy (D21); it never reaches a pod.
+    UpstreamCredential(ctx context.Context, repo RepoRef) (Token, error)
     OpenChangeRequest(ctx context.Context, in OpenCR) (ChangeRequest, error)
     UpdateChangeRequest(ctx context.Context, id CRID, in UpdateCR) error
     Merge(ctx context.Context, id CRID) error

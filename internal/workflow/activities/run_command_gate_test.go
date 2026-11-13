@@ -17,6 +17,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/gitproxy"
+	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/sandbox"
 )
 
@@ -280,5 +281,18 @@ func TestFeedbackTail(t *testing.T) {
 	}
 	if feedback(domain.CommandGateDetails{Commands: []domain.CommandResult{{Command: "x", ExitCode: ptr(0)}}}) != "" {
 		t.Error("a passed gate has feedback")
+	}
+}
+
+// A commit that breaks its own dependency declaration fails its gate, with the
+// reason as feedback, instead of erroring the run.
+func TestRunCommandGateFailsOnABrokenDependencyDeclaration(t *testing.T) {
+	f := newGateFixtureWithFiles(t, map[string]string{"mise.toml": "[tools]\n",
+		".factory/config.yaml": "dependencies: {files: [requirements.txt], run: pip install -r requirements.txt}\n"})
+	reg := memRegistry{}
+	f.a.Toolchain = &images.Ensurer{Registry: reg, Builder: &memBuilder{reg: reg}, Digests: memDigests{}, PullHost: "localhost:30500"}
+	out := f.gate(t)
+	if out.Passed || !strings.Contains(out.Summary, "dependencies.files match no file") || len(f.created) != 0 {
+		t.Fatalf("outcome = %+v, pods %d", out, len(f.created))
 	}
 }

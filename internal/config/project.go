@@ -1,7 +1,7 @@
 // Package config parses and validates configuration that lives in project
 // repos (docs/spec/02: `.factory/config.yaml` is authoritative for a project).
-// M2 reads the services section, M3 the workflow; the rest of the project
-// config arrives with the milestones that use it.
+// M2 reads the services section, M3 the workflow, M3.1 the dependencies; the
+// rest of the project config arrives with the milestones that use it.
 package config
 
 import (
@@ -29,6 +29,56 @@ type Project struct {
 	// Services run next to agent steps and command gates for integration tests
 	// (FR-SB-9), reachable on localhost.
 	Services []Service `json:"services,omitempty"`
+	// Dependencies are baked into a dependency image on top of the toolchain
+	// image (M3.1, docs/spec/05), so steps do not download and compile them
+	// on every run.
+	Dependencies *Dependencies `json:"dependencies,omitempty"`
+}
+
+// Dependencies declares how to warm a repo's dependencies, for any ecosystem:
+// which files the warm-up reads, and the command that downloads, and where it
+// can, pre-compiles them. The platform knows nothing per language.
+type Dependencies struct {
+	// Files are globs from the repo root (as in protected paths: `**` spans
+	// directories). mise.toml and mise.lock are always added, so the
+	// toolchain's tools and tasks resolve in the warm-up.
+	Files []string `json:"files"`
+	// Run is a shell command run from the directory holding the files, as the
+	// agent user with the sandbox environment.
+	Run string `json:"run"`
+}
+
+// Matches reports whether the repo path p is one of the declared files.
+func (d Dependencies) Matches(p string) bool {
+	_, ok := MatchProtected(d.Files, p)
+	return ok
+}
+
+const (
+	maxDependencyPatterns = 50
+	maxDependencyRun      = 2000
+)
+
+func (d Dependencies) validate() []error {
+	var errs []error
+	switch {
+	case len(d.Files) == 0:
+		errs = append(errs, errors.New("dependencies.files: at least one file is required"))
+	case len(d.Files) > maxDependencyPatterns:
+		errs = append(errs, fmt.Errorf("dependencies.files: %d patterns, at most %d", len(d.Files), maxDependencyPatterns))
+	}
+	for i, f := range d.Files {
+		if err := validGlob(f); err != nil {
+			errs = append(errs, fmt.Errorf("dependencies.files[%d]: %w", i, err))
+		}
+	}
+	switch {
+	case strings.TrimSpace(d.Run) == "":
+		errs = append(errs, errors.New("dependencies.run: is required"))
+	case len(d.Run) > maxDependencyRun || strings.ContainsRune(d.Run, 0):
+		errs = append(errs, fmt.Errorf("dependencies.run: must be at most %d bytes of text", maxDependencyRun))
+	}
+	return errs
 }
 
 // Service is one sidecar service. In the file it is either an image reference
@@ -109,6 +159,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	var errs []error
 	if p.Workflow != "" && (!identifierRE.MatchString(p.Workflow) || len(p.Workflow) > maxIdentifierLength) {
 		errs = append(errs, fmt.Errorf("workflow: %q must be lowercase letters, digits and dashes, at most %d characters", p.Workflow, maxIdentifierLength))
+	}
+	if p.Dependencies != nil {
+		errs = append(errs, p.Dependencies.validate()...)
 	}
 	seen := map[string]bool{}
 	for i := range p.Services {

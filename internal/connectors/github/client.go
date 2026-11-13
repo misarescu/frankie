@@ -254,3 +254,24 @@ func (c *Client) Compare(ctx context.Context, repo, base, head string) (files []
 	}
 	return files, false, nil
 }
+
+// ListFiles returns the paths of every file in repo at the commit sha.
+// complete is false when GitHub truncated the listing (very large trees).
+func (c *Client) ListFiles(ctx context.Context, repo, sha string) (paths []string, complete bool, err error) {
+	var resp struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"tree"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/git/trees/"+url.PathEscape(sha)+"?recursive=1", nil, &resp); err != nil {
+		return nil, false, fmt.Errorf("github: list files of %s@%s: %w", repo, sha, err)
+	}
+	for _, e := range resp.Tree {
+		if e.Type == "blob" {
+			paths = append(paths, e.Path)
+		}
+	}
+	return paths, !resp.Truncated, nil
+}

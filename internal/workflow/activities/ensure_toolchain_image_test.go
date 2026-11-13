@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/images"
@@ -44,6 +47,26 @@ func fakeRepoWithReads(t *testing.T, files map[string]string) (*github.Client, *
 				return
 			}
 			_, _ = fmt.Fprintf(w, `{"object":{"sha":%q}}`, sha)
+		case strings.HasPrefix(path, "git/trees/"):
+			// The files at a commit: those keyed "<sha>:<path>" for it, and the plain ones.
+			sha := strings.TrimPrefix(path, "git/trees/")
+			seen := map[string]bool{}
+			var tree []string
+			for k := range files {
+				p := k
+				if before, after, ok := strings.Cut(k, ":"); ok {
+					if before != sha {
+						continue
+					}
+					p = after
+				}
+				if !seen[p] {
+					seen[p] = true
+					tree = append(tree, fmt.Sprintf(`{"path":%q,"type":"blob"}`, p))
+				}
+			}
+			slices.Sort(tree)
+			_, _ = fmt.Fprintf(w, `{"tree":[%s],"truncated":false}`, strings.Join(tree, ","))
 		case strings.HasPrefix(path, "contents/"):
 			// Files are read at a commit: the resolved base, the pushed one, or a branch head.
 			ref, file := r.URL.Query().Get("ref"), strings.TrimPrefix(path, "contents/")
@@ -150,7 +173,7 @@ func TestEnsureToolchainImageBuildsThenReuses(t *testing.T) {
 	if second != first || len(b.builds) != 1 {
 		t.Errorf("second ref %q, builds %d; want the first image reused", second, len(b.builds))
 	}
-	got := b.builds[0].Inputs
+	got, _ := b.builds[0].Spec.(images.Inputs)
 	if got.Base != "ghcr.io/misarescu/frankie-runner:sha-abc" || string(got.MiseLock) != "lock" {
 		t.Errorf("build inputs = %+v", got)
 	}
@@ -206,4 +229,101 @@ func TestEnsureToolchainImageFailures(t *testing.T) {
 			t.Errorf("want a non-retryable error, got %T %v", err, err)
 		}
 	})
+}
+
+// builtKinds counts the builds of toolchain and dependency images.
+func builtKinds(b *memBuilder) (toolchains, dependencies int) {
+	for _, r := range b.builds {
+		switch r.Spec.(type) {
+		case images.Inputs:
+			toolchains++
+		case images.Dependencies:
+			dependencies++
+		}
+	}
+	return toolchains, dependencies
+}
+
+const depsConfig = "dependencies:\n  files: [go.mod, go.sum, \"web/**/bun.lock\"]\n  run: mise run deps:warm\n"
+
+func depsRepo() map[string]string {
+	return map[string]string{
+		"mise.toml": "[tools]\ngo = \"1.27\"\n", ".factory/config.yaml": depsConfig,
+		"go.mod": "module x\n", "go.sum": "a v1 h1:x\n", "web/bun.lock": "lock\n", "main.go": "package main\n",
+	}
+}
+
+// M3.1: a repo declaring dependencies runs in its dependency image, built
+// once on top of the toolchain image and reused while nothing changes.
+func TestEnsureToolchainImageWithDependencies(t *testing.T) {
+	a, b := toolchainActivities(t, depsRepo())
+	first, err := ensure(t, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(first, "localhost:30500/dependencies/misarescu/goodreads-clone@sha256:") {
+		t.Fatalf("ref = %q; want the dependency image", first)
+	}
+	if tc, dp := builtKinds(b); tc != 1 || dp != 1 {
+		t.Fatalf("built %d toolchain and %d dependency images", tc, dp)
+	}
+	deps, _ := b.builds[1].Spec.(images.Dependencies)
+	// mise.toml is added although the declaration does not name it: the warm-up's tools resolve from it.
+	if len(deps.Files) != 4 || deps.Files["mise.toml"] == nil || deps.Files["web/bun.lock"] == nil || deps.Files["main.go"] != nil || deps.Run != "mise run deps:warm" ||
+		deps.Toolchain.Repository != "toolchains/misarescu/goodreads-clone" {
+		t.Errorf("dependency spec = %+v (files %v)", deps.Toolchain, len(deps.Files))
+	}
+	second, err := ensure(t, a)
+	if err != nil || second != first || len(b.builds) != 2 {
+		t.Fatalf("second = %q, %v, builds %d; want both images reused", second, err, len(b.builds))
+	}
+}
+
+// M3.1 done-when: a changed go.sum rebuilds only the dependency layer; a
+// changed toolchain rebuilds both.
+func TestEnsureToolchainImageRebuildsOnlyWhatChanged(t *testing.T) {
+	files := depsRepo()
+	a, b := toolchainActivities(t, files)
+	if _, err := ensure(t, a); err != nil {
+		t.Fatal(err)
+	}
+	files["go.sum"] = "a v1 h1:x\nb v2 h1:y\n"
+	if _, err := ensure(t, a); err != nil {
+		t.Fatal(err)
+	}
+	if tc, dp := builtKinds(b); tc != 1 || dp != 2 {
+		t.Fatalf("after go.sum changed: %d toolchain and %d dependency builds; want only the dependency layer rebuilt", tc, dp)
+	}
+	// Code that is not declared does not touch either image.
+	files["main.go"] = "package main\n\nfunc main() {}\n"
+	if _, err := ensure(t, a); err != nil {
+		t.Fatal(err)
+	}
+	if tc, dp := builtKinds(b); tc != 1 || dp != 2 {
+		t.Fatalf("after a code change: %d toolchain and %d dependency builds; want none", tc, dp)
+	}
+	files["mise.toml"] = "[tools]\ngo = \"1.28\"\n"
+	if _, err := ensure(t, a); err != nil {
+		t.Fatal(err)
+	}
+	if tc, dp := builtKinds(b); tc != 2 || dp != 3 {
+		t.Fatalf("after mise.toml changed: %d toolchain and %d dependency builds; want both", tc, dp)
+	}
+}
+
+func TestEnsureToolchainImageRefusesBadDependencyDeclarations(t *testing.T) {
+	tests := map[string]map[string]string{
+		"files match nothing": {"mise.toml": "[tools]\n", ".factory/config.yaml": "dependencies: {files: [pom.xml], run: mvn -q dependency:go-offline}\n"},
+		"no toolchain":        {".factory/config.yaml": depsConfig, "go.mod": "module x\n"},
+	}
+	for name, files := range tests {
+		t.Run(name, func(t *testing.T) {
+			a, b := toolchainActivities(t, files)
+			_, err := ensure(t, a)
+			var appErr *temporal.ApplicationError
+			if !errors.As(err, &appErr) || !appErr.NonRetryable() || len(b.builds) > 1 {
+				t.Fatalf("err = %v, builds %d; want a non-retryable configuration error", err, len(b.builds))
+			}
+		})
+	}
 }

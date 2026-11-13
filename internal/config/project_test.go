@@ -113,3 +113,35 @@ func TestParseProjectWorkflow(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestParseProjectDependencies(t *testing.T) {
+	p, err := ParseProject([]byte(`
+dependencies:
+  files: [mise.toml, go.mod, go.sum, "web/**/package.json", web/bun.lock]
+  run: mise run deps:warm
+`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := p.Dependencies
+	if d == nil || d.Run != "mise run deps:warm" || len(d.Files) != 5 {
+		t.Fatalf("dependencies = %+v", d)
+	}
+	for path, want := range map[string]bool{"go.mod": true, "web/package.json": true, "web/app/package.json": true, "web/bun.lock": true,
+		"main.go": false, "web/src/App.tsx": false, "sub/go.mod": false} {
+		if got := d.Matches(path); got != want {
+			t.Errorf("Matches(%q) = %v", path, got)
+		}
+	}
+
+	for raw, want := range map[string]string{
+		"dependencies: {run: x}\n":                            "at least one file",
+		"dependencies: {files: [go.mod]}\n":                   "run: is required",
+		"dependencies: {files: [../go.mod], run: x}\n":        ". or .. segment",
+		"dependencies: {files: [go.mod], run: x, cache: y}\n": "unknown field",
+	} {
+		if _, err := ParseProject([]byte(raw), 0); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", raw, err, want)
+		}
+	}
+}

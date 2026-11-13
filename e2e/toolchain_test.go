@@ -76,7 +76,9 @@ run = "jq --version"
 
 	It("builds the image when the registry does not have it", func(ctx SpecContext) {
 		var err error
-		first, err = ensurer.Ensure(ctx, repo, in)
+		repository, err := images.Repository(repo)
+		Expect(err).NotTo(HaveOccurred())
+		first, err = ensurer.Ensure(ctx, repository, in)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(first.Built).To(BeTrue())
 		Expect(first.Ref).To(MatchRegexp(`^localhost:30500/toolchains/[^@:]+@sha256:[0-9a-f]{64}$`))
@@ -92,7 +94,9 @@ run = "jq --version"
 	}, SpecTimeout(2*time.Minute))
 
 	It("reuses the image for an unchanged mise.toml instead of rebuilding", func(ctx SpecContext) {
-		second, err := ensurer.Ensure(ctx, repo, in)
+		repository, err := images.Repository(repo)
+		Expect(err).NotTo(HaveOccurred())
+		second, err := ensurer.Ensure(ctx, repository, in)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(second.Built).To(BeFalse())
 		Expect(second.Ref).To(Equal(first.Ref))

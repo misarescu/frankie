@@ -70,7 +70,7 @@ var testInputs = Inputs{Base: "ghcr.io/x/runner:sha-1", MiseToml: []byte("[tools
 // and pods get it by digest (D45).
 func TestEnsureReusesImageForUnchangedToolchain(t *testing.T) {
 	e, b, reg, d := newEnsurer()
-	first, err := e.Ensure(context.Background(), "misarescu/Repo", testInputs)
+	first, err := e.Ensure(context.Background(), "toolchains/misarescu/repo", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestEnsureReusesImageForUnchangedToolchain(t *testing.T) {
 		t.Errorf("recorded %v, tagged %v", d, reg.tags)
 	}
 
-	second, err := e.Ensure(context.Background(), "misarescu/Repo", testInputs)
+	second, err := e.Ensure(context.Background(), "toolchains/misarescu/repo", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestEnsureIgnoresTagsItDidNotRecord(t *testing.T) {
 	e, b, reg, _ := newEnsurer()
 	reg.tags["toolchains/o/r:"+testInputs.Tag()] = "sha256:" + strings.Repeat("e", 64) // pushed by another build pod
 	reg.manifests["toolchains/o/r@sha256:"+strings.Repeat("e", 64)] = true
-	got, err := e.Ensure(context.Background(), "o/r", testInputs)
+	got, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,11 +108,11 @@ func TestEnsureIgnoresTagsItDidNotRecord(t *testing.T) {
 
 func TestEnsureRebuildsWhenTheRegistryLostTheImage(t *testing.T) {
 	e, b, reg, _ := newEnsurer()
-	if _, err := e.Ensure(context.Background(), "o/r", testInputs); err != nil {
+	if _, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs); err != nil {
 		t.Fatal(err)
 	}
 	clear(reg.manifests) // the registry's storage was reset
-	got, err := e.Ensure(context.Background(), "o/r", testInputs)
+	got, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,11 +134,11 @@ func TestEnsureRebuildsWhenInputsChange(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e, b, _, _ := newEnsurer()
 			in := testInputs
-			if _, err := e.Ensure(context.Background(), "o/r", in); err != nil {
+			if _, err := e.Ensure(context.Background(), "toolchains/o/r", in); err != nil {
 				t.Fatal(err)
 			}
 			tt.change(&in)
-			got, err := e.Ensure(context.Background(), "o/r", in)
+			got, err := e.Ensure(context.Background(), "toolchains/o/r", in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -154,34 +154,34 @@ func TestEnsureErrors(t *testing.T) {
 		e, _, reg, d := newEnsurer()
 		d["toolchains/o/r:"+testInputs.Tag()] = fmt.Sprintf("sha256:%064x", 9)
 		reg.err = errors.New("connection refused")
-		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil {
+		if _, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs); err == nil {
 			t.Fatal("expected an error")
 		}
 	})
 	t.Run("build failure is returned", func(t *testing.T) {
 		e, b, _, _ := newEnsurer()
 		b.err = errors.New("boom")
-		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || !strings.Contains(err.Error(), "boom") {
+		if _, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs); err == nil || !strings.Contains(err.Error(), "boom") {
 			t.Fatalf("err = %v, want boom", err)
 		}
 	})
 	t.Run("a reported digest that is not a digest", func(t *testing.T) {
 		e, b, _, d := newEnsurer()
 		b.report = "latest"
-		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || len(d) != 0 {
+		if _, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs); err == nil || len(d) != 0 {
 			t.Fatalf("err = %v, recorded %v", err, d)
 		}
 	})
 	t.Run("a reported digest the registry does not hold", func(t *testing.T) {
 		e, b, _, d := newEnsurer()
 		b.report = "sha256:" + strings.Repeat("f", 64)
-		if _, err := e.Ensure(context.Background(), "o/r", testInputs); err == nil || !strings.Contains(err.Error(), "not in the registry") || len(d) != 0 {
+		if _, err := e.Ensure(context.Background(), "toolchains/o/r", testInputs); err == nil || !strings.Contains(err.Error(), "not in the registry") || len(d) != 0 {
 			t.Fatalf("err = %v, recorded %v", err, d)
 		}
 	})
 	t.Run("invalid inputs", func(t *testing.T) {
 		e, _, _, _ := newEnsurer()
-		if _, err := e.Ensure(context.Background(), "o/r", Inputs{}); err == nil {
+		if _, err := e.Ensure(context.Background(), "toolchains/o/r", Inputs{}); err == nil {
 			t.Fatal("expected a validation error")
 		}
 	})

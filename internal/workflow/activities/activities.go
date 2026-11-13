@@ -124,6 +124,7 @@ type Activities struct {
 	Toolchain *images.Ensurer
 	Agent     AgentConfig
 	Gate      GateConfig
+	Services  ServicesConfig
 	Log       *slog.Logger
 }
 

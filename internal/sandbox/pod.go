@@ -55,6 +55,7 @@ type PodSpec struct {
 	EgressProxyURL     string              // e.g. http://frankie-egress-proxy.frankie.svc:3128
 	NoProxy            []string            // cluster-internal names reached directly
 	Env                map[string]string   // extra environment
+	Services           []Service           // sidecars; their limits come out of Limits
 	Command            []string            // overrides the image entrypoint; tests only
 }
 
@@ -89,6 +90,9 @@ func (s PodSpec) validate() error {
 	if s.Deadline <= 0 {
 		errs = append(errs, errors.New("deadline is required"))
 	}
+	if err := validateServices(s.Services); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
@@ -97,8 +101,12 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 	if err := s.validate(); err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	limits := s.Limits.DeepCopy()
+	limits, err := carve(s.Limits, s.Services)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
+	}
 	limits[corev1.ResourceEphemeralStorage] = s.WorkspaceSize
+	sidecars, sidecarVolumes := serviceContainers(s.Services)
 	// Requests equal limits: agent pods are Guaranteed and never overcommit the node.
 	requests := limits.DeepCopy()
 
@@ -126,6 +134,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 			RestartPolicy:                corev1.RestartPolicyNever,
 			ActiveDeadlineSeconds:        ptrTo(int64(s.Deadline.Seconds())),
 			SecurityContext:              podSecurity(),
+			InitContainers:               sidecars,
 			Containers: []corev1.Container{{
 				Name:    "runner",
 				Image:   s.Image,
@@ -140,12 +149,12 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 				SecurityContext: containerSecurity(),
 				VolumeMounts:    []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}},
 			}},
-			Volumes: []corev1.Volume{{
+			Volumes: append([]corev1.Volume{{
 				Name: "workspace",
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptrTo(s.WorkspaceSize)},
 				},
-			}},
+			}}, sidecarVolumes...),
 		},
 	}, nil
 }

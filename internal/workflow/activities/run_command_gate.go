@@ -71,6 +71,15 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 	if len(commands) == 0 {
 		commands = DefaultGateCommands
 	}
+	// Services also come from the commit under test; a broken declaration
+	// there fails the gate, it is the agent's change.
+	services, err := a.projectServices(ctx, in.Repo, session.CommitSHA)
+	if errors.Is(err, errInvalidProjectConfig) {
+		return a.finishGate(ctx, step, domain.CommandGateDetails{Image: image, Error: err.Error()})
+	}
+	if err != nil {
+		return out, err
+	}
 	token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: step.ID.String(), ReadOnly: true},
 		a.Gate.Deadline+10*time.Minute)
 	if err != nil {
@@ -83,7 +92,7 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 		Limits: a.Gate.Limits, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: a.Gate.Deadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
-		Branch: session.Branch, CommitSHA: session.CommitSHA, Commands: commands,
+		Branch: session.Branch, CommitSHA: session.CommitSHA, Commands: commands, Services: services,
 	})
 	if err != nil {
 		return out, temporal.NewNonRetryableApplicationError("invalid gate pod spec", "config", err)
@@ -102,6 +111,19 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 	}
 
 	details := a.gateDetails(ctx, finished, image, commands)
+	out, err = a.finishGate(ctx, step, details)
+	if err != nil {
+		return out, err
+	}
+	if err := pods.Delete(context.WithoutCancel(ctx), pod.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		a.Log.Warn("gate pod not deleted", "pod", pod.Name, "error", err)
+	}
+	return out, nil
+}
+
+// finishGate records the verdict and ends the gate's StepRun.
+func (a *Activities) finishGate(ctx context.Context, step domain.StepRun, details domain.CommandGateDetails) (GateOutcome, error) {
+	out := GateOutcome{StepRunID: step.ID.String()}
 	verdict, status := domain.GateFail, domain.ExecFailed
 	if details.Passed() {
 		verdict, status = domain.GatePass, domain.ExecSucceeded
@@ -116,9 +138,6 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 	}
 	if _, err := a.Store.TransitionStepRun(ctx, step.ID, domain.ExecRunning, status); err != nil {
 		return out, err
-	}
-	if err := pods.Delete(context.WithoutCancel(ctx), pod.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-		a.Log.Warn("gate pod not deleted", "pod", pod.Name, "error", err)
 	}
 	out.Passed, out.Summary = details.Passed(), summarize(details)
 	return out, nil

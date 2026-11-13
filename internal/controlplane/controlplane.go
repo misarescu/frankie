@@ -41,6 +41,7 @@ type Config struct {
 	GatewayMasterKey  string
 	Agent             activities.AgentConfig
 	Gate              activities.GateConfig
+	Services          activities.ServicesConfig
 	Toolchain         ToolchainConfig
 	Kube              kubernetes.Interface // where agent pods are launched
 	IntakeLabel       string

@@ -30,6 +30,9 @@ egressProxy:
     - dl.google.com
 
 controlPlane:
+  # One sidecar per pod: a 3Gi agent or gate pod keeps 2.5Gi for its own work.
+  services:
+    maxPerPod: 1
   # Toy repo for the M1 acceptance run; credentials in Secret frankie-github (D26).
   repos:
     - name: misarescu/Goodreads-Clone

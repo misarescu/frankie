@@ -48,7 +48,15 @@ Approach: **platform base image + toolchain declared in the repo**. Rejected alt
 3. **Images built by the factory.** The control plane hashes the base image reference + `mise.toml`/`mise.lock` (or the Dockerfile; the Dockerfile path is deferred, D30). A missing image is built in-cluster with BuildKit and pushed to the in-cluster registry. Every agent step and gate for a given commit uses the same image. A Renovate-style job opens toolchain-bump issues for agents.
 4. **Escape hatch**: `.factory/Dockerfile` starting `FROM factory-base:vX` for system libraries or unusual setups.
 5. **Dependency proxy** instead of open internet egress (full profile): Athens for Go modules, Verdaccio for npm, devpi for pip, or one Nexus covering all. Faster installs, supply-chain checkpoint, no direct internet from agent pods.
-6. **Services for integration tests** declared in the repo: `.factory/config.yaml` with `services: [postgres:17]`, run as sidecars.
+6. **Services for integration tests** declared in the repo: `.factory/config.yaml` with `services: [postgres:17]`, run as sidecars (D35). An entry is an image reference or an object `{name, image, port, env}`; well-known images (`postgres`, `redis`) get a port, a non-root user, a data directory and defaults from a catalog, so the shorthand works under Pod Security `restricted`. Services run as native sidecars of agent and gate pods and are reached on `localhost`; when a port is known, the step starts only once it accepts connections. The platform sets how many services a pod may have and each one's limits, which come out of the pod's own limits.
+
+   ```yaml
+   # .factory/config.yaml
+   services:
+     - postgres:17            # localhost:5432, user postgres, trust auth
+     - name: cache
+       image: redis:7.4
+   ```
 7. **Language servers** (gopls etc.) installed via `mise.toml`. Harnesses with LSP integration (opencode) use them; others get equivalent feedback from `go build`/`go vet` through the shell.
 
 Example `mise.toml`:

@@ -38,7 +38,7 @@ func TestAgentPodSpecImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			run := testRun
 			run.ToolchainImage = tt.toolchain
-			pod, err := a.agentPodSpec(testInput, run)
+			pod, err := a.agentPodSpec(testInput, run, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

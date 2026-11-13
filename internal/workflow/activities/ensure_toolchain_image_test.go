@@ -22,8 +22,9 @@ func fakeRepo(t *testing.T, files map[string]string) *github.Client {
 		case r.URL.Path == "/repos/misarescu/Goodreads-Clone/commits/main":
 			_, _ = w.Write([]byte(testBaseSHA))
 		case strings.HasPrefix(r.URL.Path, "/repos/misarescu/Goodreads-Clone/contents/"):
-			if r.URL.Query().Get("ref") != testBaseSHA {
-				http.Error(w, "files must be read at the resolved commit, got ref "+r.URL.Query().Get("ref"), http.StatusBadRequest)
+			// Files are read at a commit: the resolved base, or the pushed one.
+			if ref := r.URL.Query().Get("ref"); ref != testBaseSHA && ref != pushedSHA {
+				http.Error(w, "files must be read at a resolved commit, got ref "+ref, http.StatusBadRequest)
 				return
 			}
 			content, ok := files[strings.TrimPrefix(r.URL.Path, "/repos/misarescu/Goodreads-Clone/contents/")]

@@ -81,6 +81,8 @@ const (
 	EventType_EVENT_TYPE_TOOL_CALL EventType = 2
 	// payload: {"tool_call_id": string, "name": string, "content": string, "is_error": bool}
 	EventType_EVENT_TYPE_TOOL_RESULT EventType = 3
+	// One changed file of the pushed branch, against the base commit (unified diff,
+	// capped at 256 KiB). Emitted just before done.
 	// payload: {"path": string, "diff": string}
 	EventType_EVENT_TYPE_FILE_DIFF EventType = 4
 	// Result of a shell tool call.
@@ -96,7 +98,12 @@ const (
 	// Last event of every session.
 	// payload: {"status": "succeeded"|"failed"|"aborted"|"timeout", "reason": string,
 	//
-	//	"result": string, "harness_session_id": string, "exit_code": int}
+	//	"result": string, "harness_session_id": string, "exit_code": int,
+	//	"branch": string, "commit_sha": string, "pushed": bool}
+	//
+	// With a workspace and status succeeded: branch is set, pushed tells whether the
+	// session changed anything, and commit_sha is the pushed head (or the base
+	// commit when nothing changed). A failed push turns the status into failed.
 	EventType_EVENT_TYPE_DONE EventType = 8
 )
 
@@ -170,7 +177,10 @@ type StartRequest struct {
 	// Limit on time without any harness output (FR-AG-3). Zero means no limit.
 	IdleTimeout *durationpb.Duration `protobuf:"bytes,7,opt,name=idle_timeout,json=idleTimeout,proto3" json:"idle_timeout,omitempty"`
 	// Upper bound on agent turns, if the harness supports it. Zero means harness default.
-	MaxTurns      int32 `protobuf:"varint,8,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
+	MaxTurns int32 `protobuf:"varint,8,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
+	// Git workspace to prepare before the harness starts. Unset: the harness works
+	// in the runner's workdir as it is.
+	Workspace     *Workspace `protobuf:"bytes,9,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -261,6 +271,114 @@ func (x *StartRequest) GetMaxTurns() int32 {
 	return 0
 }
 
+func (x *StartRequest) GetWorkspace() *Workspace {
+	if x != nil {
+		return x.Workspace
+	}
+	return nil
+}
+
+// Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
+// the control plane git proxy and checks out branch; when the session succeeds
+// the runner commits any remaining changes, pushes branch, and reports the commit
+// in the done event. Nothing is pushed when the session fails or is aborted.
+type Workspace struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Git proxy URL of the repo, e.g. http://controlplane:8081/git/misarescu/toy.git.
+	CloneUrl string `protobuf:"bytes,1,opt,name=clone_url,json=cloneUrl,proto3" json:"clone_url,omitempty"`
+	// Per-step git proxy token (D21). Never written to disk.
+	Token string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	// Branch to start from: main for a first step, the issue branch afterwards.
+	BaseRef string `protobuf:"bytes,3,opt,name=base_ref,json=baseRef,proto3" json:"base_ref,omitempty"`
+	// Branch to push, agent/<issue-key>/<slug> (D22).
+	Branch string `protobuf:"bytes,4,opt,name=branch,proto3" json:"branch,omitempty"`
+	// Message for the runner's commit of uncommitted changes.
+	CommitMessage string `protobuf:"bytes,5,opt,name=commit_message,json=commitMessage,proto3" json:"commit_message,omitempty"`
+	AuthorName    string `protobuf:"bytes,6,opt,name=author_name,json=authorName,proto3" json:"author_name,omitempty"`
+	AuthorEmail   string `protobuf:"bytes,7,opt,name=author_email,json=authorEmail,proto3" json:"author_email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Workspace) Reset() {
+	*x = Workspace{}
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Workspace) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Workspace) ProtoMessage() {}
+
+func (x *Workspace) ProtoReflect() protoreflect.Message {
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Workspace.ProtoReflect.Descriptor instead.
+func (*Workspace) Descriptor() ([]byte, []int) {
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Workspace) GetCloneUrl() string {
+	if x != nil {
+		return x.CloneUrl
+	}
+	return ""
+}
+
+func (x *Workspace) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *Workspace) GetBaseRef() string {
+	if x != nil {
+		return x.BaseRef
+	}
+	return ""
+}
+
+func (x *Workspace) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *Workspace) GetCommitMessage() string {
+	if x != nil {
+		return x.CommitMessage
+	}
+	return ""
+}
+
+func (x *Workspace) GetAuthorName() string {
+	if x != nil {
+		return x.AuthorName
+	}
+	return ""
+}
+
+func (x *Workspace) GetAuthorEmail() string {
+	if x != nil {
+		return x.AuthorEmail
+	}
+	return ""
+}
+
 type StartResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Runner-assigned session ID.
@@ -271,7 +389,7 @@ type StartResponse struct {
 
 func (x *StartResponse) Reset() {
 	*x = StartResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[1]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -283,7 +401,7 @@ func (x *StartResponse) String() string {
 func (*StartResponse) ProtoMessage() {}
 
 func (x *StartResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[1]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -296,7 +414,7 @@ func (x *StartResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartResponse.ProtoReflect.Descriptor instead.
 func (*StartResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{1}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StartResponse) GetSessionId() string {
@@ -315,7 +433,7 @@ type PromptRequest struct {
 
 func (x *PromptRequest) Reset() {
 	*x = PromptRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[2]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +445,7 @@ func (x *PromptRequest) String() string {
 func (*PromptRequest) ProtoMessage() {}
 
 func (x *PromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[2]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +458,7 @@ func (x *PromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptRequest.ProtoReflect.Descriptor instead.
 func (*PromptRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{2}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PromptRequest) GetText() string {
@@ -358,7 +476,7 @@ type PromptResponse struct {
 
 func (x *PromptResponse) Reset() {
 	*x = PromptResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[3]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +488,7 @@ func (x *PromptResponse) String() string {
 func (*PromptResponse) ProtoMessage() {}
 
 func (x *PromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[3]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +501,7 @@ func (x *PromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptResponse.ProtoReflect.Descriptor instead.
 func (*PromptResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{3}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{4}
 }
 
 type SteerRequest struct {
@@ -395,7 +513,7 @@ type SteerRequest struct {
 
 func (x *SteerRequest) Reset() {
 	*x = SteerRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[4]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -407,7 +525,7 @@ func (x *SteerRequest) String() string {
 func (*SteerRequest) ProtoMessage() {}
 
 func (x *SteerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[4]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -420,7 +538,7 @@ func (x *SteerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SteerRequest.ProtoReflect.Descriptor instead.
 func (*SteerRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{4}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SteerRequest) GetText() string {
@@ -438,7 +556,7 @@ type SteerResponse struct {
 
 func (x *SteerResponse) Reset() {
 	*x = SteerResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[5]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -450,7 +568,7 @@ func (x *SteerResponse) String() string {
 func (*SteerResponse) ProtoMessage() {}
 
 func (x *SteerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[5]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -463,7 +581,7 @@ func (x *SteerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SteerResponse.ProtoReflect.Descriptor instead.
 func (*SteerResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{5}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{6}
 }
 
 type AbortRequest struct {
@@ -475,7 +593,7 @@ type AbortRequest struct {
 
 func (x *AbortRequest) Reset() {
 	*x = AbortRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[6]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -487,7 +605,7 @@ func (x *AbortRequest) String() string {
 func (*AbortRequest) ProtoMessage() {}
 
 func (x *AbortRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[6]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -500,7 +618,7 @@ func (x *AbortRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbortRequest.ProtoReflect.Descriptor instead.
 func (*AbortRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{6}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AbortRequest) GetReason() string {
@@ -518,7 +636,7 @@ type AbortResponse struct {
 
 func (x *AbortResponse) Reset() {
 	*x = AbortResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[7]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -530,7 +648,7 @@ func (x *AbortResponse) String() string {
 func (*AbortResponse) ProtoMessage() {}
 
 func (x *AbortResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[7]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -543,7 +661,7 @@ func (x *AbortResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbortResponse.ProtoReflect.Descriptor instead.
 func (*AbortResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{7}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{8}
 }
 
 type EventsRequest struct {
@@ -556,7 +674,7 @@ type EventsRequest struct {
 
 func (x *EventsRequest) Reset() {
 	*x = EventsRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +686,7 @@ func (x *EventsRequest) String() string {
 func (*EventsRequest) ProtoMessage() {}
 
 func (x *EventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +699,7 @@ func (x *EventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsRequest.ProtoReflect.Descriptor instead.
 func (*EventsRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{8}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *EventsRequest) GetAfterSeq() int64 {
@@ -600,7 +718,7 @@ type EventsResponse struct {
 
 func (x *EventsResponse) Reset() {
 	*x = EventsResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -612,7 +730,7 @@ func (x *EventsResponse) String() string {
 func (*EventsResponse) ProtoMessage() {}
 
 func (x *EventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -625,7 +743,7 @@ func (x *EventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsResponse.ProtoReflect.Descriptor instead.
 func (*EventsResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{9}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EventsResponse) GetEvent() *Event {
@@ -649,7 +767,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -661,7 +779,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -674,7 +792,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{10}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Event) GetSeq() int64 {
@@ -709,7 +827,7 @@ var File_frankie_runner_v1_runner_proto protoreflect.FileDescriptor
 
 const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\n" +
-	"\x1efrankie/runner/v1/runner.proto\x12\x11frankie.runner.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa3\x03\n" +
+	"\x1efrankie/runner/v1/runner.proto\x12\x11frankie.runner.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdf\x03\n" +
 	"\fStartRequest\x12\x1e\n" +
 	"\vstep_run_id\x18\x01 \x01(\tR\tstepRunId\x124\n" +
 	"\aharness\x18\x02 \x01(\x0e2\x1a.frankie.runner.v1.HarnessR\aharness\x12\x14\n" +
@@ -718,10 +836,20 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\x03env\x18\x05 \x03(\v2(.frankie.runner.v1.StartRequest.EnvEntryR\x03env\x123\n" +
 	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12<\n" +
 	"\fidle_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\vidleTimeout\x12\x1b\n" +
-	"\tmax_turns\x18\b \x01(\x05R\bmaxTurns\x1a6\n" +
+	"\tmax_turns\x18\b \x01(\x05R\bmaxTurns\x12:\n" +
+	"\tworkspace\x18\t \x01(\v2\x1c.frankie.runner.v1.WorkspaceR\tworkspace\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\".\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdc\x01\n" +
+	"\tWorkspace\x12\x1b\n" +
+	"\tclone_url\x18\x01 \x01(\tR\bcloneUrl\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x19\n" +
+	"\bbase_ref\x18\x03 \x01(\tR\abaseRef\x12\x16\n" +
+	"\x06branch\x18\x04 \x01(\tR\x06branch\x12%\n" +
+	"\x0ecommit_message\x18\x05 \x01(\tR\rcommitMessage\x12\x1f\n" +
+	"\vauthor_name\x18\x06 \x01(\tR\n" +
+	"authorName\x12!\n" +
+	"\fauthor_email\x18\a \x01(\tR\vauthorEmail\".\n" +
 	"\rStartResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"#\n" +
@@ -777,48 +905,50 @@ func file_frankie_runner_v1_runner_proto_rawDescGZIP() []byte {
 }
 
 var file_frankie_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_frankie_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_frankie_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_frankie_runner_v1_runner_proto_goTypes = []any{
 	(Harness)(0),                  // 0: frankie.runner.v1.Harness
 	(EventType)(0),                // 1: frankie.runner.v1.EventType
 	(*StartRequest)(nil),          // 2: frankie.runner.v1.StartRequest
-	(*StartResponse)(nil),         // 3: frankie.runner.v1.StartResponse
-	(*PromptRequest)(nil),         // 4: frankie.runner.v1.PromptRequest
-	(*PromptResponse)(nil),        // 5: frankie.runner.v1.PromptResponse
-	(*SteerRequest)(nil),          // 6: frankie.runner.v1.SteerRequest
-	(*SteerResponse)(nil),         // 7: frankie.runner.v1.SteerResponse
-	(*AbortRequest)(nil),          // 8: frankie.runner.v1.AbortRequest
-	(*AbortResponse)(nil),         // 9: frankie.runner.v1.AbortResponse
-	(*EventsRequest)(nil),         // 10: frankie.runner.v1.EventsRequest
-	(*EventsResponse)(nil),        // 11: frankie.runner.v1.EventsResponse
-	(*Event)(nil),                 // 12: frankie.runner.v1.Event
-	nil,                           // 13: frankie.runner.v1.StartRequest.EnvEntry
-	(*durationpb.Duration)(nil),   // 14: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(*Workspace)(nil),             // 3: frankie.runner.v1.Workspace
+	(*StartResponse)(nil),         // 4: frankie.runner.v1.StartResponse
+	(*PromptRequest)(nil),         // 5: frankie.runner.v1.PromptRequest
+	(*PromptResponse)(nil),        // 6: frankie.runner.v1.PromptResponse
+	(*SteerRequest)(nil),          // 7: frankie.runner.v1.SteerRequest
+	(*SteerResponse)(nil),         // 8: frankie.runner.v1.SteerResponse
+	(*AbortRequest)(nil),          // 9: frankie.runner.v1.AbortRequest
+	(*AbortResponse)(nil),         // 10: frankie.runner.v1.AbortResponse
+	(*EventsRequest)(nil),         // 11: frankie.runner.v1.EventsRequest
+	(*EventsResponse)(nil),        // 12: frankie.runner.v1.EventsResponse
+	(*Event)(nil),                 // 13: frankie.runner.v1.Event
+	nil,                           // 14: frankie.runner.v1.StartRequest.EnvEntry
+	(*durationpb.Duration)(nil),   // 15: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
 }
 var file_frankie_runner_v1_runner_proto_depIdxs = []int32{
 	0,  // 0: frankie.runner.v1.StartRequest.harness:type_name -> frankie.runner.v1.Harness
-	13, // 1: frankie.runner.v1.StartRequest.env:type_name -> frankie.runner.v1.StartRequest.EnvEntry
-	14, // 2: frankie.runner.v1.StartRequest.timeout:type_name -> google.protobuf.Duration
-	14, // 3: frankie.runner.v1.StartRequest.idle_timeout:type_name -> google.protobuf.Duration
-	12, // 4: frankie.runner.v1.EventsResponse.event:type_name -> frankie.runner.v1.Event
-	15, // 5: frankie.runner.v1.Event.time:type_name -> google.protobuf.Timestamp
-	1,  // 6: frankie.runner.v1.Event.type:type_name -> frankie.runner.v1.EventType
-	2,  // 7: frankie.runner.v1.RunnerService.Start:input_type -> frankie.runner.v1.StartRequest
-	4,  // 8: frankie.runner.v1.RunnerService.Prompt:input_type -> frankie.runner.v1.PromptRequest
-	6,  // 9: frankie.runner.v1.RunnerService.Steer:input_type -> frankie.runner.v1.SteerRequest
-	8,  // 10: frankie.runner.v1.RunnerService.Abort:input_type -> frankie.runner.v1.AbortRequest
-	10, // 11: frankie.runner.v1.RunnerService.Events:input_type -> frankie.runner.v1.EventsRequest
-	3,  // 12: frankie.runner.v1.RunnerService.Start:output_type -> frankie.runner.v1.StartResponse
-	5,  // 13: frankie.runner.v1.RunnerService.Prompt:output_type -> frankie.runner.v1.PromptResponse
-	7,  // 14: frankie.runner.v1.RunnerService.Steer:output_type -> frankie.runner.v1.SteerResponse
-	9,  // 15: frankie.runner.v1.RunnerService.Abort:output_type -> frankie.runner.v1.AbortResponse
-	11, // 16: frankie.runner.v1.RunnerService.Events:output_type -> frankie.runner.v1.EventsResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	14, // 1: frankie.runner.v1.StartRequest.env:type_name -> frankie.runner.v1.StartRequest.EnvEntry
+	15, // 2: frankie.runner.v1.StartRequest.timeout:type_name -> google.protobuf.Duration
+	15, // 3: frankie.runner.v1.StartRequest.idle_timeout:type_name -> google.protobuf.Duration
+	3,  // 4: frankie.runner.v1.StartRequest.workspace:type_name -> frankie.runner.v1.Workspace
+	13, // 5: frankie.runner.v1.EventsResponse.event:type_name -> frankie.runner.v1.Event
+	16, // 6: frankie.runner.v1.Event.time:type_name -> google.protobuf.Timestamp
+	1,  // 7: frankie.runner.v1.Event.type:type_name -> frankie.runner.v1.EventType
+	2,  // 8: frankie.runner.v1.RunnerService.Start:input_type -> frankie.runner.v1.StartRequest
+	5,  // 9: frankie.runner.v1.RunnerService.Prompt:input_type -> frankie.runner.v1.PromptRequest
+	7,  // 10: frankie.runner.v1.RunnerService.Steer:input_type -> frankie.runner.v1.SteerRequest
+	9,  // 11: frankie.runner.v1.RunnerService.Abort:input_type -> frankie.runner.v1.AbortRequest
+	11, // 12: frankie.runner.v1.RunnerService.Events:input_type -> frankie.runner.v1.EventsRequest
+	4,  // 13: frankie.runner.v1.RunnerService.Start:output_type -> frankie.runner.v1.StartResponse
+	6,  // 14: frankie.runner.v1.RunnerService.Prompt:output_type -> frankie.runner.v1.PromptResponse
+	8,  // 15: frankie.runner.v1.RunnerService.Steer:output_type -> frankie.runner.v1.SteerResponse
+	10, // 16: frankie.runner.v1.RunnerService.Abort:output_type -> frankie.runner.v1.AbortResponse
+	12, // 17: frankie.runner.v1.RunnerService.Events:output_type -> frankie.runner.v1.EventsResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_frankie_runner_v1_runner_proto_init() }
@@ -832,7 +962,7 @@ func file_frankie_runner_v1_runner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_frankie_runner_v1_runner_proto_rawDesc), len(file_frankie_runner_v1_runner_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

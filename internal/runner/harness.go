@@ -95,5 +95,9 @@ type (
 		Result           string     `json:"result,omitempty"`
 		HarnessSessionID string     `json:"harness_session_id,omitempty"`
 		ExitCode         int        `json:"exit_code"`
+		// Set when the session had a workspace and succeeded.
+		Branch    string `json:"branch,omitempty"`
+		CommitSHA string `json:"commit_sha,omitempty"`
+		Pushed    bool   `json:"pushed,omitempty"`
 	}
 )

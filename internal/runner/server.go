@@ -14,7 +14,18 @@ import (
 
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/runner/workspace"
 )
+
+// publisher is the part of a prepared workspace the server uses after a session.
+type publisher interface {
+	Branch() string
+	Publish(ctx context.Context) (workspace.Result, error)
+}
+
+func prepareWorkspace(ctx context.Context, cfg workspace.Config) (publisher, error) {
+	return workspace.Prepare(ctx, cfg)
+}
 
 var protoEventTypes = map[domain.EventType]runnerv1.EventType{
 	domain.EventAssistantMessage: runnerv1.EventType_EVENT_TYPE_ASSISTANT_MESSAGE,
@@ -36,7 +47,11 @@ type Server struct {
 	now       func() time.Time
 	tick      time.Duration // watchdog resolution
 
+	prepare        func(context.Context, workspace.Config) (publisher, error)
+	publishTimeout time.Duration
+
 	mu        sync.Mutex
+	starting  bool
 	sessionID string
 	session   Session
 	log       *EventLog
@@ -45,7 +60,8 @@ type Server struct {
 
 // NewServer returns a runner whose harness works in workdir.
 func NewServer(workdir string, harnesses map[runnerv1.Harness]Harness) *Server {
-	return &Server{harnesses: harnesses, workdir: workdir, now: time.Now, tick: time.Second}
+	return &Server{harnesses: harnesses, workdir: workdir, now: time.Now, tick: time.Second,
+		prepare: prepareWorkspace, publishTimeout: 10 * time.Minute}
 }
 
 // Start launches the harness session.
@@ -66,12 +82,39 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 		return nil, status.Error(codes.InvalidArgument, "max_turns must be >= 0")
 	}
 
+	// Hold the lock only to claim the runner, not during the clone.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.session != nil {
+	if s.session != nil || s.starting {
+		s.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, "a session was already started on this runner")
 	}
+	s.starting = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.starting = false
+		s.mu.Unlock()
+	}()
+
+	var ws publisher
+	if w := req.GetWorkspace(); w != nil {
+		ws, err = s.prepare(ctx, workspace.Config{
+			Dir: s.workdir, CloneURL: w.GetCloneUrl(), Token: w.GetToken(),
+			BaseRef: w.GetBaseRef(), Branch: w.GetBranch(), CommitMessage: w.GetCommitMessage(),
+			AuthorName: w.GetAuthorName(), AuthorEmail: w.GetAuthorEmail(),
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "prepare workspace: %v", err)
+		}
+	}
+
 	log := NewEventLog(s.now)
+	emit := func(t domain.EventType, p any) {
+		if d, ok := p.(Done); ok && t == domain.EventDone && ws != nil {
+			p = s.publish(ws, log, d)
+		}
+		log.Append(t, p)
+	}
 	cfg := SessionConfig{
 		Workdir:      s.workdir,
 		Model:        req.GetModel(),
@@ -80,14 +123,43 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 		MaxTurns:     int(req.GetMaxTurns()),
 	}
 	// The session outlives this RPC, so it must not inherit its cancellation.
-	sess, err := h.Start(context.WithoutCancel(ctx), cfg, func(t domain.EventType, p any) { log.Append(t, p) })
+	sess, err := h.Start(context.WithoutCancel(ctx), cfg, emit)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "start harness: %v", err)
 	}
+	s.mu.Lock()
 	s.sessionID = domain.NewID().String()
 	s.session, s.log = sess, log
+	id := s.sessionID
+	s.mu.Unlock()
 	go s.watch(sess, log, timeout, idle)
-	return &runnerv1.StartResponse{SessionId: s.sessionID}, nil
+	return &runnerv1.StartResponse{SessionId: id}, nil
+}
+
+// publish pushes the workspace of a succeeded session and records the outcome on
+// its done event. File diffs are appended first, so done stays the last event.
+// Failed, aborted and timed-out sessions push nothing.
+func (s *Server) publish(ws publisher, log *EventLog, d Done) Done {
+	if d.Status != DoneSucceeded {
+		return d
+	}
+	d.Branch = ws.Branch()
+	ctx, cancel := context.WithTimeout(context.Background(), s.publishTimeout)
+	defer cancel()
+	res, err := ws.Publish(ctx)
+	if err != nil {
+		log.Append(domain.EventError, Error{Message: "publishing the workspace failed", Detail: err.Error()})
+		d.Status, d.Reason = DoneFailed, "push failed: "+err.Error()
+		return d
+	}
+	for _, fd := range res.Diffs {
+		log.Append(domain.EventFileDiff, fd)
+	}
+	if res.Truncated {
+		log.Append(domain.EventError, Error{Message: "file diffs truncated", Detail: fmt.Sprintf("only the first %d changed files are reported", len(res.Diffs))})
+	}
+	d.CommitSHA, d.Pushed = res.CommitSHA, res.Pushed
+	return d
 }
 
 // durationArg converts an optional, non-negative Duration field; unset means zero.

@@ -93,7 +93,7 @@ Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks a
 - All `goto` targets exist and are earlier steps; each loop has `maxLoops`.
 - Step IDs are unique (branches included); each step is exactly one kind; gate fields match the gate type.
 - Harnesses and actions exist and are implemented.
-- Roles exist and are pinned to a version.
+- Roles exist, a pinned version matches, a role's default model suits the step's harness, and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
 - Harness/model compatibility (e.g. Claude Code requires an Anthropic-style API route; opencode and pi are multi-provider).
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.
 - Gate commands reference tasks that exist in the repo's `mise.toml` (warning, not error, if the repo is not yet cloned).
@@ -106,13 +106,21 @@ A role is a versioned file in `roles/` (or the project repo's `.factory/roles/`)
 name: code-reviewer
 version: 3
 system_prompt_file: prompts/code-reviewer.md
-skills: [go-review, helm-review]
+skills: [go-review, helm-review]              # not available yet
 allowed_tools: [read, grep, glob, bash:readonly]
-mcp_servers: []
-default_model: anthropic/sonnet
+mcp_servers: []                                # not available yet
+default_model: anthropic/claude-sonnet-5-5
 output_contract:
-  schema: schemas/review-verdict.json      # required for agent-verdict roles
+  schema: review-verdict                       # required for agent-verdict roles
 ```
+
+Roles are parsed by `internal/config` (`ParseRole`); the built-ins are embedded from `roles/` (D40). Paths in a role file are relative to its directory and may not leave it. The system prompt is read when the role is loaded and the resolved role (prompt text included) is snapshotted into the run's input with the workflow, so a running workflow never sees a later prompt. A pinned ref (`code-reviewer@3`) must match the role's `version`; an unpinned one takes the current version, recorded in the snapshot.
+
+- `allowed_tools` uses harness-neutral names: `read`, `grep`, `glob`, `edit`, `write`, `bash`, `bash:readonly`, `web-fetch`. Empty means the harness's defaults.
+- `output_contract.schema` names a contract the platform knows, not a file: the gate must understand the result, so a repo cannot define its own. The only one is `review-verdict` (`domain.ReviewVerdict`, JSON Schema in `roles/schemas/review-verdict.json`): `{verdict: pass|fail, summary?, findings: [{severity: blocker|major|minor|info, file?, line?, message}]}`, at most 100 findings, and a passing verdict carries no blocker. The platform appends the contract's instructions and schema to the role's system prompt.
+- A role returning a verdict runs only as a branch of a parallel group judged by an `agent-verdict` gate, and such a group's branches all return verdicts.
+
+M3 ships `coder` and `code-reviewer`.
 
 Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code-reviewer`, `security-reviewer`, `helm-reviewer`, `release-agent`, `flag-cleanup`. Each role's prompt tells it about the repo's `CLAUDE.md`/`AGENTS.md`, ADRs and coding standards, which live in the repo and are read every run. Agents may propose changes to those documents through a normal change request.
 

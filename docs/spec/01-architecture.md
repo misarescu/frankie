@@ -111,7 +111,7 @@ deploy/
   helm/frankie/     the platform chart; values.yaml + values-<profile>.yaml
   flux/clusters/    Flux manifests per cluster (bootstrap path)
   kata/             kata-deploy values for the cluster runtime (protected)
-roles/              example role definitions
+roles/              built-in roles, prompts and output contract schemas, embedded in the control plane (D40)
 workflows/          built-in workflow definitions, embedded in the control plane (D39)
 scripts/            helpers called by mise tasks
 e2e/                cluster acceptance tests (build tag e2e)

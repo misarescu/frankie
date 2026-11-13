@@ -58,7 +58,7 @@ var _ = Describe("Git proxy from an agent pod", Ordered, ContinueOnFailure, Labe
 			Deadline:       5 * time.Minute,
 			EgressProxyURL: proxyURL,
 			Env:            map[string]string{"GIT_TOKEN": token, "CP_HOST": controlPlaneHost, "REPO": repo},
-			Command:        []string{"/bin/sh", "-c", gitProbeScript},
+			Command:        []string{"/bin/sh", "-c", networkReady + gitProbeScript},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		created, err := cs.CoreV1().Pods(agentsNS).Create(ctx, pod, metav1.CreateOptions{})

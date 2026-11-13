@@ -70,7 +70,7 @@ var _ = Describe("LLM gateway", Ordered, ContinueOnFailure, Label("gateway"), fu
 				"GW_URL": "http://frankie-llm-gateway." + platformNS + ".svc:4000",
 				"VKEY":   vkey, "MODEL": gatewayModel,
 			},
-			Command: []string{"/bin/sh", "-c", gatewayProbeScript},
+			Command: []string{"/bin/sh", "-c", networkReady + gatewayProbeScript},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		created, err := cs.CoreV1().Pods(agentsNS).Create(ctx, pod, metav1.CreateOptions{})

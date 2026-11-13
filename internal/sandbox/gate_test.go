@@ -45,6 +45,9 @@ func TestGatePod(t *testing.T) {
 		if !strings.Contains(clone.Command[2], `git checkout -q --detach "$GATE_SHA"`) || !strings.Contains(clone.Command[2], `test "$(git rev-parse HEAD)" = "$GATE_SHA"`) {
 			t.Errorf("clone does not pin the commit:\n%s", clone.Command[2])
 		}
+		if !strings.Contains(clone.Command[2], "for attempt in 1 2 3 4 5") {
+			t.Errorf("clone is not retried; a new pod's first connection can be refused while NetworkPolicies sync:\n%s", clone.Command[2])
+		}
 		if envValue(clone.Env, "GATE_SHA") != "0123456789abcdef0123456789abcdef01234567" {
 			t.Errorf("GATE_SHA = %q", envValue(clone.Env, "GATE_SHA"))
 		}

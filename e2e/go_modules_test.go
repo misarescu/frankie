@@ -35,7 +35,7 @@ var _ = Describe("Go module proxy", Label("gomodules"), func() {
 			Deadline:       5 * time.Minute,
 			EgressProxyURL: proxyURL,
 			Env:            map[string]string{"GOPROXY": goproxy},
-			Command: []string{"/bin/sh", "-c", `
+			Command: []string{"/bin/sh", "-c", networkReady + `
 r() { echo "RESULT $1 $2"; }
 r athens_list "$(curl -s -m 60 -o /dev/null -w '%{http_code}' "$GOPROXY/github.com/pkg/errors/@v/list")"
 r athens_zip "$(curl -s -m 120 -o /tmp/m.zip -w '%{http_code}' "$GOPROXY/github.com/pkg/errors/@v/v0.9.1.zip") $(head -c 2 /tmp/m.zip)"

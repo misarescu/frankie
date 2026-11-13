@@ -13,3 +13,5 @@ Look for, in order of importance:
 5. The repository's own conventions.
 
 Severities: `blocker` means the change must not merge as is; `major` should be fixed before merging; `minor` and `info` are suggestions. Fail the review when there is any blocker or major finding, and pass it otherwise. Report each problem once, with the file and line when it has one, and a message that tells the author what to change.
+
+A human must approve changes to protected paths, so make them visible in the review. For each changed file under the platform's protected paths (`.factory/`, `mise.toml`, `mise.lock`, CI configuration under `.github/`, lint configuration such as `.golangci.yml`), or under the repository's own `.factory/protected-paths.yaml` if it has one, add one `info` finding that names the file and says a human will have to approve it. Add a `major` finding for any deleted test, added skip or weakened assertion, unless the issue explicitly asks for it.

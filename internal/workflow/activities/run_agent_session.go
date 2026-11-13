@@ -103,6 +103,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	if err != nil {
 		return SessionResult{}, err
 	}
+	beat := &sessionHeartbeat{progress: progress, record: func(p sessionProgress) { activity.RecordHeartbeat(ctx, p) }}
+	keepCtx, stopKeepAlive := context.WithCancel(ctx)
+	defer stopKeepAlive()
+	go beat.keepAlive(keepCtx, sessionKeepAlive)
 	for {
 		resp, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -117,7 +121,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			return SessionResult{}, err
 		}
 		progress.LastSeq = e.GetSeq()
-		activity.RecordHeartbeat(ctx, progress)
+		beat.set(progress)
 		if typ != domain.EventDone {
 			continue
 		}

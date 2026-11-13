@@ -17,11 +17,6 @@ egressProxy:
     - pypi.org
     - files.pythonhosted.org
 
-postgres:
-  # The homelab host (Ubuntu 26.04, k3s containerd) denies signals between
-  # Postgres processes under its AppArmor profile (open question 14).
-  appArmorUnconfined: true
-
 controlPlane:
   # Toy repo for the M1 acceptance run; credentials in Secret frankie-github (D26).
   repos:

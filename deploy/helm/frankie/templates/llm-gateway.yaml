@@ -1,0 +1,180 @@
+# LLM gateway (LiteLLM): holds the real provider key; agents get per-run virtual
+# keys with budgets (invariant 1, FR-SB-4).
+{{- $name := printf "%s-llm-gateway" (include "frankie.fullname" .) }}
+{{- $pg := printf "%s-postgres" (include "frankie.fullname" .) }}
+{{- $master := printf "sk-%s" (randAlphaNum 40) }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- $master = index .data "master-key" | b64dec }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  # Admin key: mints and revokes virtual keys. Only the control plane gets it.
+  master-key: {{ $master | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    model_list:
+    {{- range .Values.llmGateway.models }}
+      - model_name: {{ . }}
+        litellm_params:
+          model: anthropic/{{ . }}
+          api_key: os.environ/ANTHROPIC_API_KEY
+    {{- end }}
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
+      database_url: os.environ/DATABASE_URL
+    litellm_settings:
+      drop_params: true
+      telemetry: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llm-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Values.llmGateway.models | toJson | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: litellm
+          image: {{ .Values.llmGateway.image }}
+          args: ["--config", "/etc/litellm/config.yaml", "--port", "{{ .Values.llmGateway.port }}"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ $pg }}, key: password }
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(POSTGRES_PASSWORD)@{{ $pg }}:5432/litellm
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: master-key }
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.llmGateway.anthropicSecret }}, key: api-key, optional: true }
+            {{- include "frankie.llmGatewayPrismaEnv" . | nindent 12 }}
+            # Migrations run in the migration Job, never at boot (slow, CPU-heavy).
+            - name: DISABLE_SCHEMA_UPDATE
+              value: "true"
+          ports:
+            - name: http
+              containerPort: {{ .Values.llmGateway.port }}
+          startupProbe:
+            httpGet: { path: /health/liveliness, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health/readiness, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health/liveliness, port: http }
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.llmGateway.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/litellm
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.llmGateway.port }}
+      targetPort: http
+---
+# Agents and the control plane may call the gateway; it may reach only DNS,
+# Postgres and public HTTPS (the provider API).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchLabels:
+              frankie.dev/role: agent
+        - podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.llmGateway.port }}
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "postgres") | nindent 14 }}
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 127.0.0.0/8]
+      ports:
+        - { port: 443, protocol: TCP }

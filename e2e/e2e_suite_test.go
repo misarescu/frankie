@@ -20,6 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -30,6 +31,7 @@ func TestE2E(t *testing.T) {
 
 var (
 	cs               *kubernetes.Clientset
+	restConfig       *rest.Config
 	runnerImage      string
 	agentsNS         string
 	platformNS       string
@@ -62,6 +64,7 @@ var _ = BeforeSuite(func() {
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{}).ClientConfig()
 	Expect(err).NotTo(HaveOccurred(), "load kubeconfig")
+	restConfig = cfg
 	cs, err = kubernetes.NewForConfig(cfg)
 	Expect(err).NotTo(HaveOccurred())
 })

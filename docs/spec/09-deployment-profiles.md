@@ -67,6 +67,7 @@ Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kerne
 - [ ] **Image garbage collection**: set kubelet image GC thresholds so the disk does not fill.
 - [ ] **Thermals**: keep it ventilated; do not give one agent all 4 cores.
 - [ ] **Remote access**: Tailscale or similar, to watch agents and approve gates from elsewhere.
+- [ ] **AppArmor signal fix** on Ubuntu 26.04+: install `deploy/host/sysctl.d/99-frankie-apparmor.conf` (D28, `deploy/host/README.md`).
 - [ ] **Concurrency settings**: `maxConcurrentIssues = 1`; run reviewers sequentially.
 
 ## Profile-driven requirements

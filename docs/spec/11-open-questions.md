@@ -15,7 +15,7 @@
 11. **Merge approval default.** Decision D10 is auto-merge once gates pass. An earlier note listed PR merge as a human gate "initially". Confirm that auto-merge is the default and whether a per-project `human` gate before `enqueue` should be recommended for the first weeks.
 12. **Object storage for transcripts.** MinIO, S3-compatible service, or PVC directory (concrete profile).
 13. ~~**Branch naming and issue ID format** (`agent/<issue-id>/<slug>`) - finalize with the GitHub token scoping rule.~~ Resolved by D22 (issue keys like `frk-42`, branches `agent/frk-42/<slug>`) and D21 (branch scoping enforced by the git proxy).
-14. **AppArmor blocks Postgres on the homelab host.** On Ubuntu 26.04 with k3s's containerd, the `cri-containerd.apparmor.d` profile denies signals between a container's own processes once they carry a stacked label (`apparmor="DENIED" operation="signal" ... peer="cri-containerd.apparmor.d//&unconfined"`), so Postgres cannot signal its checkpointer and crash-loops. Workaround: `postgres.appArmorUnconfined: true` in the concrete profile (Postgres only; agent pods run in Kata and are unaffected). Revisit when k3s or Ubuntu update the profile, then remove the workaround.
+14. ~~**AppArmor blocks Postgres on the homelab host.**~~ Resolved by D28: the cause is Ubuntu 26.04's `kernel.apparmor_restrict_unprivileged_unconfined=1`, which stacks containerd's profile so it denies all signals inside containers (not only Postgres; also Prisma in LiteLLM and Go's SIGURG). Fixed on the host (`deploy/host/`); the per-pod Unconfined workaround is gone.
 
 ## Inconsistencies found while consolidating the source notes (resolved here)
 

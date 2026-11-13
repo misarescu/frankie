@@ -51,22 +51,36 @@ controlPlane:
   githubSecret: frankie-github
   resources:
     requests: { cpu: 50m, memory: 64Mi }
-    limits: { memory: 300Mi }
+    limits: { cpu: 500m, memory: 300Mi }
 
 # One Postgres for the app, Temporal and LiteLLM, separate databases (docs/spec/09).
 postgres:
   image: postgres:17.12-trixie
   storage: 5Gi
   databases: [frankie, temporal, litellm]
-  # Run Postgres without AppArmor confinement; only for hosts whose containerd
-  # profile blocks Postgres's internal signals (docs/spec/11, open question 14).
-  appArmorUnconfined: false
   resources:
     requests: { cpu: 100m, memory: 256Mi }
-    limits: { memory: 1Gi }
+    limits: { cpu: "1", memory: 1Gi }
 
+# LLM gateway (LiteLLM, docs/spec/04): the only holder of real provider keys.
 llmGateway:
   port: 4000
+  image: ghcr.io/berriai/litellm-non_root:v1.106.6
+  # Secret with key "api-key": the Anthropic API key. Never mounted in agent pods.
+  anthropicSecret: frankie-anthropic
+  # Models a virtual key may be granted, routed to Anthropic by the same id.
+  models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
+  # CPU is capped: an unbounded gateway once took all 4 cores of the concrete host.
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # One-off schema migration Job, run on chart install/upgrade (the server itself
+  # never migrates at boot).
+  migration:
+    activeDeadlineSeconds: 1200
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }
 
 # Hostname-allowlisting CONNECT proxy, the agents' only route out (D20).
 egressProxy:
@@ -75,4 +89,4 @@ egressProxy:
   allow: []
   resources:
     requests: { cpu: 10m, memory: 32Mi }
-    limits: { memory: 64Mi }
+    limits: { cpu: 250m, memory: 64Mi }

@@ -40,3 +40,13 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- end -}}
 {{- join "," $pairs -}}
 {{- end -}}
+
+{{/* Prisma settings for LiteLLM: no update check, a writable home for its cache. */}}
+{{- define "frankie.llmGatewayPrismaEnv" -}}
+- name: CHECKPOINT_DISABLE
+  value: "1"
+- name: PRISMA_HIDE_UPDATE_MESSAGE
+  value: "1"
+- name: HOME
+  value: /tmp
+{{- end -}}

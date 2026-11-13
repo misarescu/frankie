@@ -89,11 +89,6 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
-            {{- if .Values.postgres.appArmorUnconfined }}
-            # Workaround (docs/spec/11, open question 14): the host's containerd
-            # AppArmor profile denies signals between Postgres's own processes.
-            appArmorProfile: { type: Unconfined }
-            {{- end }}
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
             - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
@@ -149,7 +144,7 @@ spec:
                 values: [{{ .Release.Name }}]
               - key: app.kubernetes.io/component
                 operator: In
-                values: [controlplane, temporal, llm-gateway]
+                values: [controlplane, temporal, llm-gateway, llm-gateway-migrate]
       ports:
         - port: 5432
           protocol: TCP

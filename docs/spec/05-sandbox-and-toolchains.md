@@ -43,7 +43,7 @@ Agents run build and tests inside their own loop so most problems are fixed befo
 
 Approach: **platform base image + toolchain declared in the repo**. Rejected alternatives: one fat image with every tool (huge, cannot match each repo's pins), hand-maintained per-language images (version drift, combinatorial maintenance), toolchain in a sidecar (harness shell cannot reach it easily).
 
-1. **Platform base image** (`factory-base:vX`), versioned by the platform: runner, Claude Code, opencode, pi (with Node/Bun), git, non-root user, ripgrep, jq, make, curl, mise.
+1. **Platform base image** (`factory-base:vX`), versioned by the platform: runner, Claude Code, opencode, pi (with Node/Bun), git, non-root user, ripgrep, jq, make, curl, mise, and a C toolchain (gcc, libc6-dev) for cgo (D34).
 2. **Toolchain declared in the repo with `mise.toml`**: pins languages and CLI tools (`aqua` backend for verified prebuilt binaries) and defines tasks. Humans, CI and agents share the same file. Gates call `mise run test` / `mise run lint`, which keeps workflow definitions generic across repos.
 3. **Images built by the factory.** The control plane hashes the base image reference + `mise.toml`/`mise.lock` (or the Dockerfile; the Dockerfile path is deferred, D30). A missing image is built in-cluster with BuildKit and pushed to the in-cluster registry. Every agent step and gate for a given commit uses the same image. A Renovate-style job opens toolchain-bump issues for agents.
 4. **Escape hatch**: `.factory/Dockerfile` starting `FROM factory-base:vX` for system libraries or unusual setups.

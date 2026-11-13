@@ -18,8 +18,10 @@ ARG CLAUDE_CODE_VERSION=2.1.323
 # mise runs the repo's tasks and installs its pinned tools (D15). The installer
 # verifies the release checksum.
 ARG MISE_VERSION=v2026.11.7
+# gcc and libc6-dev give Go a C toolchain for cgo, which `go test -race` needs
+# (D34); mise does not provide one.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git jq make ripgrep \
+ && apt-get install -y --no-install-recommends ca-certificates curl gcc git jq libc6-dev make ripgrep \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" MISE_INSTALL_PATH=/usr/local/bin/mise sh \
  && mise --version | grep -q "${MISE_VERSION#v}" \

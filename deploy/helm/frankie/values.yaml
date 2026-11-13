@@ -59,8 +59,10 @@ toolchains:
     podSecurity: privileged
     serviceAccountName: frankie-build
     buildkitImage: moby/buildkit:v0.35.0
-    deadline: 30m
-    scratchSize: 10Gi
+    # A dependency image build (M3.1) unpacks the whole toolchain image before
+    # the warm-up adds module and build caches: Frankie's went over 10Gi.
+    deadline: 50m
+    scratchSize: 30Gi
     limits: { cpu: "2", memory: 3Gi }
 
 # Control plane (docs/spec/01). Agents may reach only its git proxy port.

@@ -1,0 +1,201 @@
+# Toolchain images (D15, D30): an in-cluster registry for them and a namespace
+# where one-off BuildKit Jobs build them.
+{{- $full := include "frankie.fullname" . }}
+{{- $name := printf "%s-registry" $full }}
+{{- $b := .Values.toolchains.build }}
+{{- $r := .Values.toolchains.registry }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ $r.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "registry") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "registry") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: registry
+          image: {{ $r.image }}
+          ports:
+            - { name: registry, containerPort: {{ $r.port }} }
+          env:
+            - { name: REGISTRY_HTTP_ADDR, value: ":{{ $r.port }}" }
+            - { name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY, value: /var/lib/registry }
+            - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true" }
+          readinessProbe:
+            httpGet: { path: /v2/, port: registry }
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/registry }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+---
+# ClusterIP for builds and the control plane; the NodePort is how the node's
+# container runtime pulls toolchain images (localhost:<nodePort>).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "registry") | nindent 4 }}
+  ports:
+    - { name: registry, port: {{ $r.port }}, targetPort: registry }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-node
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "frankie.componentLabels" (list . "registry") | nindent 4 }}
+  ports:
+    - { name: registry, port: {{ $r.port }}, targetPort: registry, nodePort: {{ $r.nodePort }} }
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ $b.podSecurity }}
+---
+# Like agent pods, build pods get no RBAC bindings and no token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $b.serviceAccountName }}
+  namespace: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Build pods reach cluster DNS, the egress proxy (base image and tool downloads)
+# and the registry (push). Nothing reaches them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: toolchain-build
+  namespace: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      frankie.dev/role: toolchain-build
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 14 }}
+      ports:
+        - port: {{ .Values.egressProxy.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "registry") | nindent 14 }}
+      ports:
+        - port: {{ $r.port }}
+          protocol: TCP
+---
+# The control plane creates build Jobs and their contexts, and nothing else here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $full }}-controlplane-builds
+  namespace: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create, get, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $full }}-controlplane-builds
+  namespace: {{ $b.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $full }}-controlplane
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $full }}-controlplane-builds

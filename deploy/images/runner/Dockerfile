@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# Agent pod image: the runner plus Claude Code (docs/spec/04, docs/spec/05).
-# This is the M1 subset of factory-base; toolchains per repo come with M2.
+# Agent pod image: the runner plus Claude Code and mise (docs/spec/04, docs/spec/05).
+# This is the platform base image (factory-base, D30): toolchain images layer a
+# repo's mise.toml on top of it, so a new build of this image rebuilds them all.
 # Build from the repo root: docker build -f deploy/images/runner/Dockerfile .
 FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie AS build
 ARG TARGETOS TARGETARCH
@@ -14,9 +15,14 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM debian:trixie-slim
 # Pinned to the version the adapter was verified against (mise run test:smoke-claude).
 ARG CLAUDE_CODE_VERSION=2.1.323
+# mise runs the repo's tasks and installs its pinned tools (D15). The installer
+# verifies the release checksum.
+ARG MISE_VERSION=v2026.11.7
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git \
+ && apt-get install -y --no-install-recommends ca-certificates curl git jq make ripgrep \
  && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" MISE_INSTALL_PATH=/usr/local/bin/mise sh \
+ && mise --version | grep -q "${MISE_VERSION#v}" \
  && useradd --create-home --uid 10001 --user-group --shell /bin/bash agent \
  && install -d -o 10001 -g 10001 /workspace
 USER 10001:10001

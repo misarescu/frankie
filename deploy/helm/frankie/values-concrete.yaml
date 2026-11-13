@@ -16,6 +16,18 @@ egressProxy:
     - registry.npmjs.org
     - pypi.org
     - files.pythonhosted.org
+    # Toolchain builds (D30): the base image from GHCR, mise and its aqua/GitHub
+    # release downloads, Go toolchains. Agent pods share this list (D20).
+    - ghcr.io
+    - pkg-containers.githubusercontent.com
+    - github.com
+    - api.github.com
+    - objects.githubusercontent.com
+    - release-assets.githubusercontent.com
+    - mise.jdx.dev
+    - mise-versions.jdx.dev
+    - go.dev
+    - dl.google.com
 
 controlPlane:
   # Toy repo for the M1 acceptance run; credentials in Secret frankie-github (D26).

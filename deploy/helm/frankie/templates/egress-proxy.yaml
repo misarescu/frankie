@@ -81,7 +81,7 @@ spec:
       port: {{ .Values.egressProxy.port }}
       targetPort: proxy
 ---
-# Only agent pods may use the proxy; the proxy may only reach public addresses
+# Only agent and toolchain build pods may use the proxy; the proxy may only reach public addresses
 # on 443 (defense in depth next to its own address checks) and cluster DNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -102,6 +102,12 @@ spec:
           podSelector:
             matchLabels:
               frankie.dev/role: agent
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.toolchains.build.namespace }}
+          podSelector:
+            matchLabels:
+              frankie.dev/role: toolchain-build
       ports:
         - port: {{ .Values.egressProxy.port }}
           protocol: TCP

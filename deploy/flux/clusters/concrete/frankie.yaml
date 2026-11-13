@@ -8,18 +8,18 @@ metadata:
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: factory
+  name: frankie
   namespace: frankie
 spec:
   interval: 10m
   chart:
     spec:
-      chart: ./deploy/helm/factory
+      chart: ./deploy/helm/frankie
       reconcileStrategy: Revision
       sourceRef:
         kind: GitRepository
         name: flux-system
         namespace: flux-system
       valuesFiles:
-        - ./deploy/helm/factory/values.yaml
-        - ./deploy/helm/factory/values-concrete.yaml
+        - ./deploy/helm/frankie/values.yaml
+        - ./deploy/helm/frankie/values-concrete.yaml

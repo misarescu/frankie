@@ -1,11 +1,11 @@
 # Egress proxy (D20): the agents' only route to the internet.
-{{- $name := printf "%s-egress-proxy" (include "factory.fullname" .) }}
+{{- $name := printf "%s-egress-proxy" (include "frankie.fullname" .) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 data:
   allowlist: |
     {{- range .Values.egressProxy.allow }}
@@ -17,27 +17,30 @@ kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
     app.kubernetes.io/component: egress-proxy
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 6 }}
+      {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 8 }}
+        {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 8 }}
       annotations:
         checksum/allowlist: {{ .Values.egressProxy.allow | toJson | sha256sum }}
     spec:
       automountServiceAccountToken: false
       securityContext:
+        # Numeric, so the kubelet can verify runAsNonRoot (distroless "nonroot" is 65532).
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: egress-proxy
-          image: {{ include "factory.image" (list . "egress-proxy") }}
+          image: {{ include "frankie.image" (list . "egress-proxy") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           args: ["--listen", ":{{ .Values.egressProxy.port }}", "--allow-file", "/etc/egress/allowlist"]
           ports:
@@ -69,10 +72,10 @@ kind: Service
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 4 }}
+    {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 4 }}
   ports:
     - name: proxy
       port: {{ .Values.egressProxy.port }}
@@ -85,11 +88,11 @@ kind: NetworkPolicy
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "factory.labels" . | nindent 4 }}
+    {{- include "frankie.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "factory.componentLabels" (list . "egress-proxy") | nindent 6 }}
+      {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 6 }}
   policyTypes: [Ingress, Egress]
   ingress:
     - from:

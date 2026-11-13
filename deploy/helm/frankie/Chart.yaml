@@ -1,5 +1,5 @@
 apiVersion: v2
-name: factory
+name: frankie
 description: Frankie software factory platform (control plane, runner images, gateway wiring)
 type: application
 version: 0.1.0

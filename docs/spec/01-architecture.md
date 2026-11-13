@@ -104,7 +104,7 @@ gen/                generated protobuf/gRPC Go code (committed; public so extern
 web/                React + Bun UI
 deploy/
   images/           Dockerfiles of platform images, built by CI and published to GHCR (D23)
-  helm/factory/     the platform chart; values.yaml + values-<profile>.yaml
+  helm/frankie/     the platform chart; values.yaml + values-<profile>.yaml
   flux/clusters/    Flux manifests per cluster (bootstrap path)
   kata/             kata-deploy values for the cluster runtime (protected)
 roles/              example role definitions

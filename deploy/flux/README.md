@@ -10,4 +10,4 @@ flux bootstrap github --owner=misarescu --repository=frankie --personal \
   --branch=main --path=deploy/flux/clusters/concrete
 ```
 
-The HelmRelease renders `deploy/helm/factory` with `values.yaml` plus the profile file.
+The HelmRelease renders `deploy/helm/frankie` with `values.yaml` plus the profile file.

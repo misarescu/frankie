@@ -47,7 +47,7 @@ type PodSpec struct {
 	Limits             corev1.ResourceList // cpu and memory, from the profile (FR-SB-7)
 	WorkspaceSize      resource.Quantity   // emptyDir and ephemeral-storage limit
 	Deadline           time.Duration       // activeDeadlineSeconds (FR-SB-8)
-	EgressProxyURL     string              // e.g. http://factory-egress-proxy.frankie.svc:3128
+	EgressProxyURL     string              // e.g. http://frankie-egress-proxy.frankie.svc:3128
 	NoProxy            []string            // cluster-internal names reached directly
 	Env                map[string]string   // extra environment
 	Command            []string            // overrides the image entrypoint; tests only

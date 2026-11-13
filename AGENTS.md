@@ -68,8 +68,9 @@ Every milestone must run on the **laptop profile**: a 16 GiB laptop running sing
 
 ## Working agreements
 
-- Small PRs, one issue each. Branch name `agent/<issue-id>/<slug>` when an agent opens it (format not final; see open question 13).
+- Small PRs, one issue each. Branch name `agent/<issue-key>/<slug>` (e.g. `agent/frk-42/fix-login`, D22) when an agent opens it.
 - Every behavior change has a test. Tests for a feature are derived from the spec's acceptance criteria, not from the implementation.
+- One test file per implementation file: `policy.go` is tested in `policy_test.go`, not in a combined package test file.
 - New workflow behavior gets a replay test fixture.
 - New config fields are validated at save time (schema + cross-checks such as harness/model compatibility and driver capabilities).
 - Do not add dependencies casually; prefer the standard library. New dependencies need a one-line justification in the PR.

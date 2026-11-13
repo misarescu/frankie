@@ -88,18 +88,20 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	if err != nil {
 		return err
 	}
+	var signaler api.Signaler // stays nil without Temporal: decisions are refused
 	if cfg.TemporalAddress != "" {
-		stop, err := startWorkflows(ctx, cfg, st, signer, projects, log)
+		c, stop, err := startWorkflows(ctx, cfg, st, signer, projects, log)
 		if err != nil {
 			return err
 		}
 		defer stop()
+		signaler = c
 	}
 
 	hub := api.NewHub(cfg.DatabaseURL, log.With("component", "events"))
 	go hub.Run(ctx)
 	mux := http.NewServeMux()
-	(&api.Server{Store: st, Hub: hub, Log: log}).Register(mux)
+	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler}).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {

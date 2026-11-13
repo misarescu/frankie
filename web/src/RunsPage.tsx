@@ -12,7 +12,7 @@ export function RunsPage() {
   }, []);
   return (
     <>
-      <h1>Runs</h1>
+      <h1>Runs <span className="type">· <a href="#/approvals">Approvals</a></span></h1>
       {error && <p className="status">Could not load runs: {error}</p>}
       <table>
         <thead><tr><th>Issue</th><th>Title</th><th>Status</th><th>Created</th></tr></thead>

@@ -6,12 +6,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 	"github.com/misarescu/frankie/roles"
@@ -64,6 +66,9 @@ type interpretFixture struct {
 	// verdict decides an agent-verdict gate; nil passes.
 	verdict  func(req activities.VerdictGateRequest) activities.GateOutcome
 	verdicts []activities.VerdictGateRequest
+	opened   []activities.HumanGateRequest
+	closed   []activities.HumanGateClose
+	extended []string
 }
 
 func newInterpretFixture(t *testing.T) *interpretFixture {
@@ -116,6 +121,18 @@ func newInterpretFixture(t *testing.T) *interpretFixture {
 	})
 	f.env.OnActivity(a.RecordLoop, mock.Anything, testRun.RunID, mock.Anything, mock.Anything).Return(func(_ context.Context, _, gate string, loops int) error {
 		f.loops = append(f.loops, fmt.Sprintf("%s=%d", gate, loops))
+		return nil
+	})
+	f.env.OnActivity(a.OpenHumanGate, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.HumanGateRequest) error {
+		f.opened = append(f.opened, req)
+		return nil
+	})
+	f.env.OnActivity(a.CloseHumanGate, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.HumanGateClose) error {
+		f.closed = append(f.closed, in)
+		return nil
+	})
+	f.env.OnActivity(a.ExtendHumanGate, mock.Anything, mock.Anything, mock.Anything).Return(func(_ context.Context, id string, _ time.Time) error {
+		f.extended = append(f.extended, id)
 		return nil
 	})
 	f.env.OnActivity(a.OpenChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return("https://github.com/acme/app/pull/9", nil)
@@ -210,17 +227,24 @@ func TestInterpretLoopsBackWithFeedback(t *testing.T) {
 	}
 }
 
-func TestInterpretStopsAtMaxLoops(t *testing.T) {
+// FR-WF-4: a loop that used up maxLoops escalates to a human; nobody deciding
+// within the default timeout fails the run.
+func TestInterpretEscalatesAtMaxLoops(t *testing.T) {
 	f := newInterpretFixture(t)
 	f.gate = func(req activities.GateRequest) activities.GateOutcome {
 		return activities.GateOutcome{Passed: req.StepID != "checks", Summary: "mise run test exited 1"}
 	}
 	out := f.run(t, loopSnapshot(t, loopDefinition))
-	if out.Succeeded || !strings.Contains(out.Reason, "step checks: gate failed: mise run test exited 1 (looped back to implement 2 times, the limit)") {
+	if out.Succeeded || out.Reason != "step checks: gate failed: mise run test exited 1 (looped back to implement 2 times, the limit); "+
+		"escalated to a human, no human decision within 72h0m0s" {
 		t.Fatalf("result = %+v", out)
 	}
-	if got := f.stepIDs(); got != "implement/1 checks/1 implement/2 checks/2 implement/3 checks/3" {
+	if got := f.stepIDs(); got != "implement/1 checks/1 implement/2 checks/2 implement/3 checks/3 checks-escalation/1" {
 		t.Errorf("steps = %s", got)
+	}
+	if len(f.opened) != 1 || !strings.Contains(f.opened[0].Reason, "Approve to accept the change anyway") || f.opened[0].CommitSHA != "sha3" ||
+		len(f.closed) != 1 || f.closed[0].Status != domain.ApprovalTimedOut {
+		t.Errorf("opened %+v, closed %+v", f.opened, f.closed)
 	}
 	if strings.Join(f.loops, ",") != "checks=1,checks=2" {
 		t.Errorf("loops = %v", f.loops)
@@ -268,12 +292,15 @@ func TestCheckSupported(t *testing.T) {
 		t.Errorf("default-build: %v", err)
 	}
 	escalating := loopSnapshot(t, strings.Replace(loopDefinition, "onFail: {goto: implement, maxLoops: 2}", "onFail: escalate", 1))
-	if err := CheckSupported(escalating.Workflow); err == nil || !strings.Contains(err.Error(), "escalate needs human gates") {
-		t.Errorf("escalate: err = %v", err)
-	}
 	human := loopSnapshot(t, strings.Replace(loopDefinition, "  - id: open\n", "  - id: approve\n    gate: {type: human}\n  - id: open\n", 1))
-	if err := CheckSupported(human.Workflow); err == nil || !strings.Contains(err.Error(), "human gates are not supported yet") {
-		t.Errorf("human gate: err = %v", err)
+	for _, w := range []config.Workflow{escalating.Workflow, human.Workflow} {
+		if err := CheckSupported(w); err != nil {
+			t.Errorf("%s: %v", w.Name, err)
+		}
+	}
+	unsupported := config.Workflow{Name: "x", Steps: []config.Step{{ID: "ship", Action: "release.create"}}}
+	if err := CheckSupported(unsupported); err == nil {
+		t.Error("an unimplemented action is supported")
 	}
 }
 
@@ -292,6 +319,8 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_loop_then_success.json", "M3: command gate fails, loop back to implement, change request"},
 	{"testdata/interpret_loops_exhausted.json", "M3: command gate fails until maxLoops is used up"},
 	{"testdata/interpret_default_build_review_loop.json", "M3: default-build, reviewer fails, loop back to implement"},
+	{"testdata/interpret_human_gate_approved.json", "M3: human gate after the change request, approved by signal"},
+	{"testdata/interpret_loops_exhausted_escalated.json", "M3: escalate-exhausted-loops version, escalation approved"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

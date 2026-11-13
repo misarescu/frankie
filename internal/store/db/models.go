@@ -10,6 +10,22 @@ import (
 	"github.com/google/uuid"
 )
 
+type Approval struct {
+	ID               uuid.UUID
+	StepRunID        uuid.UUID
+	RunID            uuid.UUID
+	Reason           string
+	CommitSha        *string
+	ChangeRequestUrl *string
+	Status           string
+	DecidedBy        *string
+	Comment          *string
+	ExpiresAt        time.Time
+	DecidedAt        *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type ChangeRequest struct {
 	ID          uuid.UUID
 	IssueID     uuid.UUID

@@ -182,6 +182,25 @@ type GateConfig struct {
 // repo's mise.toml defines what lint and test mean (docs/spec/05).
 var DefaultGateCommands = []string{"mise run lint", "mise run test"}
 
+// HumanGateRequest opens a human gate: the decision a person is asked for.
+type HumanGateRequest struct {
+	RunID            string
+	StepRunID        string
+	StepID           string
+	Reason           string // what is asked, shown in the approvals inbox
+	CommitSHA        string
+	ChangeRequestURL string
+	ExpiresAt        time.Time
+}
+
+// HumanGateClose records how a human gate ended.
+type HumanGateClose struct {
+	StepRunID string
+	Status    domain.ApprovalStatus // approved, rejected or timed_out
+	By        string
+	Comment   string
+}
+
 // GateOutcome is a command gate's verdict as the workflow needs it.
 type GateOutcome struct {
 	StepRunID string

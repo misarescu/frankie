@@ -86,14 +86,15 @@ func chooseWorkflow(ctx context.Context, files snapshot.FileReader, in activitie
 	return workflow.Interpret, workflow.InterpretInput{Issue: in, Snapshot: snap}, nil
 }
 
-// startWorkflows connects to Temporal, runs the worker and the intake loop.
-func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gitproxy.Signer, projects []intake.Project, log *slog.Logger) (func(), error) {
+// startWorkflows connects to Temporal, runs the worker and the intake loop. It
+// returns the client, which the API uses to signal human gate decisions.
+func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gitproxy.Signer, projects []intake.Project, log *slog.Logger) (client.Client, func(), error) {
 	if cfg.Kube == nil {
-		return nil, errors.New("controlplane: workflows need Kubernetes access to launch agent pods")
+		return nil, nil, errors.New("controlplane: workflows need Kubernetes access to launch agent pods")
 	}
 	gw, err := gateway.New(cfg.GatewayAdminURL, cfg.GatewayMasterKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var c client.Client
 	deadline := time.Now().Add(max(cfg.DBWait, 2*time.Minute))
@@ -104,12 +105,12 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 			break
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("controlplane: temporal not reachable: %w", err)
+			return nil, nil, fmt.Errorf("controlplane: temporal not reachable: %w", err)
 		}
 		log.Info("waiting for temporal", "error", err)
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
 	}
@@ -133,7 +134,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()
-		return nil, fmt.Errorf("controlplane: worker: %w", err)
+		return nil, nil, fmt.Errorf("controlplane: worker: %w", err)
 	}
 	log.Info("temporal worker started", "address", cfg.TemporalAddress, "taskQueue", workflow.TaskQueue)
 
@@ -143,5 +144,5 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)
 	}
-	return func() { w.Stop(); c.Close() }, nil
+	return c, func() { w.Stop(); c.Close() }, nil
 }

@@ -1,6 +1,7 @@
 // Package api is the control plane's HTTP API for the web UI (web/) and the CLI,
 // on the API port, which agent pods cannot reach. M1: runs, transcript replay and
 // live transcript streaming (docs/spec/07-observability.md, FR-OB-1, FR-OB-2).
+// M3: the approvals inbox and decisions on human gates (docs/spec/03, FR-WF-3).
 package api
 
 import (
@@ -15,6 +16,9 @@ type Server struct {
 	Store *store.Store
 	Hub   *Hub
 	Log   *slog.Logger
+	// Signaler delivers human gate decisions to workflows; nil when the
+	// control plane runs without Temporal.
+	Signaler Signaler
 }
 
 // Register adds the API routes to mux.
@@ -22,4 +26,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}/events", s.listEvents)
 	mux.HandleFunc("GET /api/runs/{id}/stream", s.streamEvents)
+	mux.HandleFunc("GET /api/approvals", s.listApprovals)
+	mux.HandleFunc("POST /api/gates/{id}/decision", s.decideGate)
 }

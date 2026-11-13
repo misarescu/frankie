@@ -14,8 +14,9 @@ func TestLoadConfigFile(t *testing.T) {
 	  "intakeLabel": "factory", "pollInterval": "30s",
 	  "temporal": {"address": "frankie-temporal:7233", "namespace": "frankie"},
 	  "gatewayAdminURL": "http://frankie-llm-gateway:4000",
+	  "providers": [{"name": "anthropic", "models": ["claude-sonnet-5-5"]}, {"name": "openrouter", "models": ["openai/gpt-5.6-terra"]}],
 	  "agent": {"namespace": "frankie-agents", "runnerImage": "img", "cpu": "2", "memory": "3Gi", "workspaceSize": "10Gi",
-	            "podDeadline": "2h", "sessionTimeout": "2h", "idleTimeout": "20m", "model": "claude-sonnet-5-5", "budgetUSD": 2}
+	            "podDeadline": "2h", "sessionTimeout": "2h", "idleTimeout": "20m", "model": "anthropic/claude-sonnet-5-5", "budgetUSD": 2}
 	}`), 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -38,13 +39,22 @@ func TestLoadConfigFile(t *testing.T) {
 	if cfg.TemporalAddress != "frankie-temporal:7233" || cfg.TemporalNamespace != "frankie" || cfg.IntakeLabel != "factory" {
 		t.Errorf("cfg = %+v", cfg)
 	}
+	// The agent's key is granted the model under its gateway name; runs are
+	// checked against the ref and the providers.
+	if a.Model != "claude-sonnet-5-5" || cfg.Models.Default != "anthropic/claude-sonnet-5-5" || !cfg.Models.Providers.Serves("openrouter/openai/gpt-5.6-terra") {
+		t.Errorf("model = %q, models = %+v", a.Model, cfg.Models)
+	}
 }
 
 func TestLoadConfigFileErrors(t *testing.T) {
 	for name, body := range map[string]string{
-		"not json":     `{`,
-		"bad duration": `{"pollInterval": "soon"}`,
-		"bad quantity": `{"agent": {"cpu": "lots", "memory": "1Gi"}}`,
+		"not json":                    `{`,
+		"bad duration":                `{"pollInterval": "soon"}`,
+		"bad quantity":                `{"agent": {"cpu": "lots", "memory": "1Gi"}}`,
+		"unknown provider":            `{"providers": [{"name": "acme", "models": ["fast"]}]}`,
+		"default model not a ref":     `{"providers": [{"name": "anthropic", "models": ["claude-sonnet-5-5"]}], "agent": {"model": "claude-sonnet-5-5"}}`,
+		"default model not served":    `{"providers": [{"name": "anthropic", "models": ["claude-sonnet-5-5"]}], "agent": {"model": "anthropic/claude-opus-5-5"}}`,
+		"default model, no providers": `{"agent": {"model": "anthropic/claude-sonnet-5-5"}}`,
 	} {
 		path := filepath.Join(t.TempDir(), "c.json")
 		_ = os.WriteFile(path, []byte(body), 0o600)

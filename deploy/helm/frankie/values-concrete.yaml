@@ -45,6 +45,17 @@ egressProxy:
     # Frankie's lint: kubeconform reads Kubernetes and CRD JSON schemas from GitHub.
     - raw.githubusercontent.com
 
+llmGateway:
+  # Anthropic plus OpenRouter (M4: one workflow uses two providers). Create
+  # Secret frankie-openrouter with key api-key to enable OpenRouter.
+  providers:
+    - name: anthropic
+      secret: frankie-anthropic
+      models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
+    - name: openrouter
+      secret: frankie-openrouter
+      models: [openai/gpt-5.6-terra, moonshotai/kimi-k2.7-code, z-ai/glm-5.3]
+
 controlPlane:
   # One sidecar per pod: a 3Gi agent or gate pod keeps 2.5Gi for its own work.
   services:

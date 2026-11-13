@@ -94,7 +94,8 @@ controlPlane:
     pollInterval: 30s
   # How agent steps run (docs/spec/04, docs/spec/05).
   agent:
-    model: claude-sonnet-5-5
+    # Model ref of steps whose workflow and role name none; a provider must serve it.
+    model: anthropic/claude-sonnet-5-5
     budgetUSD: 2
     sessionTimeout: 90m
     idleTimeout: 20m
@@ -122,10 +123,17 @@ postgres:
 llmGateway:
   port: 4000
   image: ghcr.io/berriai/litellm-non_root:v1.106.6
-  # Secret with key "api-key": the Anthropic API key. Never mounted in agent pods.
-  anthropicSecret: frankie-anthropic
-  # Models a virtual key may be granted, routed to Anthropic by the same id.
-  models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
+  # Provider profiles (docs/spec/04, D48). A step's model ref <name>/<model>
+  # is routed to the LiteLLM provider <name>, which must be one the control
+  # plane knows (anthropic, openai, openrouter), for one of its models. The
+  # gateway serves each model under its id without the provider, so ids are
+  # unique across providers. secret: a Secret with key "api-key" holding the
+  # provider's key; optional until created, never mounted in agent pods.
+  # Optional per provider: apiBase (base URL), rpm and tpm (limits per model).
+  providers:
+    - name: anthropic
+      secret: frankie-anthropic
+      models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
   # CPU is capped: an unbounded gateway once took all 4 cores of the concrete host.
   resources:
     requests: { cpu: 100m, memory: 384Mi }

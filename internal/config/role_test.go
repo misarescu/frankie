@@ -59,6 +59,7 @@ func TestParseRoleRejects(t *testing.T) {
 		{"unknown tool", head + "system_prompt_file: p.md\nallowed_tools: [kubectl]\n", `unknown tool "kubectl"`},
 		{"both shells", head + "system_prompt_file: p.md\nallowed_tools: [bash, bash:readonly]\n", "bash and bash:readonly together"},
 		{"bad model", head + "system_prompt_file: p.md\ndefault_model: sonnet\n", "model ref"},
+		{"model ref with a trailing slash", head + "system_prompt_file: p.md\ndefault_model: openrouter/openai/\n", "model ref"},
 		{"unknown contract", head + "system_prompt_file: p.md\noutput_contract: {schema: schemas/mine.json}\n", "unknown contract"},
 	}
 	for _, tt := range tests {

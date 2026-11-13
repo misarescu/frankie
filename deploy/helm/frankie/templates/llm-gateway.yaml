@@ -28,11 +28,27 @@ metadata:
 data:
   config.yaml: |
     model_list:
-    {{- range .Values.llmGateway.models }}
-      - model_name: {{ . }}
+    {{- $served := dict }}
+    {{- range $p := .Values.llmGateway.providers }}
+    {{- range $p.models }}
+    {{- if hasKey $served . }}
+    {{- fail (printf "llmGateway.providers: model %q is served by both %s and %s; model ids must be unique" . (get $served .) $p.name) }}
+    {{- end }}
+    {{- $_ := set $served . $p.name }}
+      - model_name: {{ . | quote }}
         litellm_params:
-          model: anthropic/{{ . }}
-          api_key: os.environ/ANTHROPIC_API_KEY
+          model: {{ printf "%s/%s" $p.name . | quote }}
+          api_key: os.environ/{{ include "frankie.providerKeyEnv" $p.name }}
+          {{- with $p.apiBase }}
+          api_base: {{ . | quote }}
+          {{- end }}
+          {{- with $p.rpm }}
+          rpm: {{ . }}
+          {{- end }}
+          {{- with $p.tpm }}
+          tpm: {{ . }}
+          {{- end }}
+    {{- end }}
     {{- end }}
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
@@ -58,7 +74,7 @@ spec:
       labels:
         {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 8 }}
       annotations:
-        checksum/config: {{ .Values.llmGateway.models | toJson | sha256sum }}
+        checksum/config: {{ .Values.llmGateway.providers | toJson | sha256sum }}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -79,9 +95,11 @@ spec:
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef: { name: {{ $name }}, key: master-key }
-            - name: ANTHROPIC_API_KEY
+            {{- range .Values.llmGateway.providers }}
+            - name: {{ include "frankie.providerKeyEnv" .name }}
               valueFrom:
-                secretKeyRef: { name: {{ .Values.llmGateway.anthropicSecret }}, key: api-key, optional: true }
+                secretKeyRef: { name: {{ required "llmGateway.providers[].secret is required" .secret }}, key: api-key, optional: true }
+            {{- end }}
             {{- include "frankie.llmGatewayPrismaEnv" . | nindent 12 }}
             # Migrations run in the migration Job, never at boot (slow, CPU-heavy).
             - name: DISABLE_SCHEMA_UPDATE

@@ -63,7 +63,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 | action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`; `merge-queue.enqueue` (M6), `release.create` (M7) and `issue.comment` are rejected until they exist. |
 
 - `role` is a role name, optionally pinned as `name@version`.
-- `model` is a model ref `<provider>/<model>`; empty means the role's default model, then the platform's. Claude Code reaches the `anthropic` provider only.
+- `model` is a model ref `<provider>/<model id>` (the id may contain slashes, as OpenRouter's `openrouter/openai/gpt-5.6-terra`); empty means the role's default model, then the platform's. A harness may use a provider only if it speaks the API that provider serves (D48): Claude Code reaches the `anthropic` provider only; opencode and pi reach every provider.
 - `inputs` are `spec`, `acceptance_criteria`, `diff` and `feedback` (the findings of the gate that looped back). Until the native issue store (M5) separates them, `spec` and `acceptance_criteria` both come from the issue body.
 - A `goto` to a branch of an earlier parallel group re-runs only that branch, then continues with the step after the group.
 
@@ -94,7 +94,7 @@ Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks a
 - Step IDs are unique (branches included); each step is exactly one kind; gate fields match the gate type.
 - Harnesses and actions exist and are implemented.
 - Roles exist, a pinned version matches, a role's default model suits the step's harness, and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
-- Harness/model compatibility (e.g. Claude Code requires an Anthropic-style API route; opencode and pi are multi-provider).
+- Harness/model compatibility (D48): the provider of each model ref is known and serves an API the step's harness speaks (Claude Code: Anthropic; opencode and pi: Anthropic and OpenAI-compatible). When a run starts, every agent step's effective model (the step's, else the role's default, else the platform's) must also be served by one of the deployment's provider profiles (`config.CheckModels`); otherwise the run fails with the reason.
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.
 - Gate commands reference tasks that exist in the repo's `mise.toml` (warning, not error, if the repo is not yet cloned).
 

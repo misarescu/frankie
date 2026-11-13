@@ -11,6 +11,6 @@ out=go-packages.txt
 	{
 		go list -deps -test -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./...
 		go list -tags e2e,smoke,record -deps -test -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./...
-	} | grep -v '^github.com/misarescu/frankie' | sort -u
+	} | grep -v '^github.com/misarescu/frankie' | LC_ALL=C sort -u
 } > "$out.tmp"
 mv "$out.tmp" "$out"

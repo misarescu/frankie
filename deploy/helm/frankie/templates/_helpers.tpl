@@ -66,6 +66,9 @@ app.kubernetes.io/component: {{ index . 1 }}
   "gate" (dict
     "commands" $gate.commands "deadline" $gate.deadline "workspaceSize" $gate.workspaceSize
     "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory))
+  "services" (dict
+    "maxPerPod" .Values.controlPlane.services.maxPerPod
+    "cpu" (toString .Values.controlPlane.services.cpu) "memory" (toString .Values.controlPlane.services.memory))
   "toolchains" (dict
     "registryURL" (printf "http://%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)
     "pushHost" (printf "%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)

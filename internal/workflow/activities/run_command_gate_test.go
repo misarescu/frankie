@@ -58,6 +58,11 @@ type gateFixture struct {
 
 func newGateFixture(t *testing.T, exits ...*int32) *gateFixture {
 	t.Helper()
+	return newGateFixtureWithFiles(t, map[string]string{}, exits...)
+}
+
+func newGateFixtureWithFiles(t *testing.T, files map[string]string, exits ...*int32) *gateFixture {
+	t.Helper()
 	st, in := readyIssue(t)
 	signer, err := gitproxy.NewSigner([]byte(strings.Repeat("k", 32)))
 	if err != nil {
@@ -66,7 +71,9 @@ func newGateFixture(t *testing.T, exits ...*int32) *gateFixture {
 	f := &gateFixture{signer: signer, kube: fake.NewClientset(), in: in}
 	finishGatePods(f.kube, &f.created, exits...)
 	f.a = &Activities{
-		Store: st, Kube: f.kube, Signer: signer, Log: quietLog(),
+		Store: st, Kube: f.kube, Signer: signer, Log: quietLog(), GitHub: fakeRepo(t, files),
+		Services: ServicesConfig{MaxPerPod: 1, Limits: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("512Mi")}},
 		Agent: AgentConfig{
 			Namespace: "frankie-agents", RunnerImage: "ghcr.io/misarescu/frankie-runner:sha-abc", RuntimeClass: "kata",
 			ServiceAccount: "frankie-agent", EgressProxyURL: "http://proxy:3128", GitProxyURL: "http://cp:8081",
@@ -192,5 +199,36 @@ func TestRunCommandGateRetryReusesTheResult(t *testing.T) {
 	second := f.gate(t)
 	if second != first || len(f.created) != 1 {
 		t.Errorf("second = %+v (first %+v), pods created = %d", second, first, len(f.created))
+	}
+}
+
+// FR-SB-9: the services the pushed commit declares run next to the commands.
+func TestRunCommandGateRunsDeclaredServices(t *testing.T) {
+	f := newGateFixtureWithFiles(t, map[string]string{".factory/config.yaml": "services: [postgres:17]\n"}, code(0), code(0), code(0), code(0))
+	if out := f.gate(t); !out.Passed {
+		t.Fatalf("outcome = %+v", out)
+	}
+	var names []string
+	for _, c := range f.created[0].Spec.InitContainers {
+		names = append(names, c.Name)
+	}
+	if got := strings.Join(names, ","); got != "svc-postgres,clone,check-0,check-1" {
+		t.Errorf("init containers = %s", got)
+	}
+}
+
+// A broken declaration in the agent's commit fails the gate without a pod.
+func TestRunCommandGateFailsOnInvalidProjectConfig(t *testing.T) {
+	f := newGateFixtureWithFiles(t, map[string]string{".factory/config.yaml": "services: [postgres:17, redis:7]\n"})
+	out := f.gate(t)
+	if out.Passed || !strings.Contains(out.Summary, "the platform allows 1") {
+		t.Errorf("outcome = %+v", out)
+	}
+	if len(f.created) != 0 {
+		t.Errorf("pods created = %d, want none", len(f.created))
+	}
+	results, _ := f.a.Store.ListGateResultsForRun(t.Context(), uuid.MustParse(f.run.RunID))
+	if len(results) != 1 || results[0].Verdict != domain.GateFail {
+		t.Errorf("results = %+v", results)
 	}
 }

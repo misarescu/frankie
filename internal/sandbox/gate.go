@@ -64,6 +64,7 @@ type GatePodSpec struct {
 	Branch             string // agent branch holding the commit
 	CommitSHA          string // the commit under test
 	Commands           []string
+	Services           []Service // sidecars; their limits come out of Limits
 }
 
 func (s GatePodSpec) validate() error {
@@ -105,8 +106,12 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 	if err := s.validate(); err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	limits := s.Limits.DeepCopy()
+	limits, err := carve(s.Limits, s.Services)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
+	}
 	limits[corev1.ResourceEphemeralStorage] = s.WorkspaceSize
+	sidecars, sidecarVolumes := serviceContainers(s.Services)
 	resources := corev1.ResourceRequirements{Limits: limits, Requests: limits.DeepCopy()}
 	mounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}}
 	env := append(proxyEnv(s.EgressProxyURL, s.NoProxy),
@@ -126,10 +131,11 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 		corev1.EnvVar{Name: "GIT_CONFIG_KEY_0", Value: "http." + s.CloneURL + ".extraHeader"},
 		corev1.EnvVar{Name: "GIT_CONFIG_VALUE_0", Value: "Authorization: Basic " + cred},
 	)
-	inits := []corev1.Container{{
+	// Services start first and stay up while the checkout and the commands run.
+	inits := append(sidecars, corev1.Container{
 		Name: GateCloneContainer, Image: s.Image, Command: []string{"/bin/sh", "-c", cloneScript},
 		Env: cloneEnv, Resources: resources, SecurityContext: containerSecurity(), VolumeMounts: mounts,
-	}}
+	})
 	for i, c := range s.Commands {
 		inits = append(inits, corev1.Container{
 			Name: GateCommandContainer(i), Image: s.Image, Command: []string{"/bin/sh", "-c", c}, WorkingDir: GateRepoDir,
@@ -161,10 +167,10 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 				Name: gateDoneContainer, Image: s.Image, Command: []string{"/bin/true"},
 				Resources: resources, SecurityContext: containerSecurity(),
 			}},
-			Volumes: []corev1.Volume{{
+			Volumes: append([]corev1.Volume{{
 				Name:         "workspace",
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptrTo(s.WorkspaceSize)}},
-			}},
+			}}, sidecarVolumes...),
 		},
 	}, nil
 }

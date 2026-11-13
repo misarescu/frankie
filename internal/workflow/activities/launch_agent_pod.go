@@ -3,6 +3,7 @@ package activities
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,20 +25,29 @@ func podName(in IssueRunInput, run StartRunResult) string {
 }
 
 // agentPodSpec is the sandboxed pod for the run's agent step. It runs in the
-// repo's toolchain image when the workflow resolved one, else the base image.
-func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult) (*corev1.Pod, error) {
+// repo's toolchain image when the workflow resolved one, else the base image,
+// with the services the repo declares.
+func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services []sandbox.Service) (*corev1.Pod, error) {
 	return sandbox.AgentPod(sandbox.PodSpec{
 		Name: podName(in, run), Namespace: a.Agent.Namespace, Image: cmp.Or(run.ToolchainImage, a.Agent.RunnerImage),
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
 		Limits: a.Agent.Limits, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
-		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
+		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, Services: services,
 	})
 }
 
 // LaunchAgentPod creates the sandboxed agent pod and waits for its IP.
 func (a *Activities) LaunchAgentPod(ctx context.Context, in IssueRunInput, run StartRunResult) (AgentPod, error) {
-	spec, err := a.agentPodSpec(in, run)
+	// The agent clones the base branch, so its services come from there too.
+	services, err := a.projectServices(ctx, in.Repo, in.BaseBranch)
+	if errors.Is(err, errInvalidProjectConfig) {
+		return AgentPod{}, temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
+	}
+	if err != nil {
+		return AgentPod{}, err
+	}
+	spec, err := a.agentPodSpec(in, run, services)
 	if err != nil {
 		return AgentPod{}, temporal.NewNonRetryableApplicationError("invalid agent pod spec", "config", err)
 	}

@@ -61,6 +61,12 @@ type fileConfig struct {
 		WorkspaceSize string   `json:"workspaceSize"`
 		Deadline      string   `json:"deadline"`
 	} `json:"gate"`
+	// Services limits sidecar services per pod (FR-SB-9).
+	Services struct {
+		MaxPerPod int    `json:"maxPerPod"`
+		CPU       string `json:"cpu"`
+		Memory    string `json:"memory"`
+	} `json:"services"`
 	// Toolchains configures toolchain images (D30); an empty registryURL disables them.
 	Toolchains struct {
 		RegistryURL    string   `json:"registryURL"` // as the control plane reaches the registry
@@ -113,6 +119,24 @@ func (fc fileConfig) gate() (activities.GateConfig, error) {
 		out.WorkspaceSize = q
 	}
 	return out, nil
+}
+
+// services parses the sidecar policy; without it no service may be declared.
+func (fc fileConfig) services() (activities.ServicesConfig, error) {
+	sv := fc.Services
+	if sv.MaxPerPod < 0 {
+		return activities.ServicesConfig{}, fmt.Errorf("controlplane: config: services.maxPerPod %d < 0", sv.MaxPerPod)
+	}
+	if sv.MaxPerPod == 0 {
+		return activities.ServicesConfig{}, nil
+	}
+	cpu, err1 := resource.ParseQuantity(sv.CPU)
+	mem, err2 := resource.ParseQuantity(sv.Memory)
+	if err1 != nil || err2 != nil {
+		return activities.ServicesConfig{}, fmt.Errorf("controlplane: config: services cpu %q / memory %q invalid", sv.CPU, sv.Memory)
+	}
+	return activities.ServicesConfig{MaxPerPod: sv.MaxPerPod,
+		Limits: corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: mem}}, nil
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -222,6 +246,9 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Agent = agent
 	if cfg.Gate, err = fc.gate(); err != nil {
+		return err
+	}
+	if cfg.Services, err = fc.services(); err != nil {
 		return err
 	}
 	if cfg.Toolchain, err = fc.toolchain(); err != nil {

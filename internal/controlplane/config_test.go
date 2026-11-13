@@ -147,3 +147,33 @@ func TestLoadConfigFileGate(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadConfigFileServices(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	cfg, err := load(t, `{"services": {"maxPerPod": 2, "cpu": "500m", "memory": "512Mi"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Services.MaxPerPod != 2 || cfg.Services.Limits.Memory().String() != "512Mi" {
+		t.Errorf("services = %+v", cfg.Services)
+	}
+	if cfg, err := load(t, `{}`); err != nil || cfg.Services.MaxPerPod != 0 {
+		t.Errorf("absent: %+v, %v", cfg.Services, err)
+	}
+	for name, body := range map[string]string{
+		"negative":     `{"services": {"maxPerPod": -1}}`,
+		"bad quantity": `{"services": {"maxPerPod": 1, "cpu": "x", "memory": "512Mi"}}`,
+	} {
+		if _, err := load(t, body); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

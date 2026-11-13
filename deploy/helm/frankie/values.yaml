@@ -73,6 +73,12 @@ controlPlane:
     commands: ["mise run lint", "mise run test"]
     deadline: 30m
     workspaceSize: 10Gi
+  # Sidecar services repos declare in .factory/config.yaml (FR-SB-9). Each
+  # service's limits come out of its pod's limits, so pods keep their budget.
+  services:
+    maxPerPod: 2
+    cpu: 500m
+    memory: 512Mi
   # Factory repos: served by the git proxy and polled for issues, until project
   # config sync exists. keyPrefix is the issue key prefix (D22) and never changes.
   repos: []

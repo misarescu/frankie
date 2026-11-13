@@ -46,6 +46,8 @@ Concurrent pods:
 | Command gate | 3 | 1 | 3 | Fresh build and tests from the pushed commit |
 | **Total** | | **3** | **9** | Fits in 11.25 GiB with 2.25 GiB headroom |
 
+Sidecar services (FR-SB-9) do not add to these numbers: their limits are taken out of their pod's limit (D35). The concrete profile allows one service per pod at 0.5 GiB, leaving 2.5 GiB for the step.
+
 Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kernel and agent, typically a few hundred MiB per pod) or page cache. Measure it in M1 and adjust limits (open question).
 
 ## Dropped or deferred in the concrete profile

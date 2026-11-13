@@ -38,8 +38,9 @@ description = "Build all binaries into bin/"
 run = "go build -o bin/ ./cmd/..."
 
 [tasks.test]
-description = "Run unit tests (extra args are passed to go test)"
-run = "go test ./..."
+description = "Run unit tests: Go (extra args are passed to go test) and the web UI"
+depends = ["web:install"]
+run = ["go test ./...", "cd web && bun test"]
 
 [tasks."test:race"]
 description = "Run unit tests under the race detector (needs cgo)"
@@ -60,13 +61,26 @@ run = "scripts/generate.sh"
 
 [tasks.lint]
 description = "Lint Go, protobuf, shell, CI config and deploy manifests"
+depends = ["web:install"]
 run = [
   "golangci-lint run",
+  "cd web && bun run typecheck",
   "scripts/lint-proto.sh",
   "shellcheck scripts/*.sh",
   "actionlint",
   "scripts/lint-deploy.sh",
 ]
+
+[tasks."web:install"]
+description = "Install web UI dependencies (bun.lock)"
+dir = "web"
+run = "bun install --frozen-lockfile"
+
+[tasks."web:dev"]
+description = "Run the web UI with hot reload, proxying /api to CONTROLPLANE_URL (default localhost:8080)"
+dir = "web"
+depends = ["web:install"]
+run = "bun run dev"
 
 [tasks."db:up"]
 description = "Start the local dev/test Postgres (Docker, port 55432)"

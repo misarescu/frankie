@@ -190,3 +190,13 @@ func TestRunsShareWorkflowIDButNotTemporalRunID(t *testing.T) {
 		t.Errorf("unknown run id: err = %v", err)
 	}
 }
+
+func TestListRecentRuns(t *testing.T) {
+	s := newTestStore(t)
+	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
+	r := mustRun(t, s, is.ID)
+	runs, err := s.ListRecentRuns(t.Context(), 10)
+	if err != nil || len(runs) != 1 || runs[0].ID != r.ID || runs[0].IssueKey != is.Key || runs[0].IssueTitle != is.Title {
+		t.Fatalf("runs = %+v, %v", runs, err)
+	}
+}

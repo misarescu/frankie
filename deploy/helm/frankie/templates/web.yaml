@@ -1,0 +1,87 @@
+# Web UI (React + Bun, docs/spec/01): serves the app and proxies /api to the
+# control plane. Reach it with: kubectl -n frankie port-forward svc/frankie-web 3000
+{{- $name := printf "%s-web" (include "frankie.fullname" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frankie.componentLabels" (list . "web") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: {{ include "frankie.image" (list . "web") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: CONTROLPLANE_URL
+              value: http://{{ include "frankie.fullname" . }}-controlplane:{{ .Values.controlPlane.apiPort }}
+          ports:
+            - { name: http, containerPort: 3000 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "frankie.componentLabels" (list . "web") | nindent 4 }}
+  ports:
+    - { name: http, port: 3000, targetPort: http }
+---
+# The UI may only reach DNS and the control plane API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "frankie.componentLabels" (list . "web") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - { port: {{ .Values.controlPlane.apiPort }}, protocol: TCP }

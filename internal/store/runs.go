@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -238,4 +239,29 @@ func stepRunFromRow(r db.StepRun) domain.StepRun {
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
 	}
+}
+
+// RunSummary is a run with its issue, for listings.
+type RunSummary struct {
+	ID         uuid.UUID
+	Status     domain.ExecStatus
+	IssueKey   string
+	IssueTitle string
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+// ListRecentRuns returns the newest runs first.
+func (s *Store) ListRecentRuns(ctx context.Context, limit int) ([]RunSummary, error) {
+	rows, err := s.q.ListRecentRuns(ctx, int32(min(max(limit, 1), 500)))
+	if err != nil {
+		return nil, mapErr("list recent runs", err)
+	}
+	out := make([]RunSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, RunSummary{ID: r.ID, Status: domain.ExecStatus(r.Status), IssueKey: r.IssueKey, IssueTitle: r.IssueTitle,
+			CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt})
+	}
+	return out, nil
 }

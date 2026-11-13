@@ -14,6 +14,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/misarescu/frankie/internal/api"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/store"
@@ -92,9 +93,12 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 		defer stop()
 	}
 
-	api := http.NewServeMux()
-	api.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	api.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	hub := api.NewHub(cfg.DatabaseURL, log.With("component", "events"))
+	go hub.Run(ctx)
+	mux := http.NewServeMux()
+	(&api.Server{Store: st, Hub: hub, Log: log}).Register(mux)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
@@ -103,7 +107,7 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	})
 
 	servers := []*http.Server{
-		{Handler: api, ReadHeaderTimeout: 10 * time.Second},
+		{Handler: mux, ReadHeaderTimeout: 10 * time.Second},
 		{Handler: gitproxy.New(signer, resolver, log.With("component", "gitproxy")), ReadHeaderTimeout: 10 * time.Second},
 	}
 	listeners := []net.Listener{lis.API, lis.GitProxy}

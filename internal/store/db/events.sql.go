@@ -96,3 +96,13 @@ func (q *Queries) ListRunEvents(ctx context.Context, arg ListRunEventsParams) ([
 	}
 	return items, nil
 }
+
+const notifyEvent = `-- name: NotifyEvent :exec
+SELECT pg_notify('frankie_events', $1::text)
+`
+
+// Wakes live transcript streams; inside a transaction it is delivered on commit.
+func (q *Queries) NotifyEvent(ctx context.Context, runID string) error {
+	_, err := q.db.Exec(ctx, notifyEvent, runID)
+	return err
+}

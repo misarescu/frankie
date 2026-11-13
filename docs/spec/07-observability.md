@@ -9,6 +9,7 @@ Three layers, plus a ladder of human intervention.
 - Streams are **persisted** (Postgres plus object storage/PVC) so any run can be replayed as a transcript.
 - **FR-OB-1** A user can open a running step and see the live stream with sub-second latency from the pod.
 - **FR-OB-2** A completed run can be replayed from persisted events with no dependency on the pod.
+- M1 implementation (`internal/api`): the store calls `pg_notify('frankie_events', <run id>)` with every event (on commit inside a transaction); a hub with one `LISTEN` connection wakes the streams of that run. `GET /api/runs/{id}/stream` is server-sent events: stored events, then live ones, resumable with `Last-Event-ID`, ending with an `end` event once the run is finished. `GET /api/runs/{id}/events?after=` replays as JSON. The control plane serves only this API (on its API port, not reachable from agent pods); the UI is the separate `web/` deployment (React + Bun), which proxies `/api` to the control plane so the browser has one origin. Until auth is decided (open question 7), reach it with `kubectl -n frankie port-forward svc/frankie-web 3000`.
 
 ## 2. Workflow view (per issue and per release)
 

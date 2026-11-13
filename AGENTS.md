@@ -6,13 +6,14 @@ Guidance for coding agents (and humans) working in this repository. `CLAUDE.md` 
 
 The Software Factory platform. The specs in `docs/spec/` are the source of truth; when code and spec disagree, fix one of them in the same PR. `docs/notes/` holds working notes (e.g. M0 exploration). Read `docs/spec/01-architecture.md` and the roadmap milestone you are working on before changing anything. `README.md` has a map of the spec files.
 
-**Status: M1 nearly done** (`docs/spec/10-roadmap.md`). Done: store, runner with Claude Code and git workspace, pod sandbox (egress proxy, git proxy, Kata, NetworkPolicies), control plane with Postgres, LiteLLM gateway with per-run virtual keys, Temporal with the hardcoded issue workflow (`internal/workflow`), GitHub intake. Next: the live log page. `cmd/factoryctl` is still a placeholder. The layout in `docs/spec/01-architecture.md` is the target.
+**Status: M1 complete** (`docs/spec/10-roadmap.md`): a `factory`-labeled GitHub issue becomes a PR built by Claude Code in a Kata sandbox, with a live and replayable transcript. Next: M2 (toolchain images and deterministic `command` gates). `cmd/factoryctl` is still a placeholder. The layout in `docs/spec/01-architecture.md` is the target.
 
 ## Commands
 
 Everything runs through mise tasks; tool versions are pinned in `mise.toml` (locked in `mise.lock`). If a task is missing, add it to `mise.toml` rather than inventing a command.
 
 - `mise install` then `mise run doctor`: install pinned tools, then check tools, Docker and the cluster.
+- Watch runs: `kubectl -n frankie port-forward svc/frankie-web 3000`, then open http://localhost:3000 (run list and live transcripts). Develop the UI with `mise run web:dev` (proxies `/api` to `CONTROLPLANE_URL`, default http://localhost:8080). The UI is React + Bun in `web/`; `mise run lint` and `mise run test` include its type check and `bun test`.
 - `mise run build | test | lint | generate | e2e`. CI runs `generate` and fails if it changes anything, then `lint`, `build`, `test`.
 - Single Go test: `mise exec -- go test ./internal/<pkg> -run '<TestName>'`. Extra args to `mise run test` are appended to `go test ./...`.
 - Cluster acceptance tests live in `e2e/`: Ginkgo v2 + Gomega (D25), build tag `e2e`, environment variables in `e2e/e2e_suite_test.go`. Run them with `FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> FRANKIE_E2E_REPO=misarescu/Goodreads-Clone mise run e2e`; narrow with `mise exec -- ginkgo --tags=e2e --label-filter=sandbox ./e2e`. Unit tests stay on the standard `testing` package.

@@ -9,3 +9,7 @@ SELECT * FROM events
 WHERE run_id = @run_id AND seq > @after_seq
 ORDER BY seq
 LIMIT @max_events;
+
+-- Wakes live transcript streams; inside a transaction it is delivered on commit.
+-- name: NotifyEvent :exec
+SELECT pg_notify('frankie_events', @run_id::text);

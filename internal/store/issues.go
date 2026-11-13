@@ -11,12 +11,15 @@ import (
 	"github.com/misarescu/frankie/internal/store/db"
 )
 
-// CreateProject inserts a project with a unique name.
-func (s *Store) CreateProject(ctx context.Context, name string) (domain.Project, error) {
+// CreateProject inserts a project with a unique name and issue key prefix (D22).
+func (s *Store) CreateProject(ctx context.Context, name, keyPrefix string) (domain.Project, error) {
 	if name == "" {
 		return domain.Project{}, errors.New("store: create project: empty name")
 	}
-	row, err := s.q.CreateProject(ctx, db.CreateProjectParams{ID: domain.NewID(), Name: name})
+	if !domain.ValidKeyPrefix(keyPrefix) {
+		return domain.Project{}, fmt.Errorf("store: create project: invalid key prefix %q", keyPrefix)
+	}
+	row, err := s.q.CreateProject(ctx, db.CreateProjectParams{ID: domain.NewID(), Name: name, KeyPrefix: keyPrefix})
 	if err != nil {
 		return domain.Project{}, mapErr("create project", err)
 	}
@@ -46,7 +49,8 @@ type NewIssue struct {
 	CreatedBy          string
 }
 
-// CreateIssue inserts an issue. A SourceRef already synced into the project returns ErrConflict.
+// CreateIssue inserts an issue with the project's next number and key. A SourceRef
+// already synced into the project returns ErrConflict (and consumes no number).
 func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, error) {
 	if in.Status == "" {
 		in.Status = domain.IssueDraft
@@ -61,21 +65,44 @@ func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, err
 	case in.CreatedBy == "":
 		return domain.Issue{}, errors.New("store: create issue: empty created_by")
 	}
-	row, err := s.q.CreateIssue(ctx, db.CreateIssueParams{
-		ID:                 domain.NewID(),
-		ProjectID:          in.ProjectID,
-		Type:               string(in.Type),
-		Title:              in.Title,
-		Spec:               in.Spec,
-		AcceptanceCriteria: nonNil(in.AcceptanceCriteria),
-		Status:             string(in.Status),
-		Priority:           int32(in.Priority),
-		SourceRef:          nonEmpty(in.SourceRef),
-		Labels:             nonNil(in.Labels),
-		CreatedBy:          in.CreatedBy,
+	var out domain.Issue
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		alloc, err := q.AllocateIssueNumber(ctx, in.ProjectID)
+		if err != nil {
+			return mapErr("allocate issue number", err)
+		}
+		row, err := q.CreateIssue(ctx, db.CreateIssueParams{
+			ID:                 domain.NewID(),
+			ProjectID:          in.ProjectID,
+			Number:             alloc.Number,
+			Key:                domain.IssueKey(alloc.KeyPrefix, int(alloc.Number)),
+			Type:               string(in.Type),
+			Title:              in.Title,
+			Spec:               in.Spec,
+			AcceptanceCriteria: nonNil(in.AcceptanceCriteria),
+			Status:             string(in.Status),
+			Priority:           int32(in.Priority),
+			SourceRef:          nonEmpty(in.SourceRef),
+			Labels:             nonNil(in.Labels),
+			CreatedBy:          in.CreatedBy,
+		})
+		if err != nil {
+			return mapErr("create issue", err)
+		}
+		out = issueFromRow(row)
+		return nil
 	})
 	if err != nil {
-		return domain.Issue{}, mapErr("create issue", err)
+		return domain.Issue{}, err
+	}
+	return out, nil
+}
+
+// GetIssueByKey returns an issue by its key, e.g. "frk-42".
+func (s *Store) GetIssueByKey(ctx context.Context, key string) (domain.Issue, error) {
+	row, err := s.q.GetIssueByKey(ctx, key)
+	if err != nil {
+		return domain.Issue{}, mapErr("get issue by key", err)
 	}
 	return issueFromRow(row), nil
 }
@@ -146,13 +173,15 @@ func (s *Store) resolveMissedIssueTransition(ctx context.Context, id uuid.UUID, 
 }
 
 func projectFromRow(r db.Project) domain.Project {
-	return domain.Project{ID: r.ID, Name: r.Name, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return domain.Project{ID: r.ID, Name: r.Name, KeyPrefix: r.KeyPrefix, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
 func issueFromRow(r db.Issue) domain.Issue {
 	return domain.Issue{
 		ID:                 r.ID,
 		ProjectID:          r.ProjectID,
+		Number:             int(r.Number),
+		Key:                r.Key,
 		Type:               domain.IssueType(r.Type),
 		Title:              r.Title,
 		Spec:               r.Spec,

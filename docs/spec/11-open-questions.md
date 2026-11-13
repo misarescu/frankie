@@ -14,7 +14,7 @@
 10. **Spec approval placement.** This spec puts spec approval in the issue lifecycle (`refining` > `ready`) before a workflow starts, rather than as a workflow step. Confirm, or move it into the default workflow as a `human` gate.
 11. **Merge approval default.** Decision D10 is auto-merge once gates pass. An earlier note listed PR merge as a human gate "initially". Confirm that auto-merge is the default and whether a per-project `human` gate before `enqueue` should be recommended for the first weeks.
 12. **Object storage for transcripts.** MinIO, S3-compatible service, or PVC directory (laptop).
-13. **Branch naming and issue ID format** (`agent/<issue-id>/<slug>`) - finalize with the GitHub token scoping rule.
+13. ~~**Branch naming and issue ID format** (`agent/<issue-id>/<slug>`) - finalize with the GitHub token scoping rule.~~ Resolved by D22 (issue keys like `frk-42`, branches `agent/frk-42/<slug>`) and D21 (branch scoping enforced by the git proxy).
 
 ## Inconsistencies found while consolidating the source notes (resolved here)
 

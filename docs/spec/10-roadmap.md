@@ -18,11 +18,11 @@ Go service takes a GitHub issue and produces a PR from a Claude Code run in a sa
 - Control plane with Postgres store (Issue, Run, StepRun, Event), minimal API.
 - Temporal (single binary) with a hardcoded minimal workflow: launch agent pod, wait, open ChangeRequest.
 - Runner (gRPC `Start/Prompt/Abort/Events`) wrapping Claude Code stream-JSON.
-- Pod sandbox: Kata runtime class, NetworkPolicy allowlist, scoped `agent/*` push token, no service-account token.
+- Pod sandbox: Kata runtime class, NetworkPolicy plus egress proxy (D20), git proxy with a per-step token limited to `agent/<issue-key>/*` (D21), no service-account token.
 - LiteLLM gateway with per-run virtual key and budget (real keys never in the pod).
 - `GitProvider` + `IssueSource` for GitHub.
 - Live log streaming to a minimal UI page (Postgres LISTEN/NOTIFY).
-- **Done when:** labeling a GitHub issue `factory` on a toy repo results in a PR on `agent/<id>/*`, with the transcript streaming live and replayable afterwards, within the laptop memory budget, and an attempt to push to `main` or reach a non-allowlisted host from the pod fails (tested).
+- **Done when:** labeling a GitHub issue `factory` on a toy repo results in a PR on `agent/<issue-key>/*`, with the transcript streaming live and replayable afterwards, within the laptop memory budget, and an attempt to push to `main` or reach a non-allowlisted host from the pod fails (tested).
 
 ## M2 - Toolchains and deterministic gates
 

@@ -6,7 +6,7 @@ Guidance for coding agents (and humans) working in this repository. `CLAUDE.md` 
 
 The Software Factory platform. The specs in `docs/spec/` are the source of truth; when code and spec disagree, fix one of them in the same PR. `docs/notes/` holds working notes (e.g. M0 exploration). Read `docs/spec/01-architecture.md` and the roadmap milestone you are working on before changing anything. `README.md` has a map of the spec files.
 
-**Status: M0 scaffold.** Tooling, configs, CI, the Helm chart skeleton and Flux manifests exist; the binaries in `cmd/` are placeholders and there is no product code yet. The layout in `docs/spec/01-architecture.md` is the target. Next is M1 in `docs/spec/10-roadmap.md`.
+**Status: M1 in progress** (`docs/spec/10-roadmap.md`). Done: domain model and Postgres store, the runner with the Claude Code adapter, the egress proxy. Next: the git proxy, runner clone/push, deployment of the sandbox, then Temporal. `cmd/controlplane` and `cmd/factoryctl` are still placeholders. The layout in `docs/spec/01-architecture.md` is the target.
 
 ## Commands
 

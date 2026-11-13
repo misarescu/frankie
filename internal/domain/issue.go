@@ -10,6 +10,7 @@ import (
 type Project struct {
 	ID        uuid.UUID
 	Name      string
+	KeyPrefix string // immutable; see ValidKeyPrefix
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -87,6 +88,8 @@ func CanTransitionIssue(from, to IssueStatus) bool {
 type Issue struct {
 	ID                 uuid.UUID
 	ProjectID          uuid.UUID
+	Number             int    // per project, from 1
+	Key                string // <project key prefix>-<number>, e.g. frk-42
 	Type               IssueType
 	Title              string
 	Spec               string

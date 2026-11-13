@@ -11,31 +11,54 @@ import (
 	"github.com/google/uuid"
 )
 
+const allocateIssueNumber = `-- name: AllocateIssueNumber :one
+UPDATE projects
+SET next_issue_number = next_issue_number + 1, updated_at = now()
+WHERE id = $1
+RETURNING key_prefix, (next_issue_number - 1)::integer AS number
+`
+
+type AllocateIssueNumberRow struct {
+	KeyPrefix string
+	Number    int32
+}
+
+// Allocates the next issue number; the row lock serializes concurrent callers.
+func (q *Queries) AllocateIssueNumber(ctx context.Context, id uuid.UUID) (AllocateIssueNumberRow, error) {
+	row := q.db.QueryRow(ctx, allocateIssueNumber, id)
+	var i AllocateIssueNumberRow
+	err := row.Scan(&i.KeyPrefix, &i.Number)
+	return i, err
+}
+
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (id, name)
-VALUES ($1, $2)
-RETURNING id, name, created_at, updated_at
+INSERT INTO projects (id, name, key_prefix)
+VALUES ($1, $2, $3)
+RETURNING id, name, created_at, updated_at, key_prefix, next_issue_number
 `
 
 type CreateProjectParams struct {
-	ID   uuid.UUID
-	Name string
+	ID        uuid.UUID
+	Name      string
+	KeyPrefix string
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
-	row := q.db.QueryRow(ctx, createProject, arg.ID, arg.Name)
+	row := q.db.QueryRow(ctx, createProject, arg.ID, arg.Name, arg.KeyPrefix)
 	var i Project
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.KeyPrefix,
+		&i.NextIssueNumber,
 	)
 	return i, err
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, name, created_at, updated_at FROM projects WHERE name = $1
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects WHERE name = $1
 `
 
 func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
@@ -46,6 +69,8 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.KeyPrefix,
+		&i.NextIssueNumber,
 	)
 	return i, err
 }

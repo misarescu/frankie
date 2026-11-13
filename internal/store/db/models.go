@@ -36,13 +36,17 @@ type Issue struct {
 	CreatedBy          string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	Number             int32
+	Key                string
 }
 
 type Project struct {
-	ID        uuid.UUID
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              uuid.UUID
+	Name            string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	KeyPrefix       string
+	NextIssueNumber int32
 }
 
 type Run struct {

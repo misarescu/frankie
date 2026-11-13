@@ -12,14 +12,16 @@ import (
 )
 
 const createIssue = `-- name: CreateIssue :one
-INSERT INTO issues (id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at
+INSERT INTO issues (id, project_id, number, key, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key
 `
 
 type CreateIssueParams struct {
 	ID                 uuid.UUID
 	ProjectID          uuid.UUID
+	Number             int32
+	Key                string
 	Type               string
 	Title              string
 	Spec               string
@@ -35,6 +37,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 	row := q.db.QueryRow(ctx, createIssue,
 		arg.ID,
 		arg.ProjectID,
+		arg.Number,
+		arg.Key,
 		arg.Type,
 		arg.Title,
 		arg.Spec,
@@ -60,12 +64,14 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
 	)
 	return i, err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at FROM issues WHERE id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -85,12 +91,41 @@ func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
+	)
+	return i, err
+}
+
+const getIssueByKey = `-- name: GetIssueByKey :one
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE key = $1
+`
+
+func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) {
+	row := q.db.QueryRow(ctx, getIssueByKey, key)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Type,
+		&i.Title,
+		&i.Spec,
+		&i.AcceptanceCriteria,
+		&i.Status,
+		&i.Priority,
+		&i.SourceRef,
+		&i.Labels,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
 	)
 	return i, err
 }
 
 const getIssueBySourceRef = `-- name: GetIssueBySourceRef :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at FROM issues WHERE project_id = $1 AND source_ref = $2
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE project_id = $1 AND source_ref = $2
 `
 
 type GetIssueBySourceRefParams struct {
@@ -115,12 +150,14 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
 	)
 	return i, err
 }
 
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues
 WHERE project_id = $1 AND status = $2
 ORDER BY priority DESC, created_at, id
 `
@@ -153,6 +190,8 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Number,
+			&i.Key,
 		); err != nil {
 			return nil, err
 		}
@@ -168,7 +207,7 @@ const transitionIssue = `-- name: TransitionIssue :one
 UPDATE issues
 SET status = $1, updated_at = now()
 WHERE id = $2 AND status = $3
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key
 `
 
 type TransitionIssueParams struct {
@@ -195,6 +234,8 @@ func (q *Queries) TransitionIssue(ctx context.Context, arg TransitionIssueParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
 	)
 	return i, err
 }

@@ -1,0 +1,57 @@
+# Applies LiteLLM's schema migrations once per install/upgrade, CPU-capped and
+# with a deadline, so the gateway server never runs them at boot.
+{{- $name := printf "%s-llm-gateway" (include "frankie.fullname" .) }}
+{{- $pg := printf "%s-postgres" (include "frankie.fullname" .) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-migrate
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llm-gateway-migrate
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ .Values.llmGateway.migration.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        # Not "llm-gateway": the gateway Service must never route to this pod.
+        {{- include "frankie.componentLabels" (list . "llm-gateway-migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: migrate
+          image: {{ .Values.llmGateway.image }}
+          args: ["--config", "/etc/litellm/config.yaml", "--skip_server_startup"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ $pg }}, key: password }
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(POSTGRES_PASSWORD)@{{ $pg }}:5432/litellm
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: master-key }
+            {{- include "frankie.llmGatewayPrismaEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.llmGateway.migration.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/litellm
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}

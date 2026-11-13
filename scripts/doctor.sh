@@ -47,6 +47,14 @@ else
 	else
 		warn "flux not installed: bootstrap per deploy/flux/README.md"
 	fi
+	# D28: a stacked AppArmor label means the host still has Ubuntu's default and
+	# containers cannot signal their own processes (deploy/host/README.md).
+	if label=$(kubectl --request-timeout=10s -n frankie exec frankie-postgres-0 -- cat /proc/1/attr/current 2>/dev/null); then
+		case "$label" in
+		*"//&"*) warn "containers run under a stacked AppArmor label ($label): apply deploy/host/README.md (D28)" ;;
+		*) ok "container AppArmor label: $label" ;;
+		esac
+	fi
 	if kubectl --request-timeout=10s get runtimeclass --no-headers 2>/dev/null | awk '{print $2}' | grep -q '^kata'; then
 		ok "kata runtime class present"
 	else

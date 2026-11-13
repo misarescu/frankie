@@ -38,6 +38,31 @@ agents:
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted
 
+# Toolchain images (D15, D30, docs/spec/05): built in-cluster by a one-off BuildKit
+# Job per image, pushed to a plain registry:2 (docs/spec/09).
+toolchains:
+  registry:
+    image: registry:2.8.3
+    port: 5000
+    storage: 10Gi
+    # Nodes pull toolchain images as localhost:<nodePort>/...; containerd treats
+    # loopback registries as plain HTTP, so nodes need no registry configuration.
+    nodePort: 30500
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 500m, memory: 128Mi }
+  build:
+    namespace: frankie-build
+    # Rootless BuildKit needs an unconfined seccomp/AppArmor profile, which Pod
+    # Security "restricted" and "baseline" refuse. The Kata VM is the boundary:
+    # build pods have no token, no secrets and egress only to the proxy and registry.
+    podSecurity: privileged
+    serviceAccountName: frankie-build
+    buildkitImage: moby/buildkit:v0.35.0-rootless
+    deadline: 30m
+    scratchSize: 10Gi
+    limits: { cpu: "2", memory: 3Gi }
+
 # Control plane (docs/spec/01). Agents may reach only its git proxy port.
 controlPlane:
   apiPort: 8080

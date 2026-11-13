@@ -16,6 +16,7 @@
 12. **Object storage for transcripts.** MinIO, S3-compatible service, or PVC directory (concrete profile).
 13. ~~**Branch naming and issue ID format** (`agent/<issue-id>/<slug>`) - finalize with the GitHub token scoping rule.~~ Resolved by D22 (issue keys like `frk-42`, branches `agent/frk-42/<slug>`) and D21 (branch scoping enforced by the git proxy).
 14. ~~**AppArmor blocks Postgres on the homelab host.**~~ Resolved by D28: the cause is Ubuntu 26.04's `kernel.apparmor_restrict_unprivileged_unconfined=1`, which stacks containerd's profile so it denies all signals inside containers (not only Postgres; also Prisma in LiteLLM and Go's SIGURG). Fixed on the host (`deploy/host/`); the per-pod Unconfined workaround is gone.
+15. **Toolchain registry write isolation.** The concrete profile's `registry:2` has no authentication, so a build pod (whose `mise.toml` may come from an unreviewed agent commit) could push to any tag, including another repo's toolchain image. Options: per-build push credentials limited to one repository, a pull-through verification of the pushed digest by the control plane, or Zot with per-repository access control. Must be resolved before untrusted `mise.toml` content is built (M3, when gates run on agent commits before a human gate).
 
 ## Inconsistencies found while consolidating the source notes (resolved here)
 

@@ -1,7 +1,7 @@
 // Package config parses and validates configuration that lives in project
 // repos (docs/spec/02: `.factory/config.yaml` is authoritative for a project).
-// M2 reads the services section; the rest of the project config arrives with
-// the milestones that use it.
+// M2 reads the services section, M3 the workflow; the rest of the project
+// config arrives with the milestones that use it.
 package config
 
 import (
@@ -23,6 +23,9 @@ const ProjectConfigPath = ".factory/config.yaml"
 
 // Project is the parsed `.factory/config.yaml`.
 type Project struct {
+	// Workflow names the workflow definition the project's issues run: a
+	// built-in one (workflows/) or `.factory/workflows/<name>.yaml` (D39).
+	Workflow string `json:"workflow,omitempty"`
 	// Services run next to agent steps and command gates for integration tests
 	// (FR-SB-9), reachable on localhost.
 	Services []Service `json:"services,omitempty"`
@@ -104,6 +107,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 		return Project{}, fmt.Errorf("%s: %d services declared, the platform allows %d per pod", ProjectConfigPath, len(p.Services), maxServices)
 	}
 	var errs []error
+	if p.Workflow != "" && (!identifierRE.MatchString(p.Workflow) || len(p.Workflow) > maxIdentifierLength) {
+		errs = append(errs, fmt.Errorf("workflow: %q must be lowercase letters, digits and dashes, at most %d characters", p.Workflow, maxIdentifierLength))
+	}
 	seen := map[string]bool{}
 	for i := range p.Services {
 		s := &p.Services[i]

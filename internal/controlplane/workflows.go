@@ -19,6 +19,7 @@ import (
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/intake"
+	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
 	"github.com/misarescu/frankie/internal/workflow/activities"
@@ -43,18 +44,48 @@ func ensureProjects(ctx context.Context, st *store.Store, repos []RepoConfig) ([
 	return out, nil
 }
 
-// temporalStarter starts one IssueRun workflow per issue: the ID is stable, so a
-// start while a run is in flight returns the existing one.
-type temporalStarter struct{ c client.Client }
+// temporalStarter starts one workflow per issue: the ID is stable, so a start
+// while a run is in flight returns the existing one.
+type temporalStarter struct {
+	c     client.Client
+	files snapshot.FileReader
+}
 
 func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueRunInput) error {
-	_, err := t.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+	wf, arg, err := chooseWorkflow(ctx, t.files, in)
+	if err != nil {
+		return err
+	}
+	_, err = t.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                       "issue-" + in.IssueKey,
 		TaskQueue:                workflow.TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}, workflow.IssueRun, in)
+	}, wf, arg)
 	return err
+}
+
+// chooseWorkflow snapshots what the issue's run will execute (invariant 4). A
+// project that selects a workflow runs it with Interpret; an invalid or not yet
+// runnable selection still starts Interpret, which fails the run with the
+// reason so it shows up on the run. A project that selects none keeps the M2
+// IssueRun until the interpreter runs the default workflow. A failure to read
+// the repo returns an error, and intake tries again on its next poll.
+func chooseWorkflow(ctx context.Context, files snapshot.FileReader, in activities.IssueRunInput) (any, any, error) {
+	snap, err := snapshot.Resolve(ctx, files, in.Repo, in.BaseBranch)
+	switch {
+	case errors.Is(err, snapshot.ErrNoWorkflow):
+		return workflow.IssueRun, in, nil
+	case errors.Is(err, snapshot.ErrInvalid):
+		snap = snapshot.Snapshot{Error: err.Error()}
+	case err != nil:
+		return nil, nil, err
+	default:
+		if err := workflow.CheckSupported(snap.Workflow); err != nil {
+			snap = snapshot.Snapshot{Error: "the interpreter cannot run this yet: " + err.Error()}
+		}
+	}
+	return workflow.Interpret, workflow.InterpretInput{Issue: in, Snapshot: snap}, nil
 }
 
 // startWorkflows connects to Temporal, runs the worker and the intake loop.
@@ -99,6 +130,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	// (terminationGracePeriodSeconds in the chart is longer).
 	w := worker.New(c, workflow.TaskQueue, worker.Options{WorkerStopTimeout: 30 * time.Second})
 	w.RegisterWorkflow(workflow.IssueRun)
+	w.RegisterWorkflow(workflow.Interpret)
 	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
@@ -108,7 +140,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	log.Info("temporal worker started", "address", cfg.TemporalAddress, "taskQueue", workflow.TaskQueue)
 
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
-		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c}, Projects: projects,
+		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c: c, files: gh}, Projects: projects,
 			Label: cfg.IntakeLabel, Interval: max(cfg.PollInterval, 10*time.Second), Log: log.With("component", "intake")}
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)

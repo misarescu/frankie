@@ -3,6 +3,7 @@ package activities
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/misarescu/frankie/internal/domain"
@@ -56,6 +57,45 @@ func Prompt(in IssueRunInput, branch string, continuing bool) string {
 		}
 	}
 	b.WriteString("\nWhen you are done, summarize what you changed and how you verified it.")
+	return b.String()
+}
+
+// StepPrompt is the task given to an agent step of a workflow definition. The
+// role's system prompt says how to work; this says what to work on, limited to
+// the step's inputs (docs/spec/03).
+func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep) string {
+	has := func(input string) bool { return slices.Contains(s.Inputs, input) }
+	var b strings.Builder
+	fmt.Fprintf(&b, "Issue %s: %s\n", in.IssueKey, in.Title)
+	if in.SourceURL != "" {
+		fmt.Fprintf(&b, "Source: %s\n", in.SourceURL)
+	}
+	fmt.Fprintf(&b, "Your branch: %s (based on %s)\n", branch, in.BaseBranch)
+	if continuing {
+		b.WriteString("The branch already has earlier work on this issue (see git log). Build on it: keep what is right and fix what is not.\n")
+	}
+	if has("diff") {
+		fmt.Fprintf(&b, "The change so far is `git diff origin/%s...HEAD`.\n", in.BaseBranch)
+	}
+	if has("spec") {
+		if spec := strings.TrimSpace(in.Spec); spec != "" {
+			b.WriteString("\n")
+			b.WriteString(spec)
+			b.WriteString("\n")
+		}
+	}
+	if has("acceptance_criteria") && len(in.AcceptanceCriteria) > 0 {
+		b.WriteString("\nAcceptance criteria:\n")
+		for _, c := range in.AcceptanceCriteria {
+			fmt.Fprintf(&b, "- %s\n", c)
+		}
+	}
+	if has("feedback") && strings.TrimSpace(s.Feedback) != "" {
+		b.WriteString("\nYour previous attempt was sent back. Address every point below:\n\n")
+		b.WriteString(strings.TrimRight(s.Feedback, "\n"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\nWhen you are done, summarize what you did and how you verified it.")
 	return b.String()
 }
 

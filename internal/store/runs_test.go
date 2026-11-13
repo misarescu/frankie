@@ -200,3 +200,30 @@ func TestListRecentRuns(t *testing.T) {
 		t.Fatalf("runs = %+v, %v", runs, err)
 	}
 }
+
+func TestSetRunLoopCount(t *testing.T) {
+	s := newTestStore(t)
+	run := mustRun(t, s, mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning).ID)
+	ctx := t.Context()
+	for _, step := range []struct {
+		id    string
+		loops int
+	}{{"checks", 1}, {"review", 1}, {"checks", 2}, {"checks", 2}} {
+		if _, err := s.SetRunLoopCount(ctx, run.ID, step.id, step.loops); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.LoopCounts) != 2 || got.LoopCounts["checks"] != 2 || got.LoopCounts["review"] != 1 {
+		t.Fatalf("loop counts = %v", got.LoopCounts)
+	}
+	if _, err := s.SetRunLoopCount(ctx, uuid.New(), "checks", 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown run: err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.SetRunLoopCount(ctx, run.ID, "", 1); err == nil {
+		t.Fatal("empty step id accepted")
+	}
+}

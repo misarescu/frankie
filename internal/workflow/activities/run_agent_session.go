@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,6 +52,13 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	defer func() { _ = conn.Close() }()
 	runner := runnerv1.NewRunnerServiceClient(conn)
 
+	model, budget, timeout := a.Agent.Model, a.Agent.BudgetUSD, a.Agent.SessionTimeout
+	systemPrompt := SystemPrompt()
+	if s := run.Step; s != nil {
+		model, budget, timeout = cmp.Or(s.Model, model), cmp.Or(s.BudgetUSD, budget), cmp.Or(s.Timeout, timeout)
+		systemPrompt = s.SystemPrompt
+	}
+
 	var vkey string
 	if !progress.Started {
 		// Credentials go to the runner over gRPC, never into the pod spec or the
@@ -58,7 +66,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		// Aliases are unique in the gateway; each attempt mints its own key.
 		vkey, err = a.Gateway.CreateKey(ctx, gateway.KeyRequest{RunID: run.RunID,
 			Alias:  fmt.Sprintf("run-%s-attempt-%d", run.RunID, activity.GetInfo(ctx).Attempt),
-			Models: []string{a.Agent.Model}, MaxBudgetUSD: a.Agent.BudgetUSD, TTL: a.Agent.SessionTimeout + 10*time.Minute})
+			Models: []string{model}, MaxBudgetUSD: budget, TTL: timeout + 10*time.Minute})
 		if err != nil {
 			return SessionResult{}, err
 		}
@@ -74,21 +82,21 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil {
 			return SessionResult{}, err
 		}
-		token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: run.StepRunID}, a.Agent.SessionTimeout+10*time.Minute)
+		token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: run.StepRunID}, timeout+10*time.Minute)
 		if err != nil {
 			return SessionResult{}, err
 		}
 		_, err = runner.Start(ctx, &runnerv1.StartRequest{
-			StepRunId: run.StepRunID, Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Model: a.Agent.Model,
-			SystemPrompt: SystemPrompt(),
+			StepRunId: run.StepRunID, Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Model: model,
+			SystemPrompt: systemPrompt,
 			Env: map[string]string{
 				"ANTHROPIC_BASE_URL":   a.Agent.GatewayURL,
 				"ANTHROPIC_AUTH_TOKEN": vkey,
 				// Background tasks must stay on a model the key allows.
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL": a.Agent.Model,
-				"ANTHROPIC_SMALL_FAST_MODEL":    a.Agent.Model,
+				"ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+				"ANTHROPIC_SMALL_FAST_MODEL":    model,
 			},
-			Timeout:     durationpb.New(a.Agent.SessionTimeout),
+			Timeout:     durationpb.New(timeout),
 			IdleTimeout: durationpb.New(a.Agent.IdleTimeout),
 			Workspace: &runnerv1.Workspace{
 				CloneUrl: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
@@ -101,7 +109,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil && !isPrecondition(err, "already started") {
 			return SessionResult{}, fmt.Errorf("runner start: %w", err)
 		}
-		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: Prompt(in, run.Branch, start.Continuing)}); err != nil && !isPrecondition(err, "already prompted") {
+		prompt := Prompt(in, run.Branch, start.Continuing)
+		if run.Step != nil {
+			prompt = StepPrompt(in, run.Branch, start.Continuing, *run.Step)
+		}
+		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: prompt}); err != nil && !isPrecondition(err, "already prompted") {
 			return SessionResult{}, fmt.Errorf("runner prompt: %w", err)
 		}
 		started = true

@@ -87,3 +87,30 @@ func TestFinishRunAfterAFailedGateKeepsTheAgentStepSucceeded(t *testing.T) {
 		t.Errorf("run %s, agent step %s; want failed and succeeded", r.Status, step.Status)
 	}
 }
+
+// Interpret ends its own steps and finishes the run without a StepRunID; the
+// reason still reaches the run's transcript.
+func TestFinishRunWithoutAStep(t *testing.T) {
+	st, in := readyIssue(t)
+	a := &Activities{Store: st, Log: quietLog()}
+	run := startedRun(t, a, in)
+	finish := FinishInput{IssueID: in.IssueID, RunID: run.RunID, Reason: "step checks: gate failed: mise run test exited 1"}
+	if _, err := activityEnv(a).ExecuteActivity(a.FinishRun, finish); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := st.GetRun(t.Context(), uuid.MustParse(run.RunID))
+	issue, _ := st.GetIssueByKey(t.Context(), in.IssueKey)
+	if r.Status != domain.ExecFailed || issue.Status != domain.IssueFailed {
+		t.Errorf("run %s, issue %s", r.Status, issue.Status)
+	}
+	events, _ := st.ListRunEvents(t.Context(), r.ID, 0, 100)
+	found := false
+	for _, e := range events {
+		if e.Type == domain.EventError && e.StepRunID == nil {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no run-level error event")
+	}
+}

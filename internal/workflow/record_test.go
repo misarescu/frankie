@@ -1,0 +1,143 @@
+//go:build record
+
+// Records Interpret histories for the replay tests. Not part of the normal
+// suite: it needs a Temporal dev server. Run it with
+//
+//	temporal server start-dev --headless --port 7266
+//	FRANKIE_RECORD_TEMPORAL=localhost:7266 mise exec -- go test -tags record ./internal/workflow -run TestRecordInterpretHistories
+//
+// It runs Interpret against stub Activities registered under the real
+// Activities' names and writes each history to testdata/ as the
+// `temporal workflow show --output json` format the replayer reads. Re-record
+// only for a new scenario; existing fixtures must keep replaying unchanged.
+package workflow
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	historypb "go.temporal.io/api/history/v1"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
+	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/misarescu/frankie/internal/snapshot"
+	"github.com/misarescu/frankie/internal/workflow/activities"
+)
+
+// stubActivities answer for the Activities in a recording; failGate decides
+// whether a gate execution fails.
+type stubActivities struct {
+	failGate func(req activities.GateRequest) bool
+	pushes   int
+}
+
+func (s *stubActivities) StartWorkflowRun(context.Context, activities.IssueRunInput, snapshot.Snapshot) (activities.StartRunResult, error) {
+	return activities.StartRunResult{RunID: testRun.RunID, Branch: testRun.Branch}, nil
+}
+
+func (s *stubActivities) StartStep(_ context.Context, in activities.StepStart) (string, error) {
+	return fmt.Sprintf("0198f2a4-4444-7000-8000-%04d%08d", in.Attempt, len(in.StepID)), nil
+}
+
+func (s *stubActivities) FinishStep(context.Context, activities.StepEnd) error { return nil }
+
+func (s *stubActivities) EnsureToolchainImage(context.Context, activities.IssueRunInput) (string, error) {
+	return toolchainRef, nil
+}
+
+func (s *stubActivities) LaunchAgentPod(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult) (activities.AgentPod, error) {
+	return activities.AgentPod{Name: "gc-1-" + run.Step.StepID, IP: "10.42.0.9"}, nil
+}
+
+func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+	s.pushes++
+	return activities.SessionResult{Status: "succeeded", Result: "Done.", Branch: run.Branch,
+		CommitSHA: fmt.Sprintf("%040d", s.pushes), Pushed: true}, nil
+}
+
+func (s *stubActivities) DeleteAgentPod(context.Context, string) error { return nil }
+
+func (s *stubActivities) RunGate(_ context.Context, _ activities.IssueRunInput, req activities.GateRequest) (activities.GateOutcome, error) {
+	if s.failGate(req) {
+		return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "mise run test exited 1",
+			Feedback: "`mise run test` exited 1. The end of its output:\n```\n--- FAIL: TestSearch\n```\n"}, nil
+	}
+	return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "all checks passed"}, nil
+}
+
+func (s *stubActivities) RecordLoop(context.Context, string, string, int) error { return nil }
+
+func (s *stubActivities) OpenChangeRequest(context.Context, activities.IssueRunInput, activities.StartRunResult, activities.SessionResult) (string, error) {
+	return "https://github.com/misarescu/Goodreads-Clone/pull/42", nil
+}
+
+func (s *stubActivities) FinishRun(context.Context, activities.FinishInput) error { return nil }
+
+func TestRecordInterpretHistories(t *testing.T) {
+	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
+	if addr == "" {
+		t.Skip("FRANKIE_RECORD_TEMPORAL is not set")
+	}
+	c, err := client.Dial(client.Options{HostPort: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	scenarios := []struct {
+		file     string
+		failGate func(req activities.GateRequest) bool
+	}{
+		// The first command gate fails, the loop back to implement fixes it.
+		{"interpret_loop_then_success.json", func(req activities.GateRequest) bool {
+			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
+		}},
+		// The command gate keeps failing until maxLoops is used up.
+		{"interpret_loops_exhausted.json", func(req activities.GateRequest) bool { return req.StepID == "checks" }},
+	}
+	for i, sc := range scenarios {
+		t.Run(sc.file, func(t *testing.T) {
+			queue := fmt.Sprintf("record-%d-%d", time.Now().UnixNano(), i)
+			w := worker.New(c, queue, worker.Options{})
+			w.RegisterWorkflow(Interpret)
+			w.RegisterActivity(&stubActivities{failGate: sc.failGate})
+			if err := w.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer w.Stop()
+
+			run, err := c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: "issue-gc-1-" + queue, TaskQueue: queue},
+				Interpret, InterpretInput{Issue: testInput, Snapshot: loopSnapshot(t, loopDefinition)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out IssueRunResult
+			if err := run.Get(t.Context(), &out); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("result: %+v", out)
+
+			var events []*historypb.HistoryEvent
+			it := c.GetWorkflowHistory(t.Context(), run.GetID(), run.GetRunID(), false, 0)
+			for it.HasNext() {
+				e, err := it.Next()
+				if err != nil {
+					t.Fatal(err)
+				}
+				events = append(events, e)
+			}
+			raw, err := protojson.MarshalOptions{Indent: "  "}.Marshal(&historypb.History{Events: events})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join("testdata", sc.file), append(raw, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

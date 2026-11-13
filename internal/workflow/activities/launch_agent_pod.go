@@ -21,7 +21,21 @@ import (
 
 // podName is stable per step run, so a retried launch finds its pod.
 func podName(in IssueRunInput, run StartRunResult) string {
-	return fmt.Sprintf("%s-implement-%s", in.IssueKey, strings.ReplaceAll(run.StepRunID, "-", "")[24:])
+	step := "implement"
+	if run.Step != nil {
+		step = run.Step.StepID
+	}
+	return stepPodName(in.IssueKey, step, run.StepRunID)
+}
+
+// stepPodName is <issue key>-<step id>-<end of the step run ID>, with the step
+// ID shortened so the name stays a valid DNS label (63 characters).
+func stepPodName(issueKey, stepID, stepRunID string) string {
+	suffix := strings.ReplaceAll(stepRunID, "-", "")[24:]
+	if room := 63 - len(issueKey) - len(suffix) - 2; len(stepID) > room {
+		stepID = strings.TrimRight(stepID[:max(room, 1)], "-")
+	}
+	return fmt.Sprintf("%s-%s-%s", issueKey, stepID, suffix)
 }
 
 // agentPodSpec is the sandboxed pod for the run's agent step. It runs in the

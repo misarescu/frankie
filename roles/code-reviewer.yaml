@@ -1,0 +1,6 @@
+name: code-reviewer
+version: 1
+system_prompt_file: prompts/code-reviewer.md
+allowed_tools: [read, grep, glob, bash:readonly]
+output_contract:
+  schema: review-verdict

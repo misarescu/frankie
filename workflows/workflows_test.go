@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/roles"
 )
 
 func TestEveryBuiltInIsValid(t *testing.T) {
@@ -15,7 +16,12 @@ func TestEveryBuiltInIsValid(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Get(name); err != nil {
+			w, err := Get(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Built-in workflows run with built-in roles only.
+			if _, err := config.ResolveRoles(w, roles.Get); err != nil {
 				t.Fatal(err)
 			}
 		})

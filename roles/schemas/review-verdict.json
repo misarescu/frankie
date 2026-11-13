@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frankie.dev/schemas/review-verdict.json",
+  "title": "Review verdict",
+  "description": "What a reviewer role returns for an agent-verdict gate. A passing verdict carries no blocker findings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings"],
+  "properties": {
+    "verdict": { "enum": ["pass", "fail"] },
+    "summary": { "type": "string", "maxLength": 4000 },
+    "findings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "message"],
+        "properties": {
+          "severity": { "enum": ["blocker", "major", "minor", "info"] },
+          "file": { "type": "string", "description": "Path relative to the repository root." },
+          "line": { "type": "integer", "minimum": 1, "description": "Requires file." },
+          "message": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        }
+      }
+    }
+  }
+}

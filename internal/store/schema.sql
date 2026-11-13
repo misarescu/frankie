@@ -122,3 +122,25 @@ CREATE TABLE gate_results (
   created_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT gate_results_step_run_key UNIQUE (step_run_id)
 );
+
+-- A decision a human gate waits for (docs/spec/03: human gates are Signals).
+-- The workflow writes it when the gate opens and when it closes; the API only
+-- reads it and signals the workflow, so the workflow stays the single writer.
+CREATE TABLE approvals (
+  id                 uuid        PRIMARY KEY,
+  step_run_id        uuid        NOT NULL REFERENCES step_runs (id),
+  run_id             uuid        NOT NULL REFERENCES runs (id),
+  reason             text        NOT NULL,
+  commit_sha         text,
+  change_request_url text,
+  status             text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out')),
+  decided_by         text,
+  comment            text,
+  expires_at         timestamptz NOT NULL,
+  decided_at         timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT approvals_step_run_key UNIQUE (step_run_id)
+);
+
+CREATE INDEX approvals_status_idx ON approvals (status, created_at);

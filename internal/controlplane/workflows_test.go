@@ -44,8 +44,8 @@ func TestChooseWorkflow(t *testing.T) {
 		{"no workflow selected runs default-build", map[string]string{".factory/config.yaml": "services: [postgres:17]\n"}, ""},
 		{"a runnable workflow runs on Interpret", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": runnableDefinition}, ""},
 		{"an invalid selection fails on the run", map[string]string{".factory/config.yaml": "workflow: nope\n"}, "neither in .factory/workflows nor built in"},
-		{"a definition the interpreter cannot run yet fails on the run", map[string]string{".factory/config.yaml": "workflow: gated\n",
-			".factory/workflows/gated.yaml": strings.Replace(runnableDefinition, "name: fast", "name: gated", 1) + "  - id: approve\n    gate: {type: human}\n"}, "human gates are not supported yet"},
+		{"a definition with an action that does not exist yet fails on the run", map[string]string{".factory/config.yaml": "workflow: shipping\n",
+			".factory/workflows/shipping.yaml": strings.Replace(runnableDefinition, "name: fast", "name: shipping", 1) + "  - id: ship\n    action: merge-queue.enqueue\n"}, `"merge-queue.enqueue" is not available yet`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

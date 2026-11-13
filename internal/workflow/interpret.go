@@ -28,32 +28,13 @@ const actionOpenChangeRequest = "change-request.open"
 
 // CheckSupported reports the parts of a valid definition this interpreter
 // cannot run yet, so a project selecting one fails before its run starts work.
-// Human gates and escalation to them come next.
+// Everything the definition schema accepts runs now except actions arriving
+// with later milestones, which validation already rejects.
 func CheckSupported(w config.Workflow) error {
 	var errs []error
-	gate := func(i int, g *config.Gate) {
-		if g.Type == domain.GateHuman {
-			errs = append(errs, fmt.Errorf("steps[%d]: human gates are not supported yet", i))
-		}
-		if o := g.OnFail; o != nil && o.Action == config.OnFailEscalate {
-			errs = append(errs, fmt.Errorf("steps[%d]: onFail escalate needs human gates, which are not supported yet", i))
-		}
-	}
 	for i, s := range w.Steps {
-		switch s.Kind() {
-		case config.StepAgent:
-		case config.StepAction:
-			if s.Action != actionOpenChangeRequest {
-				errs = append(errs, fmt.Errorf("steps[%d]: action %q is not supported yet", i, s.Action))
-			}
-		case config.StepGate:
-			gate(i, s.Gate)
-		case config.StepParallel:
-			if s.Gate != nil {
-				gate(i, s.Gate)
-			}
-		default:
-			errs = append(errs, fmt.Errorf("steps[%d]: %s steps are not supported yet", i, s.Kind()))
+		if s.Kind() == config.StepAction && s.Action != actionOpenChangeRequest {
+			errs = append(errs, fmt.Errorf("steps[%d]: action %q is not supported yet", i, s.Action))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -279,8 +260,12 @@ func (it *interpreter) parallel(ctx workflow.Context, pc int, s config.Step, onl
 
 func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, string) {
 	g := s.Gate
-	if g.Type != domain.GateCommand {
-		return 0, fmt.Sprintf("%s gates are not supported yet", g.Type)
+	switch g.Type {
+	case domain.GateHuman:
+		return it.humanGate(ctx, pc, s)
+	case domain.GateCommand:
+	default:
+		return 0, fmt.Sprintf("%s gates are not supported here", g.Type)
 	}
 	if it.session.CommitSHA == "" {
 		return 0, "no agent step has pushed a commit to check"
@@ -315,18 +300,27 @@ func (it *interpreter) judge(ctx workflow.Context, pc int, s config.Step, outcom
 	case outcome.Inconclusive:
 		return 0, "gate inconclusive: " + outcome.Summary
 	}
-	return it.onFail(ctx, s, outcome)
+	return it.onFail(ctx, pc, s, outcome)
 }
 
-// onFail applies a failed blocking gate's onFail: fail the run, or loop back.
-func (it *interpreter) onFail(ctx workflow.Context, s config.Step, outcome activities.GateOutcome) (int, string) {
+// onFail applies a failed blocking gate's onFail: fail the run, escalate to a
+// person, or loop back. A loop that has used up maxLoops escalates (FR-WF-4).
+func (it *interpreter) onFail(ctx workflow.Context, pc int, s config.Step, outcome activities.GateOutcome) (int, string) {
 	failed := "gate failed: " + outcome.Summary
 	o := s.Gate.OnFail
-	if o == nil || o.Action != config.OnFailGoto {
+	switch {
+	case o != nil && o.Action == config.OnFailEscalate:
+		return it.escalate(ctx, pc, s, outcome.Summary)
+	case o == nil || o.Action != config.OnFailGoto:
 		return 0, failed
 	}
 	if it.loops[s.ID] >= o.MaxLoops {
-		return 0, fmt.Sprintf("%s (looped back to %s %d times, the limit)", failed, o.Goto, it.loops[s.ID])
+		exhausted := fmt.Sprintf("%s (looped back to %s %d times, the limit)", outcome.Summary, o.Goto, it.loops[s.ID])
+		// Runs recorded before escalation existed failed here.
+		if workflow.GetVersion(ctx, "escalate-exhausted-loops", workflow.DefaultVersion, 1) >= 1 {
+			return it.escalate(ctx, pc, s, exhausted)
+		}
+		return 0, "gate failed: " + exhausted
 	}
 	target, branch := it.locate(o.Goto)
 	if target < 0 {

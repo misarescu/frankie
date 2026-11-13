@@ -16,6 +16,12 @@ import (
 // testServer runs the API against a fresh database with a live hub.
 func testServer(t *testing.T) (*store.Store, *httptest.Server, domain.Run, *Hub) {
 	t.Helper()
+	return testServerWith(t, nil)
+}
+
+// testServerWith is testServer with a Signaler for human gate decisions.
+func testServerWith(t *testing.T, sig Signaler) (*store.Store, *httptest.Server, domain.Run, *Hub) {
+	t.Helper()
 	dbURL := storetest.DatabaseURL(t)
 	st, err := store.Open(t.Context(), dbURL)
 	if err != nil {
@@ -41,7 +47,7 @@ func testServer(t *testing.T) (*store.Store, *httptest.Server, domain.Run, *Hub)
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	(&Server{Store: st, Hub: hub, Log: log}).Register(mux)
+	(&Server{Store: st, Hub: hub, Log: log, Signaler: sig}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return st, srv, run, hub

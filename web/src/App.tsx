@@ -1,19 +1,28 @@
 import { useEffect, useState } from "react";
+import { ApprovalsPage } from "./ApprovalsPage";
 import { RunPage } from "./RunPage";
 import { RunsPage } from "./RunsPage";
 
-// Hash routing keeps the server trivial: #/runs/<id> or the run list.
-function route(): string | null {
+type Route = { page: "runs" } | { page: "run"; id: string } | { page: "approvals" };
+
+// Hash routing keeps the server trivial: #/runs/<id>, #/approvals or the run list.
+function route(): Route {
   const m = /^#\/runs\/([0-9a-f-]{36})$/.exec(window.location.hash);
-  return m?.[1] ?? null;
+  if (m?.[1]) return { page: "run", id: m[1] };
+  if (window.location.hash === "#/approvals") return { page: "approvals" };
+  return { page: "runs" };
 }
 
 export function App() {
-  const [runID, setRunID] = useState(route());
+  const [r, setRoute] = useState(route());
   useEffect(() => {
-    const onHash = () => setRunID(route());
+    const onHash = () => setRoute(route());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  return <main>{runID ? <RunPage runID={runID} /> : <RunsPage />}</main>;
+  return (
+    <main>
+      {r.page === "run" ? <RunPage runID={r.id} /> : r.page === "approvals" ? <ApprovalsPage /> : <RunsPage />}
+    </main>
+  );
 }

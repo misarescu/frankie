@@ -2,6 +2,7 @@ package github
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,5 +150,41 @@ func TestBranchHead(t *testing.T) {
 	}
 	if _, _, err := c.BranchHead(t.Context(), "o/r", "agent/gc-1/other"); err == nil {
 		t.Error("server error reported as absence")
+	}
+}
+
+func TestComparePages(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.EscapedPath()+"?"+r.URL.RawQuery)
+		files := []ChangedFile{}
+		n := 100
+		if r.URL.Query().Get("page") == "2" {
+			n = 1
+		}
+		for i := range n {
+			files = append(files, ChangedFile{Filename: fmt.Sprintf("f%d.go", i), Status: "modified", Patch: "+x"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"files": files})
+	}))
+	defer srv.Close()
+	files, complete, err := NewClient("pat", srv.URL).Compare(t.Context(), "o/r", "abc", "agent/gc-1/x")
+	if err != nil || !complete || len(files) != 101 {
+		t.Fatalf("files %d, complete %v, err %v", len(files), complete, err)
+	}
+	if paths[0] != "/repos/o/r/compare/abc...agent/gc-1/x?page=1&per_page=100" || len(paths) != 2 {
+		t.Errorf("requests = %v", paths)
+	}
+}
+
+func TestCompareTooManyFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		files := make([]ChangedFile, 100)
+		_ = json.NewEncoder(w).Encode(map[string]any{"files": files})
+	}))
+	defer srv.Close()
+	files, complete, err := NewClient("pat", srv.URL).Compare(t.Context(), "o/r", "a", "b")
+	if err != nil || complete || len(files) != 3000 {
+		t.Fatalf("files %d, complete %v, err %v", len(files), complete, err)
 	}
 }

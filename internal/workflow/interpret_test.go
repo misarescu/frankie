@@ -14,6 +14,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 	"github.com/misarescu/frankie/roles"
@@ -66,6 +67,9 @@ type interpretFixture struct {
 	// verdict decides an agent-verdict gate; nil passes.
 	verdict  func(req activities.VerdictGateRequest) activities.GateOutcome
 	verdicts []activities.VerdictGateRequest
+	guarded  []activities.GuardRequest
+	// protect decides what the change inspection finds; nil finds nothing.
+	protect  func(req activities.GuardRequest) guard.Report
 	opened   []activities.HumanGateRequest
 	closed   []activities.HumanGateClose
 	extended []string
@@ -122,6 +126,13 @@ func newInterpretFixture(t *testing.T) *interpretFixture {
 	f.env.OnActivity(a.RecordLoop, mock.Anything, testRun.RunID, mock.Anything, mock.Anything).Return(func(_ context.Context, _, gate string, loops int) error {
 		f.loops = append(f.loops, fmt.Sprintf("%s=%d", gate, loops))
 		return nil
+	})
+	f.env.OnActivity(a.DetectProtectedChanges, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, req activities.GuardRequest) (guard.Report, error) {
+		f.guarded = append(f.guarded, req)
+		if f.protect != nil {
+			return f.protect(req), nil
+		}
+		return guard.Report{}, nil
 	})
 	f.env.OnActivity(a.OpenHumanGate, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.HumanGateRequest) error {
 		f.opened = append(f.opened, req)
@@ -321,6 +332,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_default_build_review_loop.json", "M3: default-build, reviewer fails, loop back to implement"},
 	{"testdata/interpret_human_gate_approved.json", "M3: human gate after the change request, approved by signal"},
 	{"testdata/interpret_loops_exhausted_escalated.json", "M3: escalate-exhausted-loops version, escalation approved"},
+	{"testdata/interpret_protected_changes_approved.json", "M3: protected-changes version, forced human gate approved"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -376,6 +388,9 @@ func TestInterpretDefaultBuild(t *testing.T) {
 	}
 	if !f.ended["sr-code-reviewer-1"] {
 		t.Errorf("reviewer step not ended as succeeded: %v", f.ended)
+	}
+	if len(f.guarded) != 1 || len(f.opened) != 0 {
+		t.Errorf("a clean change is inspected once and needs no human: guarded %+v, opened %+v", f.guarded, f.opened)
 	}
 }
 

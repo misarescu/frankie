@@ -182,6 +182,14 @@ type GateConfig struct {
 // repo's mise.toml defines what lint and test mean (docs/spec/05).
 var DefaultGateCommands = []string{"mise run lint", "mise run test"}
 
+// GuardRequest asks which changes between two commits need a human
+// (invariant 6): BaseSHA is where the run started, HeadSHA its last push.
+type GuardRequest struct {
+	BaseSHA  string
+	HeadSHA  string
+	Patterns []string // protected-path patterns from the snapshot
+}
+
 // HumanGateRequest opens a human gate: the decision a person is asked for.
 type HumanGateRequest struct {
 	RunID            string

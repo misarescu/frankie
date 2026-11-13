@@ -221,3 +221,36 @@ func (c *Client) BranchHead(ctx context.Context, repo, branch string) (sha strin
 	}
 	return ref.Object.SHA, true, nil
 }
+
+// ChangedFile is one file of a comparison between two commits.
+type ChangedFile struct {
+	Filename         string `json:"filename"`
+	PreviousFilename string `json:"previous_filename"`
+	Status           string `json:"status"` // added, removed, modified, renamed, copied, changed, unchanged
+	Patch            string `json:"patch"`  // empty for binary or very large files
+}
+
+const (
+	compareFilesPerPage = 100
+	compareMaxPages     = 30 // GitHub lists at most 3000 files of a comparison
+)
+
+// Compare lists the files changed between base and head, since their merge
+// base (base...head). complete is false when GitHub would not list them all.
+func (c *Client) Compare(ctx context.Context, repo, base, head string) (files []ChangedFile, complete bool, err error) {
+	for page := 1; page <= compareMaxPages; page++ {
+		var resp struct {
+			Files []ChangedFile `json:"files"`
+		}
+		q := url.Values{"per_page": {fmt.Sprint(compareFilesPerPage)}, "page": {fmt.Sprint(page)}}
+		path := "/repos/" + repo + "/compare/" + (&url.URL{Path: base + "..." + head}).EscapedPath() + "?" + q.Encode()
+		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+			return nil, false, fmt.Errorf("github: compare %s...%s: %w", base, head, err)
+		}
+		files = append(files, resp.Files...)
+		if len(resp.Files) < compareFilesPerPage {
+			return files, true, nil
+		}
+	}
+	return files, false, nil
+}

@@ -1,11 +1,14 @@
 package workflow
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
@@ -125,4 +128,58 @@ func TestEscalationRejectedFails(t *testing.T) {
 	if out.Succeeded || out.Reason != "step checks: gate failed: mise run test exited 1; escalated to a human, rejected by web" {
 		t.Fatalf("result = %+v", out)
 	}
+}
+
+// Invariant 6: a change to protected paths, or to tests, waits for a human
+// after the change request opened, even in a workflow without human gates.
+func TestProtectedChangesForceAHumanGate(t *testing.T) {
+	report := guard.Report{Protected: []guard.ProtectedChange{{Path: "mise.toml", Pattern: "mise.toml"}},
+		Tests: []string{"deleted test file internal/server/routes_test.go"}}
+	t.Run("approved", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.protect = func(activities.GuardRequest) guard.Report { return report }
+		f.decide(t, time.Minute, 0, true, "toolchain bump is intended")
+		out := f.run(t, defaultBuildSnapshot(t))
+		if !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 protected-changes/1" {
+			t.Errorf("steps = %s", got)
+		}
+		o := f.opened[0]
+		if o.StepID != "protected-changes" || !strings.Contains(o.Reason, "mise.toml") || !strings.Contains(o.Reason, "deleted test file") ||
+			o.ChangeRequestURL == "" || o.CommitSHA != "sha1" {
+			t.Errorf("opened = %+v", o)
+		}
+		g := f.guarded[0]
+		if g.BaseSHA != "base" || g.HeadSHA != "sha1" || !slices.Equal(g.Patterns, config.DefaultProtectedPaths) {
+			t.Errorf("guard request = %+v", g)
+		}
+	})
+	t.Run("rejected", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.protect = func(activities.GuardRequest) guard.Report { return report }
+		f.decide(t, time.Minute, 0, false, "do not touch the toolchain")
+		out := f.run(t, defaultBuildSnapshot(t))
+		if out.Succeeded || out.Reason != "step protected-changes: rejected by web: do not touch the toolchain" {
+			t.Fatalf("result = %+v", out)
+		}
+	})
+	t.Run("the snapshot's patterns are used", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		snap := defaultBuildSnapshot(t)
+		snap.ProtectedPaths = config.ProtectedPatterns([]string{"cmd/runner/**"})
+		f.run(t, snap)
+		if len(f.guarded) != 1 || !slices.Contains(f.guarded[0].Patterns, "cmd/runner/**") || len(f.opened) != 0 {
+			t.Errorf("guarded %+v, opened %+v", f.guarded, f.opened)
+		}
+	})
+	t.Run("a failed run is not inspected", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.push = func(int) bool { return false }
+		f.protect = func(activities.GuardRequest) guard.Report { return report }
+		if out := f.run(t, defaultBuildSnapshot(t)); out.Succeeded || len(f.guarded) != 0 {
+			t.Errorf("result = %+v, guarded %+v", out, f.guarded)
+		}
+	})
 }

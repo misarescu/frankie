@@ -16,8 +16,9 @@ type IssueRunResult struct {
 	ChangeRequestURL string
 }
 
-// IssueRun is the M1 workflow: one agent step that implements the issue in a
-// sandboxed pod, then a change request for the pushed branch.
+// IssueRun is the M1/M2 workflow: one agent step that implements the issue in
+// a sandboxed pod running the repo's toolchain image, a command gate that
+// re-runs lint and tests from the pushed commit, then a change request.
 func IssueRun(ctx workflow.Context, in activities.IssueRunInput) (IssueRunResult, error) {
 	var a *activities.Activities
 	var run activities.StartRunResult
@@ -51,6 +52,7 @@ func IssueRun(ctx workflow.Context, in activities.IssueRunInput) (IssueRunResult
 		_ = workflow.ExecuteActivity(cleanup, a.DeleteAgentPod, pod.Name).Get(cleanup, nil)
 	}
 
+	agentSucceeded := false
 	switch {
 	case err != nil:
 		out.Reason = "agent step failed: " + err.Error()
@@ -59,6 +61,21 @@ func IssueRun(ctx workflow.Context, in activities.IssueRunInput) (IssueRunResult
 	case !session.Pushed:
 		out.Reason = "agent session made no changes"
 	default:
+		agentSucceeded = true
+		// The command gate re-runs lint and tests from the pushed commit (M2,
+		// invariant 2); the agent's own report is not evidence. Until M3 adds
+		// onFail loops, a failed gate fails the run.
+		if workflow.GetVersion(ctx, "command-gate", workflow.DefaultVersion, 1) >= 1 {
+			var gate activities.GateOutcome
+			if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, gateOptions), a.RunCommandGate, in, run, session).Get(ctx, &gate); err != nil {
+				out.Reason = "command gate could not run: " + err.Error()
+				break
+			}
+			if !gate.Passed {
+				out.Reason = "command gate failed: " + gate.Summary
+				break
+			}
+		}
 		var cr string
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), a.OpenChangeRequest, in, run, session).Get(ctx, &cr); err != nil {
 			out.Reason = "opening the change request failed: " + err.Error()
@@ -67,7 +84,8 @@ func IssueRun(ctx workflow.Context, in activities.IssueRunInput) (IssueRunResult
 		}
 	}
 
-	finish := activities.FinishInput{IssueID: in.IssueID, RunID: run.RunID, StepRunID: run.StepRunID, Succeeded: out.Succeeded, Reason: out.Reason}
+	finish := activities.FinishInput{IssueID: in.IssueID, RunID: run.RunID, StepRunID: run.StepRunID, Succeeded: out.Succeeded, Reason: out.Reason,
+		AgentSucceeded: agentSucceeded}
 	if err := workflow.ExecuteActivity(cleanup, a.FinishRun, finish).Get(cleanup, nil); err != nil {
 		return out, err
 	}

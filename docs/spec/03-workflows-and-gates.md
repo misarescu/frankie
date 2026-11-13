@@ -62,7 +62,7 @@ One concept, three types:
 
 | Type | Evaluation | Notes |
 |---|---|---|
-| `command` | Run commands in a **fresh pod** from the pushed commit with the project's toolchain image. Pass = all exit 0. | Deterministic gates always run before LLM gates. Agent-reported results are never accepted. |
+| `command` | Run commands in a **fresh pod** from the pushed commit with the project's toolchain image. Pass = all exit 0, as recorded by the kubelet per command (D33). | Deterministic gates always run before LLM gates. Agent-reported results are never accepted. |
 | `agent-verdict` | A reviewer agent returns JSON validated against a schema (`verdict: pass|fail`, `findings[]` with severity, file, line, message). | `require: all|any|majority` for multiple reviewers. |
 | `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|escalate|extend`. Used for spec approval, protected paths, production. |
 

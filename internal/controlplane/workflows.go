@@ -99,7 +99,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	// (terminationGracePeriodSeconds in the chart is longer).
 	w := worker.New(c, workflow.TaskQueue, worker.Options{WorkerStopTimeout: 30 * time.Second})
 	w.RegisterWorkflow(workflow.IssueRun)
-	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent,
+	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate,
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()

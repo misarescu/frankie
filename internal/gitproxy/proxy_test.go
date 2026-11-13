@@ -303,3 +303,33 @@ func TestSplitGitPath(t *testing.T) {
 		}
 	}
 }
+
+// D33: a command gate's read-only token clones but cannot push anything, not
+// even the issue's own agent branch.
+func TestProxyReadOnlyTokenCannotPush(t *testing.T) {
+	f := newFixture(t, withUpstreamSecret)
+	tok, err := f.signer.Issue(Grant{Repo: "misarescu/toy", IssueKey: "frk-42", StepRunID: "gate-1", ReadOnly: true}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := f.cloneAndCommit(t, tok)
+	before, _ := git(t, f.bare, "rev-parse", "--verify", "-q", "refs/heads/agent/frk-42/fix-login")
+	if out, err := git(t, dir, "push", "origin", "HEAD:refs/heads/agent/frk-42/fix-login"); err == nil {
+		t.Fatalf("push with a read-only token succeeded:\n%s", out)
+	}
+	if after, _ := git(t, f.bare, "rev-parse", "--verify", "-q", "refs/heads/agent/frk-42/fix-login"); after != before {
+		t.Fatalf("upstream branch moved from %q to %q", before, after)
+	}
+
+	// The POST is refused too, for a client that skips the advertisement.
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+f.proxyHost+"/git/misarescu/toy.git/git-receive-pack", strings.NewReader("0000"))
+	req.SetBasicAuth("x-token", tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("receive-pack POST status %d, want 403", resp.StatusCode)
+	}
+}

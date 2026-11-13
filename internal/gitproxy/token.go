@@ -26,11 +26,14 @@ var (
 
 // Grant is what a token allows: read the repo, push branches of one issue.
 type Grant struct {
-	Repo      string    `json:"repo"`           // factory repo name, e.g. "misarescu/toy"
-	IssueKey  string    `json:"issue"`          // e.g. "frk-42"
-	StepRunID string    `json:"step,omitempty"` // for audit logs
-	Expires   time.Time `json:"-"`
-	Exp       int64     `json:"exp"` // Unix seconds, the signed form of Expires
+	Repo      string `json:"repo"`           // factory repo name, e.g. "misarescu/toy"
+	IssueKey  string `json:"issue"`          // e.g. "frk-42"
+	StepRunID string `json:"step,omitempty"` // for audit logs
+	// ReadOnly forbids pushing: for pods that run code but must not change the
+	// repo, such as command gates (D33).
+	ReadOnly bool      `json:"ro,omitempty"`
+	Expires  time.Time `json:"-"`
+	Exp      int64     `json:"exp"` // Unix seconds, the signed form of Expires
 }
 
 // Signer issues and verifies tokens with HMAC-SHA256. Tokens are stateless, so

@@ -36,6 +36,16 @@ type Event struct {
 	CreatedAt time.Time
 }
 
+type GateResult struct {
+	ID        uuid.UUID
+	StepRunID uuid.UUID
+	GateType  string
+	Policy    string
+	Verdict   string
+	Details   []byte
+	CreatedAt time.Time
+}
+
 type Issue struct {
 	ID                 uuid.UUID
 	ProjectID          uuid.UUID

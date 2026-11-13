@@ -108,3 +108,17 @@ CREATE TABLE change_requests (
   updated_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT change_requests_repo_number_key UNIQUE (repo, number)
 );
+
+-- The outcome of one gate StepRun (docs/spec/02, GateResult). The commit it
+-- judged is the StepRun's commit_sha. One result per gate StepRun; a loop back
+-- (M3) creates a new StepRun attempt.
+CREATE TABLE gate_results (
+  id          uuid        PRIMARY KEY,
+  step_run_id uuid        NOT NULL REFERENCES step_runs (id),
+  gate_type   text        NOT NULL CHECK (gate_type IN ('command', 'agent-verdict', 'human')),
+  policy      text        NOT NULL CHECK (policy IN ('blocking', 'advisory')),
+  verdict     text        NOT NULL CHECK (verdict IN ('pass', 'fail', 'escalated')),
+  details     jsonb       NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT gate_results_step_run_key UNIQUE (step_run_id)
+);

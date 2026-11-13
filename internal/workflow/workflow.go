@@ -31,6 +31,13 @@ var (
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 	}
+	// The command gate may build the commit's toolchain image, then waits for
+	// its pod (deadline from the gate config, 30 minutes by default).
+	gateOptions = workflow.ActivityOptions{
+		StartToCloseTimeout: 80 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+	}
 	// Launching heartbeats while it waits for the pod, so a worker that dies
 	// mid-launch is noticed in seconds rather than at the 10-minute timeout.
 	launchOptions = workflow.ActivityOptions{

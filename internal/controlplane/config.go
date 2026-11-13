@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -52,6 +53,14 @@ type fileConfig struct {
 		AuthorName     string   `json:"authorName"`
 		AuthorEmail    string   `json:"authorEmail"`
 	} `json:"agent"`
+	// Gate configures command gates (docs/spec/03).
+	Gate struct {
+		Commands      []string `json:"commands"`
+		CPU           string   `json:"cpu"`
+		Memory        string   `json:"memory"`
+		WorkspaceSize string   `json:"workspaceSize"`
+		Deadline      string   `json:"deadline"`
+	} `json:"gate"`
 	// Toolchains configures toolchain images (D30); an empty registryURL disables them.
 	Toolchains struct {
 		RegistryURL    string   `json:"registryURL"` // as the control plane reaches the registry
@@ -68,6 +77,51 @@ type fileConfig struct {
 		ScratchSize    string   `json:"scratchSize"`
 		Deadline       string   `json:"deadline"`
 	} `json:"toolchains"`
+}
+
+// gate parses the command gate settings; without them gates use the agent's
+// limits and workspace size, a 30-minute deadline and the default commands.
+func (fc fileConfig) gate() (activities.GateConfig, error) {
+	g := fc.Gate
+	out := activities.GateConfig{Commands: g.Commands, Deadline: 30 * time.Minute}
+	for i, c := range g.Commands {
+		if strings.TrimSpace(c) == "" {
+			return out, fmt.Errorf("controlplane: config: gate command %d is empty", i)
+		}
+	}
+	if g.Deadline != "" {
+		d, err := time.ParseDuration(g.Deadline)
+		if err != nil || d <= 0 {
+			return out, fmt.Errorf("controlplane: config: gate deadline %q invalid", g.Deadline)
+		}
+		out.Deadline = d
+	}
+	cpu, mem, ws := firstNonEmpty(g.CPU, fc.Agent.CPU), firstNonEmpty(g.Memory, fc.Agent.Memory), firstNonEmpty(g.WorkspaceSize, fc.Agent.WorkspaceSize)
+	if cpu != "" || mem != "" {
+		c, err1 := resource.ParseQuantity(cpu)
+		m, err2 := resource.ParseQuantity(mem)
+		if err1 != nil || err2 != nil {
+			return out, fmt.Errorf("controlplane: config: gate cpu %q / memory %q invalid", cpu, mem)
+		}
+		out.Limits = corev1.ResourceList{corev1.ResourceCPU: c, corev1.ResourceMemory: m}
+	}
+	if ws != "" {
+		q, err := resource.ParseQuantity(ws)
+		if err != nil {
+			return out, fmt.Errorf("controlplane: config: gate workspace size %q: %w", ws, err)
+		}
+		out.WorkspaceSize = q
+	}
+	return out, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ToolchainConfig is how toolchain images are found and built; the zero value
@@ -167,6 +221,9 @@ func LoadConfigFile(path string, cfg *Config) error {
 		agent.WorkspaceSize = q
 	}
 	cfg.Agent = agent
+	if cfg.Gate, err = fc.gate(); err != nil {
+		return err
+	}
 	if cfg.Toolchain, err = fc.toolchain(); err != nil {
 		return err
 	}

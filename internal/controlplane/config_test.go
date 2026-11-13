@@ -103,3 +103,47 @@ func TestLoadConfigFileToolchains(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadConfigFileGate(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	t.Run("configured", func(t *testing.T) {
+		cfg, err := load(t, `{"gate": {"commands": ["make check"], "cpu": "1", "memory": "2Gi", "workspaceSize": "5Gi", "deadline": "15m"}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := cfg.Gate
+		if len(g.Commands) != 1 || g.Commands[0] != "make check" || g.Deadline != 15*time.Minute ||
+			g.Limits.Memory().String() != "2Gi" || g.WorkspaceSize.String() != "5Gi" {
+			t.Errorf("gate = %+v", g)
+		}
+	})
+	t.Run("defaults to the agent's resources and a 30m deadline", func(t *testing.T) {
+		cfg, err := load(t, `{"agent": {"cpu": "2", "memory": "3Gi", "workspaceSize": "10Gi"}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := cfg.Gate
+		if g.Deadline != 30*time.Minute || g.Limits.Memory().String() != "3Gi" || g.WorkspaceSize.String() != "10Gi" || g.Commands != nil {
+			t.Errorf("gate = %+v", g)
+		}
+	})
+	t.Run("invalid", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"blank command": `{"gate": {"commands": [" "]}}`,
+			"bad deadline":  `{"gate": {"deadline": "-1m"}}`,
+			"bad memory":    `{"gate": {"cpu": "1", "memory": "lots"}}`,
+		} {
+			if _, err := load(t, body); err == nil {
+				t.Errorf("%s: accepted", name)
+			}
+		}
+	})
+}

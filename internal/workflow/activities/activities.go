@@ -66,6 +66,9 @@ type FinishInput struct {
 	StepRunID string
 	Succeeded bool
 	Reason    string
+	// AgentSucceeded marks the agent step succeeded even though the run failed,
+	// e.g. when a later gate failed (M2). Runs from before it leave it false.
+	AgentSucceeded bool
 }
 
 // AgentConfig describes how agent steps run.
@@ -89,6 +92,26 @@ type AgentConfig struct {
 	AuthorEmail    string
 }
 
+// GateConfig describes how command gates run (docs/spec/03). They share the
+// agents' namespace, runtime class, service account and egress proxy.
+type GateConfig struct {
+	Commands      []string // default: mise run lint, mise run test
+	Limits        corev1.ResourceList
+	WorkspaceSize resource.Quantity
+	Deadline      time.Duration
+}
+
+// DefaultGateCommands are the M2 command gate: generic across repos because the
+// repo's mise.toml defines what lint and test mean (docs/spec/05).
+var DefaultGateCommands = []string{"mise run lint", "mise run test"}
+
+// GateOutcome is a command gate's verdict as the workflow needs it.
+type GateOutcome struct {
+	StepRunID string
+	Passed    bool
+	Summary   string // e.g. "mise run test exited 1"
+}
+
 // Activities do the workflow's I/O. Every Activity is idempotent.
 type Activities struct {
 	Store   *store.Store
@@ -100,6 +123,7 @@ type Activities struct {
 	// agent pods run in the platform base image.
 	Toolchain *images.Ensurer
 	Agent     AgentConfig
+	Gate      GateConfig
 	Log       *slog.Logger
 }
 

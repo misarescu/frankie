@@ -67,6 +67,12 @@ toolchains:
 controlPlane:
   apiPort: 8080
   gitProxyPort: 8081
+  # Command gates (docs/spec/03): re-run from the pushed commit in a fresh pod.
+  # Limits come from podResources.commandGate.
+  gate:
+    commands: ["mise run lint", "mise run test"]
+    deadline: 30m
+    workspaceSize: 10Gi
   # Factory repos: served by the git proxy and polled for issues, until project
   # config sync exists. keyPrefix is the issue key prefix (D22) and never changes.
   repos: []

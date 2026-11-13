@@ -36,14 +36,27 @@ egressProxy:
     - tuf-repo-cdn.sigstore.dev
     # golangci-lint config verify downloads the config JSON schema (found by the first live gate).
     - golangci-lint.run
+    # Frankie's own toolchain (M3 self-hosting, found by a trial build of its
+    # mise.toml): atlas, helm and kubectl releases (dl.k8s.io redirects to the CDN).
+    - release.ariga.io
+    - get.helm.sh
+    - dl.k8s.io
+    - cdn.dl.k8s.io
+    # Frankie's lint: kubeconform reads Kubernetes and CRD JSON schemas from GitHub.
+    - raw.githubusercontent.com
 
 controlPlane:
   # One sidecar per pod: a 3Gi agent or gate pod keeps 2.5Gi for its own work.
   services:
     maxPerPod: 1
-  # Toy repo for the M1 acceptance run; credentials in Secret frankie-github (D26).
+  # The toy repo of the M1 acceptance run, and Frankie itself (M3: self-hosting
+  # begins, docs/spec/08); credentials in Secret frankie-github (D26).
   repos:
     - name: misarescu/Goodreads-Clone
       upstream: https://github.com/misarescu/Goodreads-Clone.git
       keyPrefix: gc
+      baseBranch: main
+    - name: misarescu/frankie
+      upstream: https://github.com/misarescu/frankie.git
+      keyPrefix: frk
       baseBranch: main

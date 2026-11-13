@@ -1,0 +1,16 @@
+# Frankie as a factory project (M3; docs/spec/08: self-hosting begins).
+# Issues run the platform's default workflow, default-build: implement, lint
+# and test from the pushed commit in a fresh pod, code review, change request.
+# Changes to protected paths (.factory/protected-paths.yaml and the platform
+# defaults) and removed or skipped tests wait for a human.
+
+services:
+  # The store tests use FRANKIE_TEST_DATABASE_URL from mise.toml:
+  # postgres://postgres:frankie@localhost:55432. The catalog sets trust auth on
+  # the pod-local server; PGPORT moves it to the port the tests expect.
+  - name: postgres
+    image: postgres:17
+    port: 55432
+    env:
+      PGPORT: "55432"
+      POSTGRES_PASSWORD: frankie

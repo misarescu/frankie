@@ -3,7 +3,7 @@
 // Package e2e holds acceptance tests that run against a real cluster, written
 // with Ginkgo and Gomega (D25). They need the platform chart installed and:
 //
-//	FRANKIE_E2E_RUNNER_IMAGE  runner image, e.g. ghcr.io/misarescu/frankie-runner:sha-87f0290 (required)
+//	FRANKIE_E2E_RUNNER_IMAGE  runner image, e.g. ghcr.io/misarescu/frankie-runner:sha-87f0290 (required; the suite fails without it)
 //	FRANKIE_E2E_NAMESPACE     agents namespace (default frankie-agents)
 //	FRANKIE_E2E_PROXY_URL     egress proxy (default http://factory-egress-proxy.frankie.svc:3128)
 //	KUBECONFIG                cluster access, as for kubectl
@@ -34,9 +34,14 @@ var (
 )
 
 var _ = BeforeSuite(func() {
+	// An acceptance run that cannot run is a failure, not a pass.
 	runnerImage = os.Getenv("FRANKIE_E2E_RUNNER_IMAGE")
 	if runnerImage == "" {
-		Skip("FRANKIE_E2E_RUNNER_IMAGE not set")
+		Fail("FRANKIE_E2E_RUNNER_IMAGE is not set. The suite needs the platform chart installed and a published runner image:\n" +
+			"  1. merge to main so CI publishes ghcr.io/misarescu/frankie-*:sha-<commit>\n" +
+			"  2. helm upgrade --install factory deploy/helm/factory -n frankie --create-namespace \\\n" +
+			"       -f deploy/helm/factory/values-concrete.yaml --set images.tag=sha-<commit>\n" +
+			"  3. FRANKIE_E2E_RUNNER_IMAGE=ghcr.io/misarescu/frankie-runner:sha-<commit> mise run e2e")
 	}
 	agentsNS = envOr("FRANKIE_E2E_NAMESPACE", "frankie-agents")
 	proxyURL = envOr("FRANKIE_E2E_PROXY_URL", "http://factory-egress-proxy.frankie.svc:3128")

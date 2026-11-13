@@ -3,8 +3,10 @@ package activities
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,20 +16,46 @@ import (
 
 const testBaseSHA = "0123456789abcdef0123456789abcdef01234567"
 
-// fakeRepo serves the GitHub endpoints the activity reads; files maps path to content.
+// fakeRepo serves the GitHub endpoints the activities read. files maps a path
+// to its content; "<sha>:<path>" overrides it at one commit, and
+// "branch:<name>" makes a branch exist at the given commit.
 func fakeRepo(t *testing.T, files map[string]string) *github.Client {
 	t.Helper()
+	c, _ := fakeRepoWithReads(t, files)
+	return c
+}
+
+// fakeRepoWithReads also records each file read as "<path>@<ref>".
+func fakeRepoWithReads(t *testing.T, files map[string]string) (*github.Client, *[]string) {
+	t.Helper()
+	var reads []string
+	const prefix = "/repos/misarescu/Goodreads-Clone/"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, prefix)
 		switch {
-		case r.URL.Path == "/repos/misarescu/Goodreads-Clone/commits/main":
+		case path == "commits/main":
 			_, _ = w.Write([]byte(testBaseSHA))
-		case strings.HasPrefix(r.URL.Path, "/repos/misarescu/Goodreads-Clone/contents/"):
-			// Files are read at a commit: the resolved base, or the pushed one.
-			if ref := r.URL.Query().Get("ref"); ref != testBaseSHA && ref != pushedSHA {
+		case strings.HasPrefix(path, "commits/") && len(path) == len("commits/")+40:
+			_, _ = w.Write([]byte(strings.TrimPrefix(path, "commits/")))
+		case strings.HasPrefix(path, "git/ref/heads/"):
+			sha, ok := files["branch:"+strings.TrimPrefix(path, "git/ref/heads/")]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"object":{"sha":%q}}`, sha)
+		case strings.HasPrefix(path, "contents/"):
+			// Files are read at a commit: the resolved base, the pushed one, or a branch head.
+			ref, file := r.URL.Query().Get("ref"), strings.TrimPrefix(path, "contents/")
+			if !shaRE.MatchString(ref) {
 				http.Error(w, "files must be read at a resolved commit, got ref "+ref, http.StatusBadRequest)
 				return
 			}
-			content, ok := files[strings.TrimPrefix(r.URL.Path, "/repos/misarescu/Goodreads-Clone/contents/")]
+			reads = append(reads, file+"@"+ref)
+			content, ok := files[ref+":"+file]
+			if !ok {
+				content, ok = files[file]
+			}
 			if !ok {
 				http.NotFound(w, r)
 				return
@@ -38,8 +66,10 @@ func fakeRepo(t *testing.T, files map[string]string) *github.Client {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return github.NewClient("pat", srv.URL)
+	return github.NewClient("pat", srv.URL), &reads
 }
+
+var shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type memRegistry map[string]bool
 

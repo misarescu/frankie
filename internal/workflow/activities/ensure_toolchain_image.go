@@ -10,14 +10,21 @@ import (
 	"github.com/misarescu/frankie/internal/images"
 )
 
-// EnsureToolchainImage returns the toolchain image for the repo's base branch as
-// it is now: built from its mise.toml and mise.lock on top of the platform base
+// EnsureToolchainImage returns the toolchain image for the code the agent step
+// starts from (the issue's agent branch if it exists, else the base branch): built from its mise.toml and mise.lock on top of the platform base
 // image, or found in the registry when an identical one exists (D30). It returns
 // "" when toolchain images are not configured or the repo declares no mise.toml,
 // so the agent runs in the platform base image. Idempotent: the image is a pure
 // function of the inputs and concurrent builds of it share one Job.
 func (a *Activities) EnsureToolchainImage(ctx context.Context, in IssueRunInput) (string, error) {
-	return a.toolchainImage(ctx, in.Repo, in.BaseBranch)
+	if a.Toolchain == nil {
+		return "", nil
+	}
+	start, err := a.startPoint(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	return a.toolchainImage(ctx, in.Repo, start.FilesRef)
 }
 
 // toolchainImage resolves the toolchain image of repo at ref (a branch or a

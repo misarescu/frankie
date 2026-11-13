@@ -127,3 +127,27 @@ func TestFileAt(t *testing.T) {
 		})
 	}
 }
+
+func TestBranchHead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/git/ref/heads/agent/gc-2/add-health":
+			_, _ = w.Write([]byte(`{"ref":"refs/heads/agent/gc-2/add-health","object":{"sha":"15d3b56dc87b1d230a78cc373b793a9307ad9422","type":"commit"}}`))
+		case "/repos/o/r/git/ref/heads/agent/gc-9/missing":
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		default:
+			http.Error(w, "boom", http.StatusBadGateway)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient("pat", srv.URL)
+	if sha, found, err := c.BranchHead(t.Context(), "o/r", "agent/gc-2/add-health"); err != nil || !found || sha != "15d3b56dc87b1d230a78cc373b793a9307ad9422" {
+		t.Errorf("existing branch: %q %v %v", sha, found, err)
+	}
+	if _, found, err := c.BranchHead(t.Context(), "o/r", "agent/gc-9/missing"); err != nil || found {
+		t.Errorf("missing branch: found %v, err %v", found, err)
+	}
+	if _, _, err := c.BranchHead(t.Context(), "o/r", "agent/gc-1/other"); err == nil {
+		t.Error("server error reported as absence")
+	}
+}

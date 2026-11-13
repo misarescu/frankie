@@ -21,7 +21,7 @@ func TestBranchName(t *testing.T) {
 func TestPromptAndPRBody(t *testing.T) {
 	in := IssueRunInput{IssueKey: "gc-1", Title: "Add search", Spec: "Users can search.", AcceptanceCriteria: []string{"search box", "results"},
 		SourceURL: "https://github.com/o/r/issues/3", SourceNumber: 3, BaseBranch: "main"}
-	p := Prompt(in, "agent/gc-1/add-search")
+	p := Prompt(in, "agent/gc-1/add-search", false)
 	for _, want := range []string{"Issue gc-1: Add search", "agent/gc-1/add-search (based on main)", "Users can search.", "- search box", "https://github.com/o/r/issues/3"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing %q:\n%s", want, p)
@@ -33,5 +33,16 @@ func TestPromptAndPRBody(t *testing.T) {
 	}
 	if !strings.Contains(SystemPrompt(), "Do not push") {
 		t.Error("system prompt must tell the agent not to push")
+	}
+}
+
+func TestPromptContinuingAnEarlierAttempt(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-2", Title: "Add health", BaseBranch: "main"}
+	if p := Prompt(in, "agent/gc-2/add-health", false); strings.Contains(p, "earlier attempt") {
+		t.Errorf("fresh step mentions an earlier attempt:\n%s", p)
+	}
+	p := Prompt(in, "agent/gc-2/add-health", true)
+	if !strings.Contains(p, "earlier attempt") || !strings.Contains(p, "lint and test checks must pass") {
+		t.Errorf("continuing prompt does not say so:\n%s", p)
 	}
 }

@@ -200,3 +200,24 @@ func (c *Client) FileAt(ctx context.Context, repo, path, ref string) (content []
 	}
 	return data, true, nil
 }
+
+// BranchHead returns the commit a branch of repo points to; found is false when
+// the branch does not exist.
+func (c *Client) BranchHead(ctx context.Context, repo, branch string) (sha string, found bool, err error) {
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	err = c.do(ctx, http.MethodGet, "/repos/"+repo+"/git/ref/heads/"+(&url.URL{Path: branch}).EscapedPath(), nil, &ref)
+	var se *StatusError
+	switch {
+	case errors.As(err, &se) && se.Code == http.StatusNotFound:
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	case ref.Object.SHA == "":
+		return "", false, fmt.Errorf("github: branch %s of %s has no commit", branch, repo)
+	}
+	return ref.Object.SHA, true, nil
+}

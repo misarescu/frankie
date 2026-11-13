@@ -104,6 +104,19 @@ func (s *Store) TransitionRun(ctx context.Context, id uuid.UUID, from, to domain
 	return out, err
 }
 
+// SetRunLoopCount records that a gate has looped back loops times in this Run.
+// Setting the count (not incrementing it) keeps a retried Activity idempotent.
+func (s *Store) SetRunLoopCount(ctx context.Context, id uuid.UUID, gateStepID string, loops int) (domain.Run, error) {
+	if gateStepID == "" || loops < 0 {
+		return domain.Run{}, fmt.Errorf("store: run %s: invalid loop count %q=%d", id, gateStepID, loops)
+	}
+	row, err := s.q.SetRunLoopCount(ctx, db.SetRunLoopCountParams{ID: id, StepID: gateStepID, Loops: int32(loops)}) //nolint:gosec // bounded by MaxLoopsLimit
+	if err != nil {
+		return domain.Run{}, mapErr("set run loop count", err)
+	}
+	return runFromRow(row)
+}
+
 // NewStepRun is the input for CreateStepRun.
 type NewStepRun struct {
 	RunID   uuid.UUID

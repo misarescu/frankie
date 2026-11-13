@@ -46,3 +46,28 @@ func TestPromptContinuingAnEarlierAttempt(t *testing.T) {
 		t.Errorf("continuing prompt does not say so:\n%s", p)
 	}
 }
+
+func TestStepPromptHonorsInputs(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-3", Title: "Add search", Spec: "Users can search.", AcceptanceCriteria: []string{"search box"}, BaseBranch: "main"}
+	all := AgentStep{StepID: "implement", Inputs: []string{"spec", "acceptance_criteria", "diff", "feedback"},
+		Feedback: "The `checks` check failed on your last commit: mise run test exited 1"}
+	p := StepPrompt(in, "agent/gc-3/add-search", true, all)
+	for _, want := range []string{"Issue gc-3: Add search", "Users can search.", "- search box", "git diff origin/main...HEAD",
+		"earlier work on this issue", "sent back. Address every point", "mise run test exited 1"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q:\n%s", want, p)
+		}
+	}
+
+	// An e2e test writer gets the spec, deliberately not the coder's diff (docs/spec/03).
+	specOnly := AgentStep{StepID: "e2e-tests", Inputs: []string{"spec"}, Feedback: "ignored"}
+	p = StepPrompt(in, "agent/gc-3/add-search", false, specOnly)
+	for _, unwanted := range []string{"search box", "git diff", "sent back", "earlier work"} {
+		if strings.Contains(p, unwanted) {
+			t.Errorf("prompt contains %q though the step does not take it:\n%s", unwanted, p)
+		}
+	}
+	if !strings.Contains(p, "Users can search.") {
+		t.Errorf("prompt lacks the spec:\n%s", p)
+	}
+}

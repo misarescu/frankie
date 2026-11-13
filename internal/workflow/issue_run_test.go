@@ -228,7 +228,7 @@ func TestIssueRunReplaysRecordedHistories(t *testing.T) {
 
 // Credentials go to the runner over gRPC, never into the workflow history.
 func TestRecordedHistoryHasNoSecrets(t *testing.T) {
-	for _, h := range recordedHistories {
+	for _, h := range append(recordedHistories, interpretHistories...) {
 		file := h.file
 		raw, err := os.ReadFile(file)
 		if err != nil {

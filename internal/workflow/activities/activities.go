@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/misarescu/frankie/internal/connectors/github"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/images"
@@ -32,7 +33,8 @@ type IssueRunInput struct {
 	BaseBranch         string
 }
 
-// StartRunResult identifies the run and its single M1 step.
+// StartRunResult identifies the run and the agent step being executed: the
+// single M1 step for IssueRun, one execution of an agent step for Interpret.
 type StartRunResult struct {
 	RunID     string
 	StepRunID string
@@ -41,6 +43,52 @@ type StartRunResult struct {
 	// means the platform base image. The workflow sets it after StartRun, from
 	// EnsureToolchainImage.
 	ToolchainImage string
+	// Step is the agent step from the workflow definition (Interpret). IssueRun
+	// leaves it nil and gets the M2 step: the implement prompt and the platform's
+	// model, budget and timeout.
+	Step *AgentStep `json:",omitempty"`
+}
+
+// AgentStep is one execution of a definition's agent step, resolved by the
+// workflow from its snapshot.
+type AgentStep struct {
+	StepID       string // e.g. implement
+	Role         string
+	RoleVersion  int
+	SystemPrompt string
+	// Model is the gateway's model name; empty means the platform's.
+	Model     string
+	BudgetUSD float64       // 0: the platform's
+	Timeout   time.Duration // 0: the platform's session timeout
+	Inputs    []string
+	// Feedback is what the gate that looped back to this step found, when the
+	// step takes the feedback input.
+	Feedback string
+}
+
+// StepStart identifies one execution of a step; StartStep creates its StepRun.
+type StepStart struct {
+	RunID   string
+	StepID  string
+	Kind    domain.StepKind
+	Attempt int // 1 for the first execution, +1 per loop back
+}
+
+// StepEnd records how a step's execution ended.
+type StepEnd struct {
+	StepRunID string
+	Succeeded bool
+}
+
+// GateRequest is one execution of a definition's command gate.
+type GateRequest struct {
+	RunID     string
+	StepRunID string
+	StepID    string
+	Commands  []string
+	Timeout   time.Duration // 0: the platform's gate deadline
+	Branch    string
+	CommitSHA string
 }
 
 // AgentPod is a launched agent pod.
@@ -113,6 +161,9 @@ type GateOutcome struct {
 	StepRunID string
 	Passed    bool
 	Summary   string // e.g. "mise run test exited 1"
+	// Feedback tells the agent a loop goes back to what failed: the failed
+	// commands with the tail of their output.
+	Feedback string `json:",omitempty"`
 }
 
 // Activities do the workflow's I/O. Every Activity is idempotent.

@@ -272,6 +272,41 @@ func (q *Queries) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]StepRun,
 	return items, nil
 }
 
+const setRunLoopCount = `-- name: SetRunLoopCount :one
+UPDATE runs
+SET loop_counts = jsonb_set(loop_counts, ARRAY[$1::text], to_jsonb($2::integer)),
+    updated_at  = now()
+WHERE id = $3
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
+`
+
+type SetRunLoopCountParams struct {
+	StepID string
+	Loops  int32
+	ID     uuid.UUID
+}
+
+// Records how many times a gate has looped back (docs/spec/03: loop counts are recorded per issue).
+func (q *Queries) SetRunLoopCount(ctx context.Context, arg SetRunLoopCountParams) (Run, error) {
+	row := q.db.QueryRow(ctx, setRunLoopCount, arg.StepID, arg.Loops, arg.ID)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.WorkflowSnapshot,
+		&i.WorkflowVersion,
+		&i.TemporalWorkflowID,
+		&i.Status,
+		&i.LoopCounts,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TemporalRunID,
+	)
+	return i, err
+}
+
 const setStepRunCommit = `-- name: SetStepRunCommit :one
 UPDATE step_runs SET commit_sha = $1, updated_at = now() WHERE id = $2 RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at
 `

@@ -28,33 +28,51 @@ const gateStepID = "checks"
 const (
 	gateLogTailLines = 200
 	gateLogTailBytes = 32 << 10
+	// What a loop back shows the agent of each failed command's output.
+	feedbackTailBytes = 6 << 10
 )
 
-// gatePodName is stable per gate step run, so a retried Activity finds its pod.
-func gatePodName(in IssueRunInput, stepRunID string) string {
-	return fmt.Sprintf("%s-checks-%s", in.IssueKey, strings.ReplaceAll(stepRunID, "-", "")[24:])
-}
-
-// RunCommandGate re-runs the gate commands from the pushed commit in a fresh pod
-// (invariant 2: the agent's own report is never evidence) and records the
-// verdict. The verdict comes from the exit codes the kubelet recorded for each
-// command's container, never from the pod's output. Idempotent: the step run,
-// pod and result are keyed by the run, and a retry adopts what exists.
+// RunCommandGate is IssueRun's command gate: the platform's commands, as the
+// run's single `checks` step.
 func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run StartRunResult, session SessionResult) (GateOutcome, error) {
 	runID, err := uuid.Parse(run.RunID)
 	if err != nil {
 		return GateOutcome{}, temporal.NewNonRetryableApplicationError("bad run id", "input", err)
 	}
-	step, err := a.gateStepRun(ctx, runID)
+	step, err := a.stepRun(ctx, store.NewStepRun{RunID: runID, StepID: gateStepID, Attempt: 1, Kind: domain.StepGate})
 	if err != nil {
 		return GateOutcome{}, err
 	}
+	return a.commandGate(ctx, in, step, GateRequest{RunID: run.RunID, StepRunID: step.ID.String(), StepID: gateStepID,
+		Branch: session.Branch, CommitSHA: session.CommitSHA})
+}
+
+// RunGate is one execution of a definition's command gate (Interpret), whose
+// StepRun StartStep created.
+func (a *Activities) RunGate(ctx context.Context, in IssueRunInput, req GateRequest) (GateOutcome, error) {
+	id, err := uuid.Parse(req.StepRunID)
+	if err != nil {
+		return GateOutcome{}, temporal.NewNonRetryableApplicationError("bad step run id", "input", err)
+	}
+	step, err := a.Store.GetStepRun(ctx, id)
+	if err != nil {
+		return GateOutcome{}, err
+	}
+	return a.commandGate(ctx, in, step, req)
+}
+
+// commandGate re-runs the gate commands from the pushed commit in a fresh pod
+// (invariant 2: the agent's own report is never evidence) and records the
+// verdict. The verdict comes from the exit codes the kubelet recorded for each
+// command's container, never from the pod's output. Idempotent: the pod and
+// result are keyed by the step run, and a retry adopts what exists.
+func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step domain.StepRun, req GateRequest) (GateOutcome, error) {
 	out := GateOutcome{StepRunID: step.ID.String()}
 	if step.Status.Terminal() {
 		// An earlier attempt finished the gate; report what it recorded.
-		return a.recordedOutcome(ctx, runID, step)
+		return a.recordedOutcome(ctx, step.RunID, step)
 	}
-	if _, err := a.Store.SetStepRunCommit(ctx, step.ID, session.CommitSHA); err != nil {
+	if _, err := a.Store.SetStepRunCommit(ctx, step.ID, req.CommitSHA); err != nil {
 		return out, err
 	}
 	if _, err := a.Store.TransitionStepRun(ctx, step.ID, domain.ExecPending, domain.ExecRunning); err != nil && step.Status != domain.ExecRunning {
@@ -62,18 +80,22 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 	}
 
 	// The gate runs in the toolchain the commit itself declares.
-	image, err := a.toolchainImage(ctx, in.Repo, session.CommitSHA)
+	image, err := a.toolchainImage(ctx, in.Repo, req.CommitSHA)
 	if err != nil {
-		return out, fmt.Errorf("toolchain image for %s: %w", session.CommitSHA, err)
+		return out, fmt.Errorf("toolchain image for %s: %w", req.CommitSHA, err)
 	}
 	image = cmp.Or(image, a.Agent.RunnerImage)
-	commands := a.Gate.Commands
+	commands := req.Commands
+	if len(commands) == 0 {
+		commands = a.Gate.Commands
+	}
 	if len(commands) == 0 {
 		commands = DefaultGateCommands
 	}
+	deadline := cmp.Or(req.Timeout, a.Gate.Deadline)
 	// Services also come from the commit under test; a broken declaration
 	// there fails the gate, it is the agent's change.
-	services, err := a.projectServices(ctx, in.Repo, session.CommitSHA)
+	services, err := a.projectServices(ctx, in.Repo, req.CommitSHA)
 	if errors.Is(err, errInvalidProjectConfig) {
 		return a.finishGate(ctx, step, domain.CommandGateDetails{Image: image, Error: err.Error()})
 	}
@@ -81,18 +103,18 @@ func (a *Activities) RunCommandGate(ctx context.Context, in IssueRunInput, run S
 		return out, err
 	}
 	token, err := a.Signer.Issue(gitproxy.Grant{Repo: in.Repo, IssueKey: in.IssueKey, StepRunID: step.ID.String(), ReadOnly: true},
-		a.Gate.Deadline+10*time.Minute)
+		deadline+10*time.Minute)
 	if err != nil {
 		return out, err
 	}
 	pod, err := sandbox.GatePod(sandbox.GatePodSpec{
-		Name: gatePodName(in, step.ID.String()), Namespace: a.Agent.Namespace, Image: image,
+		Name: stepPodName(in.IssueKey, req.StepID, step.ID.String()), Namespace: a.Agent.Namespace, Image: image,
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
-		RunID: run.RunID, StepRunID: step.ID.String(), IssueKey: in.IssueKey,
-		Limits: a.Gate.Limits, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: a.Gate.Deadline,
+		RunID: req.RunID, StepRunID: step.ID.String(), IssueKey: in.IssueKey,
+		Limits: a.Gate.Limits, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
-		Branch: session.Branch, CommitSHA: session.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,
+		Branch: req.Branch, CommitSHA: req.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,
 	})
 	if err != nil {
 		return out, temporal.NewNonRetryableApplicationError("invalid gate pod spec", "config", err)
@@ -139,26 +161,8 @@ func (a *Activities) finishGate(ctx context.Context, step domain.StepRun, detail
 	if _, err := a.Store.TransitionStepRun(ctx, step.ID, domain.ExecRunning, status); err != nil {
 		return out, err
 	}
-	out.Passed, out.Summary = details.Passed(), summarize(details)
+	out.Passed, out.Summary, out.Feedback = details.Passed(), summarize(details), feedback(details)
 	return out, nil
-}
-
-// gateStepRun creates the gate's StepRun, or finds it on a retry.
-func (a *Activities) gateStepRun(ctx context.Context, runID uuid.UUID) (domain.StepRun, error) {
-	step, err := a.Store.CreateStepRun(ctx, store.NewStepRun{RunID: runID, StepID: gateStepID, Attempt: 1, Kind: domain.StepGate})
-	if !errors.Is(err, store.ErrConflict) {
-		return step, err
-	}
-	steps, err := a.Store.ListStepRuns(ctx, runID)
-	if err != nil {
-		return domain.StepRun{}, err
-	}
-	for _, s := range steps {
-		if s.StepID == gateStepID && s.Attempt == 1 {
-			return s, nil
-		}
-	}
-	return domain.StepRun{}, fmt.Errorf("gate step run of run %s not found after a conflict", runID)
 }
 
 // recordedOutcome rebuilds the outcome of a gate an earlier attempt finished.
@@ -175,7 +179,7 @@ func (a *Activities) recordedOutcome(ctx context.Context, runID uuid.UUID, step 
 		if err := json.Unmarshal(r.Details, &d); err != nil {
 			return GateOutcome{}, fmt.Errorf("decode gate details: %w", err)
 		}
-		return GateOutcome{StepRunID: step.ID.String(), Passed: r.Verdict == domain.GatePass, Summary: summarize(d)}, nil
+		return GateOutcome{StepRunID: step.ID.String(), Passed: r.Verdict == domain.GatePass, Summary: summarize(d), Feedback: feedback(d)}, nil
 	}
 	return GateOutcome{}, fmt.Errorf("gate step %s is %s but has no result", step.ID, step.Status)
 }
@@ -262,6 +266,37 @@ func summarize(d domain.CommandGateDetails) string {
 		return "all checks passed"
 	}
 	return strings.Join(failed, "; ")
+}
+
+// feedback is what an agent sent back by a failed gate needs: which commands
+// failed and how their output ended. Empty when the gate passed.
+func feedback(d domain.CommandGateDetails) string {
+	if d.Passed() {
+		return ""
+	}
+	var b strings.Builder
+	if d.Error != "" {
+		fmt.Fprintf(&b, "The checks could not run: %s\n", tail(d.Error, feedbackTailBytes))
+	}
+	for _, c := range d.Commands {
+		if c.ExitCode == nil || *c.ExitCode == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "`%s` exited %d. The end of its output:\n```\n%s\n```\n", c.Command, *c.ExitCode, strings.TrimRight(tail(c.LogTail, feedbackTailBytes), "\n"))
+	}
+	return b.String()
+}
+
+// tail keeps the last n bytes of s, cut at a line start when there is one.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[len(s)-n:]
+	if i := strings.IndexByte(s, '\n'); i >= 0 && i < len(s)-1 {
+		s = s[i+1:]
+	}
+	return s
 }
 
 func ptr[T any](v T) *T { return &v }

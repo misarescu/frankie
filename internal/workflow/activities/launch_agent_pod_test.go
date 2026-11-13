@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -66,5 +67,17 @@ func TestAgentPodSpecCarriesTheSandboxEnv(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("runner env has no GOPROXY: %v", pod.Spec.Containers[0].Env)
+	}
+}
+
+func TestPodNameUsesTheDefinitionStep(t *testing.T) {
+	run := testRun
+	run.Step = &AgentStep{StepID: "fix-review-findings"}
+	if got := podName(testInput, run); got != "gc-1-fix-review-findings-00000003" {
+		t.Errorf("podName = %q", got)
+	}
+	long := stepPodName("verylongkey-12345", strings.Repeat("step-", 8), testRun.StepRunID)
+	if len(long) > 63 || !strings.HasPrefix(long, "verylongkey-12345-step-") || !strings.HasSuffix(long, "-00000003") || strings.Contains(long, "--") {
+		t.Errorf("stepPodName = %q (%d characters)", long, len(long))
 	}
 }

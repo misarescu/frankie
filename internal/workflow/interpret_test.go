@@ -1,0 +1,287 @@
+package workflow
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/mock"
+	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
+
+	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/snapshot"
+	"github.com/misarescu/frankie/internal/workflow/activities"
+	"github.com/misarescu/frankie/roles"
+	"github.com/misarescu/frankie/workflows"
+)
+
+// loopDefinition is a definition the M3 interpreter runs end to end.
+const loopDefinition = `
+name: fast
+version: 2
+steps:
+  - id: implement
+    agent: {role: coder, model: anthropic/claude-opus-5-5}
+    timeout: 45m
+  - id: checks
+    gate: {type: command, run: ["mise run test"], onFail: {goto: implement, maxLoops: 2}}
+  - id: style
+    gate: {type: command, run: ["mise run lint"], policy: advisory}
+  - id: open
+    action: change-request.open
+`
+
+func loopSnapshot(t *testing.T, def string) snapshot.Snapshot {
+	t.Helper()
+	w, err := config.ParseWorkflow([]byte(def))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := config.ResolveRoles(w, roles.Get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.Snapshot{Workflow: w, Roles: rs, Source: ".factory/workflows/fast.yaml", BaseSHA: "base"}
+}
+
+// interpretFixture records what the interpreter asked its Activities to do.
+type interpretFixture struct {
+	env      *testsuite.TestWorkflowEnvironment
+	steps    []activities.StepStart
+	ended    map[string]bool // step run ID -> succeeded
+	sessions []activities.StartRunResult
+	gates    []activities.GateRequest
+	loops    []string
+	finished *activities.FinishInput
+	// gate decides each gate's outcome; nil passes everything.
+	gate func(req activities.GateRequest) activities.GateOutcome
+	// push decides whether the n-th agent session pushes (default true).
+	push func(n int) bool
+}
+
+func newInterpretFixture(t *testing.T) *interpretFixture {
+	t.Helper()
+	var s testsuite.WorkflowTestSuite
+	f := &interpretFixture{env: s.NewTestWorkflowEnvironment(), ended: map[string]bool{}}
+	a := &activities.Activities{}
+	f.env.RegisterActivity(a)
+	f.env.OnActivity(a.StartWorkflowRun, mock.Anything, testInput, mock.Anything).Return(
+		activities.StartRunResult{RunID: testRun.RunID, Branch: testRun.Branch}, nil)
+	f.env.OnActivity(a.StartStep, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.StepStart) (string, error) {
+		f.steps = append(f.steps, in)
+		return fmt.Sprintf("sr-%s-%d", in.StepID, in.Attempt), nil
+	})
+	f.env.OnActivity(a.FinishStep, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.StepEnd) error {
+		f.ended[in.StepRunID] = in.Succeeded
+		return nil
+	})
+	f.env.OnActivity(a.EnsureToolchainImage, mock.Anything, testInput).Return(toolchainRef, nil)
+	f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult) (activities.AgentPod, error) {
+		return activities.AgentPod{Name: "pod-" + run.StepRunID, IP: "10.0.0.1"}, nil
+	})
+	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+		f.sessions = append(f.sessions, run)
+		n := len(f.sessions)
+		pushed := f.push == nil || f.push(n)
+		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("sha%d", n), Pushed: pushed}, nil
+	})
+	f.env.OnActivity(a.DeleteAgentPod, mock.Anything, mock.Anything).Return(nil)
+	f.env.OnActivity(a.RunGate, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, req activities.GateRequest) (activities.GateOutcome, error) {
+		f.gates = append(f.gates, req)
+		if f.gate != nil {
+			return f.gate(req), nil
+		}
+		return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "all checks passed"}, nil
+	})
+	f.env.OnActivity(a.RecordLoop, mock.Anything, testRun.RunID, mock.Anything, mock.Anything).Return(func(_ context.Context, _, gate string, loops int) error {
+		f.loops = append(f.loops, fmt.Sprintf("%s=%d", gate, loops))
+		return nil
+	})
+	f.env.OnActivity(a.OpenChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return("https://github.com/acme/app/pull/9", nil)
+	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.FinishInput) error {
+		f.finished = &in
+		return nil
+	})
+	return f
+}
+
+func (f *interpretFixture) run(t *testing.T, snap snapshot.Snapshot) IssueRunResult {
+	t.Helper()
+	f.env.ExecuteWorkflow(Interpret, InterpretInput{Issue: testInput, Snapshot: snap})
+	if !f.env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := f.env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var out IssueRunResult
+	if err := f.env.GetWorkflowResult(&out); err != nil {
+		t.Fatal(err)
+	}
+	if f.finished == nil || f.finished.Succeeded != out.Succeeded || f.finished.Reason != out.Reason || f.finished.StepRunID != "" {
+		t.Fatalf("FinishRun = %+v, result %+v", f.finished, out)
+	}
+	return out
+}
+
+func (f *interpretFixture) stepIDs() string {
+	var ids []string
+	for _, s := range f.steps {
+		ids = append(ids, fmt.Sprintf("%s/%d", s.StepID, s.Attempt))
+	}
+	return strings.Join(ids, " ")
+}
+
+func TestInterpretRunsTheDefinition(t *testing.T) {
+	f := newInterpretFixture(t)
+	out := f.run(t, loopSnapshot(t, loopDefinition))
+	if !out.Succeeded || out.ChangeRequestURL != "https://github.com/acme/app/pull/9" {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); got != "implement/1 checks/1 style/1 open/1" {
+		t.Errorf("steps = %s", got)
+	}
+	if !f.ended["sr-implement-1"] || !f.ended["sr-open-1"] {
+		t.Errorf("ended = %v", f.ended)
+	}
+
+	t.Run("agent step gets its role, model and timeout from the snapshot", func(t *testing.T) {
+		s := f.sessions[0]
+		if s.Step == nil || s.Step.StepID != "implement" || s.Step.Role != "coder" || s.Step.Model != "claude-opus-5-5" ||
+			s.Step.Timeout.Minutes() != 45 || !strings.Contains(s.Step.SystemPrompt, "coding agent") || s.ToolchainImage != toolchainRef {
+			t.Errorf("session run = %+v step %+v", s, s.Step)
+		}
+	})
+	t.Run("gates check the pushed commit with the definition's commands", func(t *testing.T) {
+		if len(f.gates) != 2 || f.gates[0].CommitSHA != "sha1" || f.gates[0].Commands[0] != "mise run test" || f.gates[1].StepID != "style" {
+			t.Errorf("gates = %+v", f.gates)
+		}
+	})
+}
+
+// M3 acceptance: a failed gate loops back to implement with what it found.
+func TestInterpretLoopsBackWithFeedback(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.gate = func(req activities.GateRequest) activities.GateOutcome {
+		if req.StepID == "checks" && req.CommitSHA == "sha1" {
+			return activities.GateOutcome{Summary: "mise run test exited 1", Feedback: "`mise run test` exited 1.\n--- FAIL: TestSearch"}
+		}
+		return activities.GateOutcome{Passed: true}
+	}
+	out := f.run(t, loopSnapshot(t, loopDefinition))
+	if !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); got != "implement/1 checks/1 implement/2 checks/2 style/1 open/1" {
+		t.Errorf("steps = %s", got)
+	}
+	if len(f.loops) != 1 || f.loops[0] != "checks=1" {
+		t.Errorf("loops recorded = %v", f.loops)
+	}
+	if fb := f.sessions[0].Step.Feedback; fb != "" {
+		t.Errorf("first attempt got feedback %q", fb)
+	}
+	if fb := f.sessions[1].Step.Feedback; !strings.Contains(fb, "`checks` check failed") || !strings.Contains(fb, "TestSearch") {
+		t.Errorf("second attempt feedback = %q", fb)
+	}
+	if f.gates[1].CommitSHA != "sha2" {
+		t.Errorf("the second gate checked %s, want the new commit", f.gates[1].CommitSHA)
+	}
+}
+
+func TestInterpretStopsAtMaxLoops(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.gate = func(req activities.GateRequest) activities.GateOutcome {
+		return activities.GateOutcome{Passed: req.StepID != "checks", Summary: "mise run test exited 1"}
+	}
+	out := f.run(t, loopSnapshot(t, loopDefinition))
+	if out.Succeeded || !strings.Contains(out.Reason, "step checks: gate failed: mise run test exited 1 (looped back to implement 2 times, the limit)") {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); got != "implement/1 checks/1 implement/2 checks/2 implement/3 checks/3" {
+		t.Errorf("steps = %s", got)
+	}
+	if strings.Join(f.loops, ",") != "checks=1,checks=2" {
+		t.Errorf("loops = %v", f.loops)
+	}
+}
+
+func TestInterpretFailures(t *testing.T) {
+	t.Run("a failing gate with onFail fail ends the run", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.gate = func(activities.GateRequest) activities.GateOutcome {
+			return activities.GateOutcome{Summary: "mise run test exited 2"}
+		}
+		out := f.run(t, loopSnapshot(t, strings.Replace(loopDefinition, "onFail: {goto: implement, maxLoops: 2}", "onFail: fail", 1)))
+		if out.Succeeded || out.Reason != "step checks: gate failed: mise run test exited 2" || f.stepIDs() != "implement/1 checks/1" {
+			t.Fatalf("result = %+v, steps %s", out, f.stepIDs())
+		}
+	})
+	t.Run("an agent that pushes nothing fails before any gate", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.push = func(int) bool { return false }
+		out := f.run(t, loopSnapshot(t, loopDefinition))
+		if out.Succeeded || out.Reason != "step implement: agent session made no changes" || len(f.gates) != 0 || f.ended["sr-implement-1"] {
+			t.Fatalf("result = %+v, gates %v", out, f.gates)
+		}
+	})
+	t.Run("an invalid configuration fails the run without steps", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		const problem = "snapshot: invalid project configuration: workflow \"nope\" is neither in .factory/workflows nor built in"
+		out := f.run(t, snapshot.Snapshot{Error: problem})
+		if out.Succeeded || out.Reason != problem || len(f.steps) != 0 {
+			t.Fatalf("result = %+v, steps %s", out, f.stepIDs())
+		}
+	})
+}
+
+func TestCheckSupported(t *testing.T) {
+	if err := CheckSupported(loopSnapshot(t, loopDefinition).Workflow); err != nil {
+		t.Fatalf("loop definition: %v", err)
+	}
+	def, err := workflows.Get(workflows.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckSupported(def); err == nil || !strings.Contains(err.Error(), "parallel steps are not supported yet") {
+		t.Errorf("default-build: err = %v", err)
+	}
+	escalating := loopSnapshot(t, strings.Replace(loopDefinition, "onFail: {goto: implement, maxLoops: 2}", "onFail: escalate", 1))
+	if err := CheckSupported(escalating.Workflow); err == nil || !strings.Contains(err.Error(), "escalate needs human gates") {
+		t.Errorf("escalate: err = %v", err)
+	}
+	human := loopSnapshot(t, strings.Replace(loopDefinition, "  - id: open\n", "  - id: approve\n    gate: {type: human}\n  - id: open\n", 1))
+	if err := CheckSupported(human.Workflow); err == nil || !strings.Contains(err.Error(), "human gates are not supported yet") {
+		t.Errorf("human gate: err = %v", err)
+	}
+}
+
+func TestGatewayModel(t *testing.T) {
+	for ref, want := range map[string]string{"anthropic/claude-sonnet-5-5": "claude-sonnet-5-5", "": "", "plain": "plain"} {
+		if got := gatewayModel(ref); got != want {
+			t.Errorf("gatewayModel(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+// interpretHistories are recorded histories of Interpret (record_test.go), oldest
+// first. Each must keep replaying (invariant 3, FR-WF-6); a failure means a
+// change broke determinism and needs workflow.GetVersion.
+var interpretHistories = []struct{ file, what string }{
+	{"testdata/interpret_loop_then_success.json", "M3: command gate fails, loop back to implement, change request"},
+	{"testdata/interpret_loops_exhausted.json", "M3: command gate fails until maxLoops is used up"},
+}
+
+func TestInterpretReplaysRecordedHistories(t *testing.T) {
+	for _, h := range interpretHistories {
+		t.Run(h.what, func(t *testing.T) {
+			r := worker.NewWorkflowReplayer()
+			r.RegisterWorkflow(Interpret)
+			if err := r.ReplayWorkflowHistoryFromJSONFile(nil, h.file); err != nil {
+				t.Fatalf("replay %s: %v", h.file, err)
+			}
+		})
+	}
+}

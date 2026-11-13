@@ -103,3 +103,13 @@ func TestRepositoryName(t *testing.T) {
 		}
 	}
 }
+
+func TestParseProjectWorkflow(t *testing.T) {
+	p, err := ParseProject([]byte("workflow: default-build\n"), 0)
+	if err != nil || p.Workflow != "default-build" {
+		t.Fatalf("p = %+v, err = %v", p, err)
+	}
+	if _, err := ParseProject([]byte("workflow: ../evil\n"), 0); err == nil || !strings.Contains(err.Error(), "workflow:") {
+		t.Fatalf("err = %v", err)
+	}
+}

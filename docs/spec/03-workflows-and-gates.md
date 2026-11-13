@@ -132,9 +132,24 @@ Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code
 - **Loop counts** are recorded per issue. High loop counts usually indicate a weak spec and surface in metrics.
 - **Concurrency of reviewers** is configurable; on the concrete profile reviewers run sequentially.
 
-## M1: the hardcoded workflow
+## Implementation
 
-Until the generic interpreter (M3), `internal/workflow.IssueRun` runs every issue the same way: `StartRun` (Run + `implement` StepRun, issue `ready -> running`), `LaunchAgentPod` (Kata pod from `internal/sandbox`), `RunAgentSession` (mints the git proxy token and gateway virtual key, passes them to the runner over gRPC so they never enter the pod spec or the workflow history, persists every event, heartbeats the last stored `seq` so a retry resumes the stream), `DeleteAgentPod` (always, on a disconnected context), `OpenChangeRequest` (idempotent), `FinishRun` (issue `awaiting_human` on success, `failed` otherwise). Workflow ID `issue-<key>` with "use existing" on conflict, so intake polls never start a second concurrent run.
+### IssueRun: the M1/M2 workflow
 
-Workflow types live one per file in `internal/workflow` (`issue_run.go` now; `interpret.go`, a per-repo merge queue and a release workflow later), sharing `TaskQueue` and Activity options from `workflow.go`. Their Activities are in `internal/workflow/activities`, one per file. `LaunchAgentPod`, `RunAgentSession`, `DeleteAgentPod`, `OpenChangeRequest` and `FinishRun` are meant to carry over to `Interpret`'s agent and action steps. `Interpret` will be a new workflow type rather than a changed `IssueRun`, so no `workflow.GetVersion` is needed: `IssueRun` stays registered (and its replay fixture valid) until its in-flight runs drain.
+Until the generic interpreter runs every project, `internal/workflow.IssueRun` runs issues of projects that select no workflow the same way: `StartRun` (Run + `implement` StepRun, issue `ready -> running`), `EnsureToolchainImage`, `LaunchAgentPod` (Kata pod from `internal/sandbox`), `RunAgentSession` (mints the git proxy token and gateway virtual key, passes them to the runner over gRPC so they never enter the pod spec or the workflow history, persists every event, heartbeats the last stored `seq` so a retry resumes the stream), `DeleteAgentPod` (always, on a disconnected context), `RunCommandGate`, `OpenChangeRequest` (idempotent), `FinishRun` (issue `awaiting_human` on success, `failed` otherwise). Workflow ID `issue-<key>` with "use existing" on conflict, so intake polls never start a second concurrent run. `IssueRun` stays registered, with its replay fixtures, until its in-flight runs drain.
 
+### Interpret (D41)
+
+`internal/workflow.Interpret` is a new workflow type rather than a changed `IssueRun`, so it needed no `workflow.GetVersion`. Its input is the issue plus a `snapshot.Snapshot`: the definition, the resolved roles (prompt text included), where the definition came from, and the base branch commit they were read at. The control plane's starter resolves the snapshot before starting the workflow (`internal/snapshot`), so the definition is in the workflow input itself (invariant 4). If the project's configuration is invalid, or selects something the interpreter cannot run yet (`workflow.CheckSupported`), the snapshot carries the error instead and the run fails with it, visibly, before any step. A failure to read the repo is retried on the next intake poll.
+
+The interpreter walks the top-level steps in order:
+
+- **Agent step**: `StartStep` creates a StepRun per execution (`attempt` counts executions of that step in the run). `EnsureToolchainImage`, `LaunchAgentPod`, `RunAgentSession` and `DeleteAgentPod` are IssueRun's Activities, given the step's role prompt, gateway model (the model ref without its provider), budget, timeout and inputs through `StartRunResult.Step`. `FinishStep` ends the StepRun. The step continues the issue's agent branch (D36).
+- **Command gate**: `RunGate` runs the definition's commands, with its timeout, from the last pushed commit, sharing `RunCommandGate`'s implementation. Its outcome carries `Feedback`: each failed command with the end of its output.
+- **onFail**: a failed blocking gate fails the run, or with `goto` jumps back to the target step after `RecordLoop` stores the gate's loop count on the Run (`runs.loop_counts`). The next agent step that takes the `feedback` input gets the gate's feedback in its prompt. A gate that has used its `maxLoops` fails the run; escalating to a human gate arrives with human gates.
+- **Action**: `change-request.open` opens (or finds) the change request for the last pushed commit.
+- `FinishRun` ends the Run and the issue, without a StepRunID.
+
+Replay fixtures are recorded from `Interpret` with stub Activities on a local Temporal dev server by `internal/workflow/record_test.go` (build tag `record`).
+
+Workflow types live one per file in `internal/workflow`, sharing `TaskQueue` and Activity options from `workflow.go`. Their Activities are in `internal/workflow/activities`, one per file.

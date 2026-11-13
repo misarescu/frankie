@@ -232,3 +232,53 @@ func TestRunCommandGateFailsOnInvalidProjectConfig(t *testing.T) {
 		t.Errorf("results = %+v", results)
 	}
 }
+
+// Interpret's gate runs the definition's commands, under its step ID, and
+// tells the agent what failed.
+func TestRunGateUsesTheDefinition(t *testing.T) {
+	f := newGateFixture(t, code(0), code(0), code(3))
+	stepRunID := startStep(t, f.a, StepStart{RunID: f.run.RunID, StepID: "unit-tests", Kind: domain.StepGate, Attempt: 2})
+	req := GateRequest{RunID: f.run.RunID, StepRunID: stepRunID, StepID: "unit-tests", Commands: []string{"go vet ./...", "go test ./..."},
+		Timeout: 10 * time.Minute, Branch: f.session.Branch, CommitSHA: pushedSHA}
+	v, err := activityEnv(f.a).ExecuteActivity(f.a.RunGate, f.in, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out GateOutcome
+	_ = v.Get(&out)
+	if out.Passed || out.StepRunID != stepRunID || out.Summary != "go test ./... exited 3" {
+		t.Fatalf("outcome = %+v", out)
+	}
+	if !strings.Contains(out.Feedback, "`go test ./...` exited 3") || strings.Contains(out.Feedback, "go vet") {
+		t.Errorf("feedback = %q", out.Feedback)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("pods = %d", len(f.created))
+	}
+	p := f.created[0]
+	if !strings.Contains(p.Name, "-unit-tests-") || p.Spec.ActiveDeadlineSeconds == nil || *p.Spec.ActiveDeadlineSeconds != 600 {
+		t.Errorf("pod %s deadline %v", p.Name, p.Spec.ActiveDeadlineSeconds)
+	}
+	var cmds []string
+	for _, c := range p.Spec.InitContainers[1:] {
+		cmds = append(cmds, strings.Join(c.Command, " "))
+	}
+	if joined := strings.Join(cmds, "|"); !strings.Contains(joined, "go vet ./...") || !strings.Contains(joined, "go test ./...") || strings.Contains(joined, "mise run") {
+		t.Errorf("commands = %v", cmds)
+	}
+	step, _ := f.a.Store.GetStepRun(t.Context(), uuid.MustParse(stepRunID))
+	if step.Status != domain.ExecFailed || step.CommitSHA != pushedSHA || step.Attempt != 2 {
+		t.Errorf("step = %+v", step)
+	}
+}
+
+func TestFeedbackTail(t *testing.T) {
+	long := strings.Repeat("noise line\n", 2000) + "--- FAIL: TestSearch\n"
+	got := feedback(domain.CommandGateDetails{Commands: []domain.CommandResult{{Command: "mise run test", ExitCode: ptr(1), LogTail: long}}})
+	if len(got) > feedbackTailBytes+200 || !strings.Contains(got, "--- FAIL: TestSearch") || !strings.HasPrefix(got, "`mise run test` exited 1") {
+		t.Errorf("feedback is %d bytes:\n%.200s", len(got), got)
+	}
+	if feedback(domain.CommandGateDetails{Commands: []domain.CommandResult{{Command: "x", ExitCode: ptr(0)}}}) != "" {
+		t.Error("a passed gate has feedback")
+	}
+}

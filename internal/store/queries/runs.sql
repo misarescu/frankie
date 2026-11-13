@@ -53,3 +53,11 @@ SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue
 FROM runs r JOIN issues i ON i.id = r.issue_id
 ORDER BY r.created_at DESC
 LIMIT @max_runs;
+
+-- Records how many times a gate has looped back (docs/spec/03: loop counts are recorded per issue).
+-- name: SetRunLoopCount :one
+UPDATE runs
+SET loop_counts = jsonb_set(loop_counts, ARRAY[@step_id::text], to_jsonb(@loops::integer)),
+    updated_at  = now()
+WHERE id = @id
+RETURNING *;

@@ -51,6 +51,7 @@ Agent steps and gates start every pod with empty dependency and build caches, so
 - Caches live only in image layers built from the declared files; whatever an agent or gate pod writes stays in that pod, so no run can poison another's cache (invariant 2).
 - Hosts a warm-up needs (Maven Central, NuGet, ...) go through the egress allowlist as usual.
 - **Done when:** Frankie's gate with unchanged dependencies takes at most 6 minutes on the concrete profile (17 at M3); unchanged dependency files reuse the dependency image and a changed `go.sum` rebuilds only the dependency layer (tested); a non-Go toy project (Python or Java) gets a working dependency image from its own declaration (e2e).
+- **Done (2026-11-13):** Frankie's frk-2 ran in its dependency image: gate 4m46s (frk-1: 17m18s), agent step 5m38s (14m12s) (frankie#44). Activity tests cover reuse and the `go.sum`-only rebuild; the `dependencies` e2e builds and runs a Python toy's dependency image. Building a dependency image is slow (Frankie's: 29m44s), almost all of it BuildKit unpacking and copying the toolchain image inside the Kata VM (open question 16 d).
 
 ## M4 - Harnesses and models
 

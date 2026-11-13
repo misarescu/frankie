@@ -11,7 +11,7 @@ import (
 
 func testConfig() BuildConfig {
 	return BuildConfig{
-		Namespace: "frankie-build", BuildKitImage: "moby/buildkit:v0.35.0-rootless", RuntimeClassName: "kata",
+		Namespace: "frankie-build", BuildKitImage: "moby/buildkit:v0.35.0", RuntimeClassName: "kata",
 		ServiceAccountName: "frankie-build", PushHost: "frankie-registry.frankie.svc:5000",
 		EgressProxyURL: "http://egress.frankie.svc:3128", Deadline: 30 * time.Minute,
 		Limits:      corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("3Gi")},
@@ -73,6 +73,14 @@ func TestBuildResources(t *testing.T) {
 			if !strings.Contains(args, want) {
 				t.Errorf("args missing %q:\n%s", want, args)
 			}
+		}
+		// D31: rootless BuildKit does not work on Kata (no file capabilities on virtiofs), and
+		// an unprivileged rootful one cannot create cgroups.
+		if sc := c.SecurityContext; !*sc.Privileged || *sc.RunAsUser != 0 {
+			t.Errorf("build container must be privileged root inside the Kata VM: %+v", sc)
+		}
+		if spec.SecurityContext != nil {
+			t.Errorf("pod-level security context would conflict with root: %+v", spec.SecurityContext)
 		}
 		for _, e := range c.Env {
 			if strings.Contains(strings.ToLower(e.Name), "token") || strings.Contains(strings.ToLower(e.Name), "key") {

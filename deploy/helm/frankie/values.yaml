@@ -53,12 +53,12 @@ toolchains:
       limits: { cpu: 500m, memory: 128Mi }
   build:
     namespace: frankie-build
-    # Rootless BuildKit needs an unconfined seccomp/AppArmor profile, which Pod
-    # Security "restricted" and "baseline" refuse. The Kata VM is the boundary:
-    # build pods have no token, no secrets and egress only to the proxy and registry.
+    # BuildKit runs as a privileged root container (D31), which Pod Security
+    # refuses below "privileged". The Kata VM is the boundary: build pods have no
+    # token, no secrets and egress only to the proxy and registry.
     podSecurity: privileged
     serviceAccountName: frankie-build
-    buildkitImage: moby/buildkit:v0.35.0-rootless
+    buildkitImage: moby/buildkit:v0.35.0
     deadline: 30m
     scratchSize: 10Gi
     limits: { cpu: "2", memory: 3Gi }

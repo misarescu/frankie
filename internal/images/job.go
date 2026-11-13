@@ -19,7 +19,6 @@ const (
 	RoleLabel      = "frankie.dev/role"
 	RoleBuild      = "toolchain-build"
 	ImageTagLabel  = "frankie.dev/toolchain-tag"
-	buildUID       = 1000
 	contextMount   = "/ctx"
 	agentHomeMise  = "/home/agent/.local/share/mise"
 	agentUID       = 10001
@@ -31,7 +30,7 @@ const (
 // platform configuration, not from the repo being built.
 type BuildConfig struct {
 	Namespace          string
-	BuildKitImage      string // a moby/buildkit rootless image
+	BuildKitImage      string // a moby/buildkit image (rootful, D31)
 	RuntimeClassName   string // kata: the VM is the isolation for the relaxed container profile
 	ServiceAccountName string // has no RBAC bindings
 	// PushHost is where the build pushes, reachable from the build pod and
@@ -155,20 +154,12 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 					AutomountServiceAccountToken: ptrTo(false),
 					EnableServiceLinks:           ptrTo(false),
 					RestartPolicy:                corev1.RestartPolicyNever,
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: ptrTo(true),
-						RunAsUser:    ptrTo(int64(buildUID)),
-						RunAsGroup:   ptrTo(int64(buildUID)),
-						FSGroup:      ptrTo(int64(buildUID)),
-					},
 					Containers: []corev1.Container{{
 						Name:    "buildkit",
 						Image:   c.BuildKitImage,
 						Command: []string{"buildctl-daemonless.sh"},
 						Args:    args,
 						Env: []corev1.EnvVar{
-							// Rootless BuildKit inside a Kata VM: no extra process sandbox.
-							{Name: "BUILDKITD_FLAGS", Value: "--oci-worker-no-process-sandbox"},
 							{Name: "HTTPS_PROXY", Value: c.EgressProxyURL},
 							{Name: "https_proxy", Value: c.EgressProxyURL},
 							{Name: "HTTP_PROXY", Value: c.EgressProxyURL},
@@ -177,18 +168,19 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 							{Name: "no_proxy", Value: noProxy},
 						},
 						Resources: corev1.ResourceRequirements{Limits: limits, Requests: limits.DeepCopy()},
-						// Rootless BuildKit needs the setuid newuidmap helpers and an
-						// unconfined seccomp/AppArmor profile to create its user namespace;
-						// the Kata VM is the isolation boundary, so the build namespace
-						// does not enforce Pod Security "restricted" (see the chart).
+						// D31: BuildKit runs as privileged root. Rootless mode needs
+						// newuidmap with file capabilities, which Kata's virtiofs root does
+						// not honor, and an unprivileged rootful BuildKit cannot create
+						// cgroups (read-only /sys/fs/cgroup). The Kata VM is the isolation
+						// boundary, so the build namespace does not enforce Pod Security
+						// "restricted" (see the chart).
 						SecurityContext: &corev1.SecurityContext{
-							SeccompProfile:  &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
-							AppArmorProfile: &corev1.AppArmorProfile{Type: corev1.AppArmorProfileTypeUnconfined},
-							Capabilities:    &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+							Privileged: ptrTo(true),
+							RunAsUser:  ptrTo(int64(0)),
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							{Name: "context", MountPath: contextMount, ReadOnly: true},
-							{Name: "scratch", MountPath: "/home/user/.local/share/buildkit"},
+							{Name: "scratch", MountPath: "/var/lib/buildkit"},
 						},
 					}},
 					Volumes: []corev1.Volume{

@@ -49,6 +49,28 @@ message StartRequest {
   google.protobuf.Duration idle_timeout = 7;
   // Upper bound on agent turns, if the harness supports it. Zero means harness default.
   int32 max_turns = 8;
+  // Git workspace to prepare before the harness starts. Unset: the harness works
+  // in the runner's workdir as it is.
+  Workspace workspace = 9;
+}
+
+// Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
+// the control plane git proxy and checks out branch; when the session succeeds
+// the runner commits any remaining changes, pushes branch, and reports the commit
+// in the done event. Nothing is pushed when the session fails or is aborted.
+message Workspace {
+  // Git proxy URL of the repo, e.g. http://controlplane:8081/git/misarescu/toy.git.
+  string clone_url = 1;
+  // Per-step git proxy token (D21). Never written to disk.
+  string token = 2;
+  // Branch to start from: main for a first step, the issue branch afterwards.
+  string base_ref = 3;
+  // Branch to push, agent/<issue-key>/<slug> (D22).
+  string branch = 4;
+  // Message for the runner's commit of uncommitted changes.
+  string commit_message = 5;
+  string author_name = 6;
+  string author_email = 7;
 }
 
 message StartResponse {
@@ -92,6 +114,8 @@ enum EventType {
   EVENT_TYPE_TOOL_CALL = 2;
   // payload: {"tool_call_id": string, "name": string, "content": string, "is_error": bool}
   EVENT_TYPE_TOOL_RESULT = 3;
+  // One changed file of the pushed branch, against the base commit (unified diff,
+  // capped at 256 KiB). Emitted just before done.
   // payload: {"path": string, "diff": string}
   EVENT_TYPE_FILE_DIFF = 4;
   // Result of a shell tool call.
@@ -105,7 +129,11 @@ enum EventType {
   EVENT_TYPE_ERROR = 7;
   // Last event of every session.
   // payload: {"status": "succeeded"|"failed"|"aborted"|"timeout", "reason": string,
-  //           "result": string, "harness_session_id": string, "exit_code": int}
+  //           "result": string, "harness_session_id": string, "exit_code": int,
+  //           "branch": string, "commit_sha": string, "pushed": bool}
+  // With a workspace and status succeeded: branch is set, pushed tells whether the
+  // session changed anything, and commit_sha is the pushed head (or the base
+  // commit when nothing changed). A failed push turns the status into failed.
   EVENT_TYPE_DONE = 8;
 }
 

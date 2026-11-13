@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/runner/workspace"
 )
 
 // fakeHarness answers every message with an assistant_message and only ends
@@ -302,5 +304,160 @@ func TestEveryRunnerEventTypeHasAProtoType(t *testing.T) {
 		if pt, ok := protoEventTypes[typ]; !ok || pt == runnerv1.EventType_EVENT_TYPE_UNSPECIFIED {
 			t.Errorf("%s has no proto event type", typ)
 		}
+	}
+}
+
+type fakePublisher struct {
+	mu    sync.Mutex
+	cfg   workspace.Config
+	res   workspace.Result
+	err   error
+	calls int
+}
+
+func (f *fakePublisher) Branch() string { return f.cfg.Branch }
+
+func (f *fakePublisher) Publish(context.Context) (workspace.Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.res, f.err
+}
+
+func (f *fakePublisher) publishCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// newWorkspaceRunner returns a runner whose workspace preparation is faked.
+func newWorkspaceRunner(t *testing.T, pub *fakePublisher, prepareErr error) (runnerv1.RunnerServiceClient, *fakeHarness) {
+	t.Helper()
+	h := &fakeHarness{}
+	srv := NewServer("/workspace", map[runnerv1.Harness]Harness{runnerv1.Harness_HARNESS_CLAUDE_CODE: h})
+	srv.tick = 10 * time.Millisecond
+	srv.prepare = func(_ context.Context, cfg workspace.Config) (publisher, error) {
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		pub.cfg = cfg
+		return pub, nil
+	}
+	return newTestClient(t, srv), h
+}
+
+var testWorkspace = &runnerv1.Workspace{
+	CloneUrl: "http://controlplane:8081/git/misarescu/toy.git", Token: "fgp1.t.s",
+	BaseRef: "main", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
+	AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid",
+}
+
+func startWithWorkspace(t *testing.T, c runnerv1.RunnerServiceClient) {
+	t.Helper()
+	if _, err := c.Start(t.Context(), &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Workspace: testWorkspace}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := c.Prompt(t.Context(), &runnerv1.PromptRequest{Text: "fix it"}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+}
+
+func eventTypes(events []*runnerv1.Event) []runnerv1.EventType {
+	out := make([]runnerv1.EventType, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.GetType())
+	}
+	return out
+}
+
+// FR-SB-6: a succeeded session's workspace is pushed; file diffs precede done.
+func TestRunnerPublishesWorkspaceOnSuccess(t *testing.T) {
+	pub := &fakePublisher{res: workspace.Result{CommitSHA: "abc123", Pushed: true, Diffs: []workspace.FileDiff{
+		{Path: "a.go", Diff: "+a"}, {Path: "b.go", Diff: "+b"}}}}
+	c, h := newWorkspaceRunner(t, pub, nil)
+	startWithWorkspace(t, c)
+	want := workspace.Config{Dir: "/workspace", CloneURL: testWorkspace.GetCloneUrl(), Token: testWorkspace.GetToken(),
+		BaseRef: "main", Branch: "agent/frk-42/fix", CommitMessage: "frk-42: changes",
+		AuthorName: "frankie-agent", AuthorEmail: "agent@frankie.invalid"}
+	if pub.cfg != want {
+		t.Errorf("workspace config = %+v, want %+v", pub.cfg, want)
+	}
+
+	h.sessions[0].finish(DoneSucceeded, "")
+	events := readAll(t, c, 0)
+	wantTypes := []runnerv1.EventType{runnerv1.EventType_EVENT_TYPE_ASSISTANT_MESSAGE, runnerv1.EventType_EVENT_TYPE_FILE_DIFF,
+		runnerv1.EventType_EVENT_TYPE_FILE_DIFF, runnerv1.EventType_EVENT_TYPE_DONE}
+	if got := eventTypes(events); !slices.Equal(got, wantTypes) {
+		t.Fatalf("event types = %v, want %v", got, wantTypes)
+	}
+	var diff workspace.FileDiff
+	if err := json.Unmarshal(events[1].GetPayload(), &diff); err != nil || diff.Path != "a.go" {
+		t.Errorf("file_diff payload = %s, %v", events[1].GetPayload(), err)
+	}
+	d := donePayload(t, events)
+	if d.Status != DoneSucceeded || d.Branch != "agent/frk-42/fix" || d.CommitSHA != "abc123" || !d.Pushed {
+		t.Errorf("done = %+v", d)
+	}
+	if pub.publishCalls() != 1 {
+		t.Errorf("Publish called %d times", pub.publishCalls())
+	}
+}
+
+// Failed, aborted and timed-out sessions push nothing.
+func TestRunnerDoesNotPublishUnsuccessfulSessions(t *testing.T) {
+	for _, st := range []DoneStatus{DoneFailed, DoneAborted, DoneTimeout} {
+		t.Run(string(st), func(t *testing.T) {
+			pub := &fakePublisher{}
+			c, h := newWorkspaceRunner(t, pub, nil)
+			startWithWorkspace(t, c)
+			h.sessions[0].finish(st, "it went wrong")
+			d := donePayload(t, readAll(t, c, 0))
+			if d.Status != st || d.Pushed || d.CommitSHA != "" || pub.publishCalls() != 0 {
+				t.Errorf("done = %+v, publish calls %d", d, pub.publishCalls())
+			}
+		})
+	}
+}
+
+func TestRunnerPushFailureFailsTheSession(t *testing.T) {
+	pub := &fakePublisher{err: errors.New("non-fast-forward")}
+	c, h := newWorkspaceRunner(t, pub, nil)
+	startWithWorkspace(t, c)
+	h.sessions[0].finish(DoneSucceeded, "")
+	events := readAll(t, c, 0)
+	d := donePayload(t, events)
+	if d.Status != DoneFailed || !strings.Contains(d.Reason, "push failed: non-fast-forward") || d.Pushed {
+		t.Errorf("done = %+v", d)
+	}
+	if got := events[len(events)-2].GetType(); got != runnerv1.EventType_EVENT_TYPE_ERROR {
+		t.Errorf("event before done = %s, want ERROR", got)
+	}
+}
+
+func TestRunnerReportsTruncatedDiffs(t *testing.T) {
+	pub := &fakePublisher{res: workspace.Result{CommitSHA: "abc", Pushed: true, Truncated: true,
+		Diffs: []workspace.FileDiff{{Path: "a", Diff: "+"}}}}
+	c, h := newWorkspaceRunner(t, pub, nil)
+	startWithWorkspace(t, c)
+	h.sessions[0].finish(DoneSucceeded, "")
+	events := readAll(t, c, 0)
+	if got := events[len(events)-2].GetType(); got != runnerv1.EventType_EVENT_TYPE_ERROR {
+		t.Errorf("event before done = %s, want ERROR about truncation", got)
+	}
+	if d := donePayload(t, events); d.Status != DoneSucceeded {
+		t.Errorf("truncation must not fail the session: %+v", d)
+	}
+}
+
+// A failed clone fails Start and leaves the runner free for a retry.
+func TestRunnerWorkspacePrepareFailure(t *testing.T) {
+	c, _ := newWorkspaceRunner(t, &fakePublisher{}, errors.New("clone: authentication failed"))
+	_, err := c.Start(t.Context(), &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Workspace: testWorkspace})
+	wantCode(t, err, codes.FailedPrecondition)
+	if !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := c.Start(t.Context(), &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE}); err != nil {
+		t.Errorf("Start after a failed prepare: %v", err)
 	}
 }

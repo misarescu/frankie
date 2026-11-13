@@ -55,6 +55,15 @@ run = "go test -tags smoke -count=1 -v -timeout 5m -run '^TestSmokeRealClaude$' 
 description = "Run cluster acceptance tests (Ginkgo, build tag e2e; see e2e/e2e_suite_test.go)"
 run = "ginkgo --tags=e2e -v ./e2e"
 
+[tasks."deps:warm"]
+description = "Download and pre-compile dependencies; the factory runs it to build Frankie's dependency image (M3.1)"
+run = [
+  "go mod download",
+  # Compile every dependency package Frankie imports into the build cache.
+  "grep -v '^#' go-packages.txt | xargs go build",
+  "cd web && bun install --frozen-lockfile",
+]
+
 [tasks.generate]
 description = "Regenerate committed code (protobuf, sqlc)"
 run = "scripts/generate.sh"

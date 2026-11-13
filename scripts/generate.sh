@@ -16,3 +16,6 @@ if has_files internal/store/queries '*.sql'; then
 else
 	echo "generate: no queries under internal/store/queries/, skipping sqlc"
 fi
+
+# The packages the dependency image pre-compiles (M3.1).
+scripts/go-packages.sh

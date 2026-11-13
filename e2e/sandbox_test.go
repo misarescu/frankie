@@ -12,6 +12,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -173,6 +174,29 @@ var _ = Describe("Platform", Label("platform"), func() {
 			g.Expect(ss.Status.ReadyReplicas).To(BeNumerically(">=", 1), "postgres ready replicas")
 		}).WithContext(ctx).WithTimeout(2 * time.Minute).WithPolling(3 * time.Second).Should(Succeed())
 	})
+
+	// The control plane's service account can do what toolchain builds need
+	// (D30, D45), and no more: found by the first self-hosted run, whose build
+	// finished but whose digest the control plane could not read.
+	DescribeTable("control plane permissions in the build namespace",
+		func(ctx SpecContext, verb, group, resource string, allowed bool) {
+			review, err := cs.AuthorizationV1().SubjectAccessReviews().Create(ctx, &authorizationv1.SubjectAccessReview{
+				Spec: authorizationv1.SubjectAccessReviewSpec{
+					User: "system:serviceaccount:" + platformNS + ":frankie-controlplane",
+					ResourceAttributes: &authorizationv1.ResourceAttributes{
+						Namespace: "frankie-build", Verb: verb, Group: group, Resource: resource,
+					},
+				},
+			}, metav1.CreateOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(review.Status.Allowed).To(Equal(allowed), "%s %s: %s", verb, resource, review.Status.Reason)
+		},
+		Entry("create build jobs", "create", "batch", "jobs", true),
+		Entry("read build pods for the reported digest", "list", "", "pods", true),
+		Entry("read a build pod", "get", "", "pods", true),
+		Entry("but never create pods there", "create", "", "pods", false),
+		Entry("nor read secrets", "get", "", "secrets", false),
+	)
 })
 
 // The agents namespace enforces Pod Security "restricted": a privileged pod is

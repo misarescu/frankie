@@ -17,7 +17,9 @@ import (
 )
 
 // Verifies the two protocol assumptions the adapter relies on:
-//  1. a message sent while a turn is running gets its own result line;
+//  1. a message sent before the first turn starts is queued and gets its own
+//     result line (one sent while a model call is in flight joins the running
+//     turn instead; the conformance suite covers that case, D51);
 //  2. closing stdin after the last result makes claude exit cleanly.
 func TestSmokeRealClaude(t *testing.T) {
 	h := &Harness{}

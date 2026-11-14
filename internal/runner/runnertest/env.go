@@ -32,11 +32,22 @@ const PodNoProxy = "localhost,127.0.0.1,.svc,.cluster.local"
 // the developer's harness data and configuration, and everything through the
 // egress proxy (here a dead one) except cluster-internal names and loopback.
 func PodEnv(t *testing.T) map[string]string {
+	env := HomeEnv(t)
+	for k, v := range map[string]string{
+		"HTTPS_PROXY": DeadProxy, "https_proxy": DeadProxy, "HTTP_PROXY": DeadProxy, "http_proxy": DeadProxy,
+		"NO_PROXY": PodNoProxy, "no_proxy": PodNoProxy,
+	} {
+		env[k] = v
+	}
+	return env
+}
+
+// HomeEnv is a fresh home, isolated from the developer's harness data and
+// configuration, with the network as it is (for smoke tests).
+func HomeEnv(t *testing.T) map[string]string {
 	home := t.TempDir()
 	return map[string]string{
 		"HOME": home, "XDG_CONFIG_HOME": filepath.Join(home, ".config"), "XDG_DATA_HOME": filepath.Join(home, ".local/share"),
 		"XDG_STATE_HOME": filepath.Join(home, ".local/state"), "XDG_CACHE_HOME": filepath.Join(home, ".cache"),
-		"HTTPS_PROXY": DeadProxy, "https_proxy": DeadProxy, "HTTP_PROXY": DeadProxy, "http_proxy": DeadProxy,
-		"NO_PROXY": PodNoProxy, "no_proxy": PodNoProxy,
 	}
 }

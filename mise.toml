@@ -56,6 +56,14 @@ run = "go test -race ./..."
 description = "Smoke-test the Claude Code adapter against the real claude CLI (spends model usage)"
 run = "go test -tags smoke -count=1 -v -timeout 5m -run '^TestSmokeRealClaude$' ./internal/runner/claudecode/"
 
+[tasks."test:smoke-opencode"]
+description = "Smoke-test the opencode adapter against a real model through OpenRouter (spends usage; needs OPENROUTER_API_KEY)"
+run = "go test -tags smoke -count=1 -v -timeout 10m -run '^TestSmokeRealModel$' ./internal/runner/opencode/"
+
+[tasks."test:smoke-pi"]
+description = "Smoke-test the pi adapter against a real model through OpenRouter (spends usage; needs OPENROUTER_API_KEY)"
+run = "go test -tags smoke -count=1 -v -timeout 10m -run '^TestSmokeRealModel$' ./internal/runner/pi/"
+
 [tasks.e2e]
 description = "Run cluster acceptance tests (Ginkgo, build tag e2e; see e2e/e2e_suite_test.go)"
 run = "ginkgo --tags=e2e -v ./e2e"

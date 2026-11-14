@@ -81,6 +81,55 @@ func stepDetails(raw json.RawMessage) map[string]stepDetail {
 	return out
 }
 
+// planStepJSON is one step of a run's workflow, in the order it runs (M5.1).
+type planStepJSON struct {
+	StepID string `json:"step_id"`
+	Kind   string `json:"kind"` // agent, gate, action
+	stepDetail
+}
+
+// runPlan lists the steps a run's snapshot executes, in order: a parallel
+// group's branches, then the group's gate, under the IDs their step executions
+// get. A snapshot it cannot read gives no steps.
+func runPlan(raw json.RawMessage) []planStepJSON {
+	var snap snapshot.Snapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		return []planStepJSON{}
+	}
+	details := stepDetails(raw)
+	out := []planStepJSON{}
+	add := func(id string, kind config.StepKind) {
+		out = append(out, planStepJSON{StepID: id, Kind: string(kind), stepDetail: details[id]})
+	}
+	for _, st := range snap.Workflow.Steps {
+		switch k := st.Kind(); k {
+		case config.StepParallel:
+			for _, b := range st.Parallel {
+				add(b.ID, b.Kind())
+			}
+			if st.Gate != nil {
+				add(st.ID, config.StepGate)
+			}
+		case "":
+			// not a valid step; a snapshot that passed validation has none
+		default:
+			add(st.ID, k)
+		}
+	}
+	return out
+}
+
+// listPlan lists the steps a run executes, so a timeline can show the ones not
+// reached yet: GET /api/runs/{id}/plan.
+func (s *Server) listPlan(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.run(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(runPlan(run.WorkflowSnapshot))
+}
+
 // listSteps lists a run's step executions in order, so the run page knows
 // which agent step is running.
 func (s *Server) listSteps(w http.ResponseWriter, r *http.Request) {

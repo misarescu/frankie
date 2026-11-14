@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { abort, runningAgentStep, steer, stepName, totals, usd, who, type Step } from "./steps";
+import { abort, runningAgentStep, steer, stepName, totals, upcoming, usd, who, type Step } from "./steps";
 
 const step = (step_id: string, kind: string, status: string, cost_usd = 0, input_tokens = 0, output_tokens = 0): Step =>
   ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status, cost_usd, input_tokens, output_tokens });
@@ -59,3 +59,16 @@ test("M5.1: steer and abort send the person's name as by", async () => {
   await abort(fetchFn, "s1", "stop", "Ana");
   expect(bodies).toEqual([{ text: "go", by: "Ana" }, { reason: "stop", by: "Ana" }]);
 });
+
+test("M5.1: the steps not reached yet follow the ones that ran, in plan order", () => {
+  const plan = [
+    { step_id: "implement", kind: "agent", role: "coder" }, { step_id: "checks", kind: "gate", gate: "command" },
+    { step_id: "code-reviewer", kind: "agent", role: "code-reviewer" }, { step_id: "review", kind: "gate", gate: "agent-verdict" },
+  ];
+  const got = upcoming(plan, [step("implement", "agent", "succeeded"), step("checks", "gate", "running")]);
+  expect(got.map((s) => [s.step_id, s.status, who(s)])).toEqual([
+    ["code-reviewer", "not started", "code-reviewer · default model"], ["review", "not started", "agent-verdict gate"],
+  ]);
+  expect(upcoming(plan, plan.map((p) => step(p.step_id, p.kind, "succeeded")))).toEqual([]);
+});
+

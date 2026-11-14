@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { eventTypes, label, parseStreamEvent, summary, type RunEvent } from "./events";
 import { StatusChip } from "./IssuesPage";
 import { clip, duration, keepLatest, type LiveRunRef } from "./live";
-import { stepName, usd, who, type Step } from "./steps";
+import { stepName, upcoming, usd, who, type PlanStep, type Step } from "./steps";
 
 // LiveRun follows one run on the issue page (M5.1): its step timeline with
 // status and duration, and the agent's latest messages and tool calls, from the
@@ -12,6 +12,18 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
   const [end, setEnd] = useState<string | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [now, setNow] = useState(() => new Date());
+  const [plan, setPlan] = useState<PlanStep[]>([]);
+
+  // The workflow's steps, fixed for the run (invariant 4): read once.
+  useEffect(() => {
+    let alive = true;
+    setPlan([]);
+    fetch(`/api/runs/${run.id}/plan`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: PlanStep[]) => { if (alive) setPlan(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [run.id]);
 
   useEffect(() => {
     setLatest([]);
@@ -47,21 +59,28 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
   }, [run.id, end]);
 
   const cost = steps.reduce((c, s) => c + s.cost_usd, 0);
+  // A run that ended without reaching a step will not reach it: only a run in
+  // progress shows what is still to come.
+  const rest = end ? [] : upcoming(plan, steps);
   return (
     <section className="live">
       <h2>
         {showIssue && <><a href={`#/issues/${run.issue_key}`}>{run.issue_key}</a> {run.issue_title} · </>}
         <span className="type">{run.workflow}</span>{" "}
         <StatusChip status={end ?? run.status} />
-        {cost > 0 && <span className="type"> · {usd(cost)}</span>}
+        <span className="type"> · total {usd(cost)}</span>
         {" · "}<a href={`#/runs/${run.id}`}>full transcript</a>
       </h2>
-      {steps.length === 0 ? <p className="status">{end ? "No steps ran." : "Starting: waiting for the first step…"}</p> : (
+      {steps.length === 0 && rest.length === 0 ? <p className="status">{end ? "No steps ran." : "Starting: waiting for the first step…"}</p> : (
         <ol className="timeline">
-          {steps.map((s) => (
-            <li key={s.id} className={`st-${s.status}`}>
+          {[...steps, ...rest].map((s) => (
+            <li key={s.id} className={s.status === "not started" ? "upcoming" : `st-${s.status}`}>
               <strong>{stepName(s)}</strong> <StatusChip status={s.status} />
-              <span className="type"> {duration(s.started_at, s.finished_at, now)}{who(s) && ` · ${who(s)}`}</span>
+              <span className="type">
+                {" "}{duration(s.started_at, s.finished_at, now)}
+                {who(s) && ` · ${who(s)}`}
+                {s.kind === "agent" && s.status !== "not started" && ` · ${usd(s.cost_usd)}`}
+              </span>
             </li>
           ))}
         </ol>

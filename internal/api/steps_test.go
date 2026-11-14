@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -130,6 +131,50 @@ steps:
 		if got := stepDetails(json.RawMessage(raw)); len(got) != 0 {
 			t.Errorf("stepDetails(%s) = %+v, want none", raw, got)
 		}
+	}
+}
+
+// M5.1: the plan lists a run's steps in the order they run, under the IDs
+// their executions get, so a timeline can grey out the ones not reached yet.
+func TestRunPlan(t *testing.T) {
+	w, err := config.ParseWorkflow([]byte(`
+name: mixed
+version: 1
+steps:
+  - id: implement
+    agent: { role: coder }
+  - id: checks
+    gate: { type: command }
+  - id: review
+    parallel:
+      - agent: { role: code-reviewer, harness: pi, model: openrouter/openai/gpt-5.6-terra }
+    gate: { type: agent-verdict }
+  - id: open-change-request
+    action: change-request.open
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(snapshot.Snapshot{Workflow: w, Roles: map[string]config.Role{"coder": {Name: "coder"}, "code-reviewer": {Name: "code-reviewer"}}})
+	var got []string
+	for _, p := range runPlan(raw) {
+		got = append(got, p.StepID+":"+p.Kind+":"+p.Role+p.Gate)
+	}
+	want := []string{"implement:agent:coder", "checks:gate:command", "code-reviewer:agent:code-reviewer", "review:gate:agent-verdict", "open-change-request:action:"}
+	if !slices.Equal(got, want) {
+		t.Errorf("plan = %v\nwant %v", got, want)
+	}
+	if p := runPlan(json.RawMessage(`not json`)); p == nil || len(p) != 0 {
+		t.Errorf("unreadable snapshot: plan = %#v, want empty", p)
+	}
+
+	_, srv, run, _ := testServer(t)
+	var plan []planStepJSON
+	if code := getJSON(t, srv.URL+"/api/runs/"+run.ID.String()+"/plan", &plan); code != http.StatusOK || plan == nil {
+		t.Errorf("GET plan = %d, %#v; want 200 and a list", code, plan)
+	}
+	if code := getJSON(t, srv.URL+"/api/runs/0198f2a4-0000-7000-8000-000000000000/plan", nil); code != http.StatusNotFound {
+		t.Errorf("unknown run: %d", code)
 	}
 }
 

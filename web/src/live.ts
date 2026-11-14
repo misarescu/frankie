@@ -54,3 +54,13 @@ export function watch(prev: LiveRunRef[], live: LiveRunRef[], max = 3): LiveRunR
 export function clip(text: string, max = 400): string {
   return text.length > max ? `${text.slice(0, max).trimEnd()} …` : text;
 }
+
+// latestRun is the run an issue that does the work shows on its page (M5.1):
+// its newest, finished or not, so leaving the page and coming back keeps it.
+// Parents show their issues instead.
+export function latestRun(is: { key: string; title: string; children: unknown[]; runs: { id: string; status: string; workflow: string; created_at: string }[] }): LiveRunRef | undefined {
+  const r = is.runs[0];
+  if (!r || is.children.length > 0) return undefined;
+  return { id: r.id, status: r.status, workflow: r.workflow, created_at: r.created_at, issue_key: is.key, issue_title: is.title };
+}
+

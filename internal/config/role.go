@@ -147,6 +147,11 @@ func ResolveRoles(w Workflow, lookup RoleLookup) (map[string]Role, error) {
 		if _, pin, pinned := strings.Cut(a.Role, "@"); pinned && pin != fmt.Sprint(r.Version) {
 			errs = append(errs, fmt.Errorf("%s.agent.role: %s pins version %s, the role is at version %d", path, a.Role, pin, r.Version))
 		}
+		for _, tool := range r.AllowedTools {
+			if slices.Contains(harnesses[a.Harness].lacks, tool) {
+				errs = append(errs, fmt.Errorf("%s.agent: role %s allows %s, which harness %s does not have", path, name, tool, a.Harness))
+			}
+		}
 		if a.Model == "" && r.DefaultModel != "" {
 			if err := harnessCanUse(a.Harness, r.DefaultModel); err != nil {
 				errs = append(errs, fmt.Errorf("%s.agent: role %s defaults to %s, which harness %s cannot use (%w); set a model", path, name, r.DefaultModel, a.Harness, err))

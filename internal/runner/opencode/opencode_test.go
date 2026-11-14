@@ -1,198 +1,38 @@
 package opencode
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/runner"
+	"github.com/misarescu/frankie/internal/runner/runnertest"
 )
 
 // These tests run the real opencode binary (pinned in mise.toml) against a
 // fake OpenAI-compatible model, so they spend no model usage. Without the
 // binary they skip locally and fail in CI.
 
-const (
-	testModel  = "openai/gpt-test"
-	deadProxy  = "http://127.0.0.1:9"
-	podNoProxy = "localhost,127.0.0.1,.svc,.cluster.local"
-)
-
-// fakeModel is a scripted chat completions endpoint: a first answer calls the
-// shell tool, any answer after a tool result reports the user messages it saw.
-type fakeModel struct {
-	srv *httptest.Server
-	// hold, when set, blocks the first answer until it is closed, so a test
-	// can act while the agent loop is mid-turn.
-	hold chan struct{}
-
-	mu       sync.Mutex
-	requests []fakeRequest
-}
-
-type fakeRequest struct {
-	Auth  string
-	Model string
-	Tools []string
-	Users []string
-}
-
-func newFakeModel(t *testing.T) *fakeModel {
-	t.Helper()
-	f := &fakeModel{}
-	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(f.srv.Close)
-	return f
-}
-
-func (f *fakeModel) serve(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/v1/chat/completions" {
-		http.NotFound(w, r)
-		return
-	}
-	var body struct {
-		Model    string `json:"model"`
-		Messages []struct {
-			Role    string `json:"role"`
-			Content any    `json:"content"`
-		} `json:"messages"`
-		Tools []struct {
-			Function struct {
-				Name string `json:"name"`
-			} `json:"function"`
-		} `json:"tools"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	req := fakeRequest{Auth: r.Header.Get("Authorization"), Model: body.Model}
-	for _, t := range body.Tools {
-		req.Tools = append(req.Tools, t.Function.Name)
-	}
-	toolResult := false
-	for _, m := range body.Messages {
-		switch m.Role {
-		case "user":
-			req.Users = append(req.Users, fmt.Sprint(m.Content))
-		case "tool":
-			toolResult = true
-		}
-	}
-	f.mu.Lock()
-	f.requests = append(f.requests, req)
-	first := len(f.requests) == 1
-	f.mu.Unlock()
-	if first && f.hold != nil {
-		<-f.hold
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	send := func(v any) {
-		b, _ := json.Marshal(v)
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
-		w.(http.Flusher).Flush()
-	}
-	choice := func(delta map[string]any, finish any) map[string]any {
-		return map[string]any{"id": "c1", "object": "chat.completion.chunk", "model": body.Model,
-			"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
-	}
-	if !toolResult {
-		send(choice(map[string]any{"role": "assistant", "content": "Writing the file."}, nil))
-		send(choice(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_1", "type": "function",
-			"function": map[string]any{"name": "shell", "arguments": `{"command":"echo hello > hello.txt","description":"Write hello.txt"}`}}}}, nil))
-		send(choice(map[string]any{}, "tool_calls"))
-	} else {
-		send(choice(map[string]any{"role": "assistant", "content": "Done. Users: " + strings.Join(req.Users, " | ")}, nil))
-		send(choice(map[string]any{}, "stop"))
-	}
-	send(map[string]any{"id": "c1", "object": "chat.completion.chunk", "choices": []any{},
-		"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}})
-	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
-}
-
-func (f *fakeModel) seen() []fakeRequest {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.requests)
-}
-
-// recorder collects the normalized events of a session.
-type recorder struct {
-	mu     sync.Mutex
-	events []recorded
-}
-
-type recorded struct {
-	typ     domain.EventType
-	payload any
-}
-
-func (r *recorder) emit(t domain.EventType, p any) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, recorded{t, p})
-}
-
-func (r *recorder) all() []recorded {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.events)
-}
-
-func (r *recorder) done(t *testing.T) runner.Done {
-	t.Helper()
-	ev := r.all()
-	if len(ev) == 0 || ev[len(ev)-1].typ != domain.EventDone {
-		t.Fatalf("last event is not done: %+v", ev)
-	}
-	return ev[len(ev)-1].payload.(runner.Done)
-}
-
-func opencodeBinary(t *testing.T) string {
-	t.Helper()
-	bin, err := exec.LookPath("opencode")
-	if err == nil {
-		return bin
-	}
-	if os.Getenv("CI") != "" {
-		t.Fatalf("opencode not on PATH (required in CI): %v", err)
-	}
-	t.Skipf("opencode not on PATH; run through mise (mise run test): %v", err)
-	return ""
-}
+const testModel = "openai/gpt-test"
 
 // startSession starts a session in a fresh workdir, isolated from the
 // developer's opencode data and configuration.
-func startSession(t *testing.T, f *fakeModel, cfg runner.SessionConfig) (runner.Session, *recorder, string) {
+func startSession(t *testing.T, f *runnertest.FakeModel, cfg runner.SessionConfig) (runner.Session, *runnertest.Recorder, string) {
 	t.Helper()
-	bin := opencodeBinary(t)
-	home := t.TempDir()
+	bin := runnertest.Binary(t, "opencode")
 	work := t.TempDir()
 	cfg.Workdir = work
 	cfg.Model = testModel
-	cfg.Gateway = runner.Gateway{BaseURL: f.srv.URL, APIKey: "sk-test", API: runner.ModelAPIOpenAI}
-	cfg.Env = map[string]string{"HOME": home, "XDG_CONFIG_HOME": filepath.Join(home, ".config"),
-		"XDG_DATA_HOME": filepath.Join(home, ".local/share"), "XDG_STATE_HOME": filepath.Join(home, ".local/state"),
-		"XDG_CACHE_HOME": filepath.Join(home, ".cache"),
-		// As in an agent pod (internal/sandbox): everything through the egress
-		// proxy, here a dead one, except cluster-internal names and loopback.
-		"HTTPS_PROXY": deadProxy, "https_proxy": deadProxy, "HTTP_PROXY": deadProxy, "http_proxy": deadProxy,
-		"NO_PROXY": podNoProxy, "no_proxy": podNoProxy}
-	rec := &recorder{}
+	cfg.Gateway = runner.Gateway{BaseURL: f.URL(), APIKey: "sk-test", API: runner.ModelAPIOpenAI}
+	cfg.Env = runnertest.PodEnv(t)
+	rec := &runnertest.Recorder{}
 	h := &Harness{Binary: bin, TempDir: t.TempDir(), KillGrace: 2 * time.Second}
-	s, err := h.Start(t.Context(), cfg, rec.emit)
+	s, err := h.Start(t.Context(), cfg, rec.Emit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,14 +53,14 @@ func waitDone(t *testing.T, s runner.Session) {
 }
 
 func TestSessionRunsTheTaskThroughTheGateway(t *testing.T) {
-	f := newFakeModel(t)
+	f := runnertest.NewFakeModel(t, "shell")
 	s, rec, work := startSession(t, f, runner.SessionConfig{SystemPrompt: "You are the Frankie coder."})
 	if err := s.Send("Create hello.txt"); err != nil {
 		t.Fatal(err)
 	}
 	waitDone(t, s)
 
-	d := rec.done(t)
+	d := rec.Done(t)
 	if d.Status != runner.DoneSucceeded || d.ExitCode != 0 || d.HarnessSessionID == "" || !strings.HasPrefix(d.Result, "Done.") {
 		t.Fatalf("done = %+v", d)
 	}
@@ -231,9 +71,9 @@ func TestSessionRunsTheTaskThroughTheGateway(t *testing.T) {
 	var call runner.ToolCall
 	var out runner.CommandOutput
 	var usage runner.TokenUsage
-	for _, e := range rec.all() {
-		types = append(types, e.typ)
-		switch p := e.payload.(type) {
+	for _, e := range rec.All() {
+		types = append(types, e.Type)
+		switch p := e.Payload.(type) {
 		case runner.ToolCall:
 			call = p
 		case runner.CommandOutput:
@@ -241,6 +81,9 @@ func TestSessionRunsTheTaskThroughTheGateway(t *testing.T) {
 		case runner.TokenUsage:
 			usage = p
 		}
+	}
+	if slices.Contains(types, domain.EventError) {
+		t.Errorf("a clean session emitted errors: %+v", rec.All())
 	}
 	for _, want := range []domain.EventType{domain.EventAssistantMessage, domain.EventToolCall, domain.EventCommandOutput, domain.EventTokenUsage} {
 		if !slices.Contains(types, want) {
@@ -253,7 +96,7 @@ func TestSessionRunsTheTaskThroughTheGateway(t *testing.T) {
 	if usage.InputTokens != 200 || usage.OutputTokens != 40 || usage.Turns != 2 {
 		t.Errorf("usage = %+v (two model calls, no title call)", usage)
 	}
-	reqs := f.seen()
+	reqs := f.Requests()
 	if len(reqs) != 2 {
 		t.Fatalf("model calls = %d, want 2 (the session title costs none): %+v", len(reqs), reqs)
 	}
@@ -268,24 +111,24 @@ func TestSessionRunsTheTaskThroughTheGateway(t *testing.T) {
 }
 
 func TestSteerReachesTheRunningTurn(t *testing.T) {
-	f := newFakeModel(t)
-	f.hold = make(chan struct{})
+	f := runnertest.NewFakeModel(t, "shell")
+	f.Hold = make(chan struct{})
 	s, rec, _ := startSession(t, f, runner.SessionConfig{})
 	if err := s.Send("Create hello.txt"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool { return len(f.seen()) == 1 })
+	waitFor(t, func() bool { return len(f.Requests()) == 1 })
 	if err := s.Send("Also mention bananas"); err != nil {
 		t.Fatal(err)
 	}
-	close(f.hold)
+	close(f.Hold)
 	waitDone(t, s)
 
-	d := rec.done(t)
+	d := rec.Done(t)
 	if d.Status != runner.DoneSucceeded {
 		t.Fatalf("done = %+v", d)
 	}
-	reqs := f.seen()
+	reqs := f.Requests()
 	last := reqs[len(reqs)-1]
 	if !slices.Contains(last.Users, "Also mention bananas") || !strings.Contains(d.Result, "bananas") {
 		t.Errorf("the steer did not reach the turn: requests %+v, result %q", reqs, d.Result)
@@ -293,17 +136,17 @@ func TestSteerReachesTheRunningTurn(t *testing.T) {
 }
 
 func TestAbortStopsTheServer(t *testing.T) {
-	f := newFakeModel(t)
-	f.hold = make(chan struct{})
-	defer close(f.hold)
+	f := runnertest.NewFakeModel(t, "shell")
+	f.Hold = make(chan struct{})
+	defer close(f.Hold)
 	s, rec, _ := startSession(t, f, runner.SessionConfig{})
 	if err := s.Send("Create hello.txt"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool { return len(f.seen()) == 1 })
+	waitFor(t, func() bool { return len(f.Requests()) == 1 })
 	s.Abort(runner.DoneAborted, "operator abort")
 	waitDone(t, s)
-	if d := rec.done(t); d.Status != runner.DoneAborted || d.Reason != "operator abort" {
+	if d := rec.Done(t); d.Status != runner.DoneAborted || d.Reason != "operator abort" {
 		t.Fatalf("done = %+v", d)
 	}
 	if err := s.Send("late"); !errors.Is(err, runner.ErrSessionFinished) {
@@ -312,28 +155,28 @@ func TestAbortStopsTheServer(t *testing.T) {
 }
 
 func TestReadOnlyShellRefusesWrites(t *testing.T) {
-	f := newFakeModel(t)
+	f := runnertest.NewFakeModel(t, "shell")
 	s, rec, work := startSession(t, f, runner.SessionConfig{AllowedTools: []string{"read", "grep", "bash:readonly"}})
 	if err := s.Send("Create hello.txt"); err != nil {
 		t.Fatal(err)
 	}
 	waitDone(t, s)
-	if d := rec.done(t); d.Status != runner.DoneSucceeded {
+	if d := rec.Done(t); d.Status != runner.DoneSucceeded {
 		t.Fatalf("done = %+v", d)
 	}
 	if _, err := os.Stat(filepath.Join(work, "hello.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a read-only shell wrote hello.txt: %v", err)
 	}
 	var out runner.CommandOutput
-	for _, e := range rec.all() {
-		if p, ok := e.payload.(runner.CommandOutput); ok {
+	for _, e := range rec.All() {
+		if p, ok := e.Payload.(runner.CommandOutput); ok {
 			out = p
 		}
 	}
 	if !out.IsError || !strings.Contains(out.Output, "Permission denied") {
 		t.Errorf("command output = %+v, want a refusal", out)
 	}
-	tools := f.seen()[0].Tools
+	tools := f.Requests()[0].Tools
 	for _, offered := range []string{"edit", "write", "webfetch", "question"} {
 		if slices.Contains(tools, offered) {
 			t.Errorf("the model was offered %s: %v", offered, tools)

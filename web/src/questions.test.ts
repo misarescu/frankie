@@ -21,3 +21,13 @@ test("answer reports a question that no longer waits and other failures", async 
   await expect(answer(reply(409), "q", "x")).rejects.toThrow("no longer waits");
   await expect(answer(reply(502, "could not reach the run's workflow\n"), "q", "x")).rejects.toThrow("could not reach");
 });
+
+test("M5.1: answer sends the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 202 });
+  };
+  await answer(fetchFn, "q1", "yes", "Ana");
+  expect(bodies).toEqual([{ text: "yes", by: "Ana" }]);
+});

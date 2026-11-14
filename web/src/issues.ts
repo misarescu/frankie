@@ -1,6 +1,8 @@
 // Issues as the control plane API returns them (internal/api/issues.go, D59),
 // starting them (D62), and the board's tree and dependency graph.
 
+import { signed } from "./identity";
+
 export type Project = { id: string; name: string; key_prefix: string };
 
 export type IssueSummary = {
@@ -75,12 +77,12 @@ async function post<T>(fetchFn: Fetch, url: string, body: unknown): Promise<T> {
 
 // startIssues asks the scheduler to start issues; a parent covers everything
 // under it. The reply is the scheduler's plan for them.
-export const startIssues = (fetchFn: Fetch, keys: string[]): Promise<StartReply> =>
-  post<StartReply>(fetchFn, "/api/issues/start", { keys });
+export const startIssues = (fetchFn: Fetch, keys: string[], by?: string | null): Promise<StartReply> =>
+  post<StartReply>(fetchFn, "/api/issues/start", signed({ keys }, by));
 
 // retryIssue re-arms a failed issue and asks to start it.
-export const retryIssue = (fetchFn: Fetch, key: string): Promise<IssueRef> =>
-  post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, {});
+export const retryIssue = (fetchFn: Fetch, key: string, by?: string | null): Promise<IssueRef> =>
+  post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, signed({}, by));
 
 // Finished issues: on main, released, or dropped.
 const finished = new Set(["merged", "released", "canceled"]);

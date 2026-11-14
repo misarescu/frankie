@@ -37,3 +37,14 @@ test("explains a step that ended meanwhile, and other refusals", async () => {
   await expect(steer(answer(409), "s1", "x")).rejects.toThrow("no longer running");
   await expect(abort(answer(400, "reason is required\n"), "s1", "x")).rejects.toThrow("reason is required");
 });
+
+test("M5.1: steer and abort send the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 202 });
+  };
+  await steer(fetchFn, "s1", "go", "Ana");
+  await abort(fetchFn, "s1", "stop", "Ana");
+  expect(bodies).toEqual([{ text: "go", by: "Ana" }, { reason: "stop", by: "Ana" }]);
+});

@@ -28,3 +28,14 @@ test("expiresIn", () => {
   expect(expiresIn("2026-11-16T12:00:00Z", now)).toBe("3 days");
   expect(expiresIn("2026-11-13T11:00:00Z", now)).toBe("expired");
 });
+
+test("M5.1: decide sends the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 202 });
+  };
+  await decide(fetchFn, "g1", "approve", "", "Ana");
+  await decide(fetchFn, "g1", "approve", "", null);
+  expect(bodies).toEqual([{ decision: "approve", comment: "", by: "Ana" }, { decision: "approve", comment: "" }]);
+});

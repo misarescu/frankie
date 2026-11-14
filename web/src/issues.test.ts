@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, shortID, startIssues, tree,
+  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, shortID, startIssues, subtree, tree,
   type IssueDetail, type IssueRef, type IssueSummary,
 } from "./issues";
 
@@ -163,5 +163,22 @@ test("M5.1: a parent's spec is not approved", () => {
   expect(specDecidable({ ...base, status: "refining" })).toBe(false);
   expect(specDecidable({ ...base, status: "refining", spec_proposal: { spec: "s", acceptance_criteria: [] } })).toBe(true);
   expect(specDecidable({ ...base, status: "ready" })).toBe(false);
+});
+
+test("M5.1: a parent's page lists everything under it, with the total cost", () => {
+  const issues = [
+    issue("gc-1", { type: "epic", status: "draft" }),
+    issue("gc-2", { parent: "gc-1", type: "story", status: "draft" }),
+    issue("gc-3", { parent: "gc-2", status: "merged", cost_usd: 0.25 }),
+    issue("gc-4", { parent: "gc-2", status: "running", cost_usd: 0.5 }),
+    issue("gc-5", { parent: "gc-1", type: "bug", status: "awaiting_human", cost_usd: 0.25 }),
+    issue("gc-6", { status: "ready", cost_usd: 9 }), // another tree
+  ];
+  const all = subtree(issues, "gc-1");
+  expect(all.rows.map((r) => `${r.depth}:${r.issue.key}`)).toEqual(["0:gc-2", "1:gc-3", "1:gc-4", "0:gc-5"]);
+  expect(all.cost).toBe(1);
+  expect(subtree(issues, "gc-2").rows.map((r) => `${r.depth}:${r.issue.key}`)).toEqual(["0:gc-3", "0:gc-4"]);
+  expect(subtree(issues, "gc-3").rows).toEqual([]);
+  expect(subtree(issues, "gc-99")).toEqual({ rows: [], cost: 0 });
 });
 

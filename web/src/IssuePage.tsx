@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import {
-  cancelIssue, completeIssue, issueActions, progress, progressText, retryIssue, shortID, specDecidable, startIssues,
+  cancelIssue, completeIssue, issueActions, retryIssue, shortID, specDecidable, startIssues,
   type CloseReply, type IssueDetail, type IssueRef, type StartReply,
 } from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
 import { latestRun, watch, type LiveRunRef } from "./live";
 import { LiveRun } from "./LiveRun";
+import { ParentIssues } from "./ParentIssues";
 import { decideSpec, type SpecDecision } from "./specs";
 import { usd } from "./steps";
 
@@ -34,9 +35,11 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
       .then((d: IssueDetail) => {
         setIssue(d);
         setError(null);
-        // An issue that does the work always shows its latest run; a parent its runs in progress.
+        // An issue that does the work shows its runs: its latest, finished or
+        // not, and any that finished while the page was open. A parent lists
+        // its issues instead (ParentIssues).
         const latest = latestRun(d);
-        setWatched((w) => watch(w, [...(d.live_runs ?? []), ...(latest ? [latest] : [])]));
+        setWatched((w) => (d.children.length > 0 ? [] : watch(w, [...(d.live_runs ?? []), ...(latest ? [latest] : [])])));
       })
       .catch((e: Error) => setError(e.message));
   }, [issueKey]);
@@ -93,16 +96,7 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
       )}
 
       <Relations title="part of" refs={is.parent ? [is.parent] : []} />
-      {is.children.length > 0 && (
-        <section className="children">
-          <h3 className="type">contains · {progressText(progress(is.children.map((c) => c.status)))}</h3>
-          <ul>
-            {is.children.map((c) => (
-              <li key={c.key}><a href={`#/issues/${c.key}`}>{c.key}</a> {c.title} <span className="type">· {c.type}</span> <StatusChip status={c.status} /></li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {is.children.length > 0 && <ParentIssues project={is.project} issueKey={is.key} live={is.live_runs.length > 0} />}
       <Relations title="waits for" refs={is.depends_on} />
       <Relations title="needed by" refs={is.dependents} />
 

@@ -123,6 +123,9 @@ func TestGetIssue(t *testing.T) {
 	if running.Project != "misarescu/Goodreads-Clone" || running.Status != "running" || running.Title != "Add <b>search</b>" {
 		t.Errorf("running = %+v", running)
 	}
+	if len(running.LiveRuns) != 1 || running.LiveRuns[0].ID != run.ID || running.LiveRuns[0].IssueKey != is["running"].Key {
+		t.Errorf("live runs = %+v; want the issue's active run (M5.1)", running.LiveRuns)
+	}
 	if len(running.Runs) != 1 || running.Runs[0].ID != run.ID || running.Runs[0].CostUSD != 0.4 || running.Runs[0].Workflow != run.WorkflowVersion {
 		t.Errorf("runs = %+v", running.Runs)
 	}
@@ -143,7 +146,7 @@ func TestGetIssue(t *testing.T) {
 	if keys := refKeys(epic.Children); !slices.Equal(keys, []string{is["api"].Key, is["ui"].Key, is["docs"].Key}) {
 		t.Errorf("epic children = %v", keys)
 	}
-	if epic.Parent != nil || epic.Runs == nil || len(epic.Runs) != 0 || epic.ChangeRequests == nil || epic.AcceptanceCriteria == nil {
+	if epic.Parent != nil || epic.Runs == nil || len(epic.Runs) != 0 || epic.LiveRuns == nil || epic.ChangeRequests == nil || epic.AcceptanceCriteria == nil {
 		t.Errorf("epic = %+v; want no parent and empty (not null) lists", epic)
 	}
 

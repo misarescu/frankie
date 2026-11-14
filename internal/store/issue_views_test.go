@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -130,5 +131,59 @@ func spend(t *testing.T, s *Store, run domain.Run, cost float64) {
 	}
 	if _, err := s.AddStepRunUsage(t.Context(), sr.ID, domain.Usage{CostUSD: cost, InputTokens: 100, OutputTokens: 10}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// M5.1: the live view follows the active runs of an issue and of everything
+// under it, oldest first; finished runs and other trees stay out.
+func TestListActiveRunsUnder(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	ctx := t.Context()
+	epic := mustTyped(t, s, p.ID, domain.IssueEpic, nil)
+	story := mustTyped(t, s, p.ID, domain.IssueStory, &epic)
+	task := mustTyped(t, s, p.ID, domain.IssueTask, &story)
+	bug := mustTyped(t, s, p.ID, domain.IssueBug, &epic)
+	other := mustTyped(t, s, p.ID, domain.IssueTask, nil)
+
+	done := mustRun(t, s, bug.ID)
+	if _, err := s.TransitionRun(ctx, done.ID, domain.ExecPending, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	first := mustRun(t, s, task.ID)
+	if _, err := s.TransitionRun(ctx, first.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	second := mustRun(t, s, bug.ID)
+	mustRun(t, s, other.ID)
+
+	keys := func(id uuid.UUID) []string {
+		t.Helper()
+		runs, err := s.ListActiveRunsUnder(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range runs {
+			out = append(out, r.IssueKey+":"+string(r.Status))
+		}
+		return out
+	}
+	for _, c := range []struct {
+		issue domain.Issue
+		want  []string
+	}{
+		{epic, []string{task.Key + ":running", bug.Key + ":pending"}}, // a grandchild and a child
+		{story, []string{task.Key + ":running"}},
+		{task, []string{task.Key + ":running"}},
+		{other, []string{other.Key + ":pending"}},
+	} {
+		if got := keys(c.issue.ID); !slices.Equal(got, c.want) {
+			t.Errorf("%s: live runs = %v, want %v", c.issue.Key, got, c.want)
+		}
+	}
+	runs, err := s.ListActiveRunsUnder(ctx, epic.ID)
+	if err != nil || runs[0].ID != first.ID || runs[1].ID != second.ID || runs[0].IssueTitle != task.Title || runs[0].WorkflowVersion != first.WorkflowVersion {
+		t.Errorf("live runs = %+v, %v", runs, err)
 	}
 }

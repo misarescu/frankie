@@ -16,6 +16,8 @@ Three layers, plus a ladder of human intervention.
 
 A timeline of issue > steps > runs > gates, with loop counts and gate results, built on the platform's own domain model. The Temporal UI remains available for debugging but is not the product UI.
 
+- M5.1 (D68): the issue page has a live view. The issue detail lists `live_runs`, the pending and running runs of the issue and of every issue under it (so an epic shows its tasks' runs), oldest first. For each, the page follows the run's stream and shows its step timeline (status, duration, who) and the agent's latest messages, tool calls, questions, interventions and gate results; a run that finishes while the page is open stays with its outcome. The page polls every 3 s while something runs or right after a start, otherwise every 10 s.
+
 ## 3. Metrics and traces
 
 OpenTelemetry: one trace per workflow, a span per step, child spans per LLM and tool call; exported to Grafana Tempo/Prometheus/Loki, or Langfuse for LLM-specific traces.

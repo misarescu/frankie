@@ -79,6 +79,21 @@ SET loop_counts = jsonb_set(loop_counts, ARRAY[@step_id::text], to_jsonb(@loops:
 WHERE id = @id
 RETURNING *;
 
+-- The active runs of an issue and of every issue under it, oldest first: what
+-- the issue page's live view follows (M5.1). UNION stops at a hierarchy loop.
+-- name: ListActiveRunsUnder :many
+WITH RECURSIVE sub (sub_id) AS (
+  SELECT top.id FROM issues top WHERE top.id = @issue_id
+  UNION
+  SELECT c.id FROM issues c JOIN sub ON c.parent_id = sub.sub_id
+)
+SELECT r.id, r.status, r.workflow_version, r.created_at, i.key AS issue_key, i.title AS issue_title
+FROM runs r
+JOIN sub ON sub.sub_id = r.issue_id
+JOIN issues i ON i.id = r.issue_id
+WHERE r.status IN ('pending', 'running')
+ORDER BY r.created_at, r.id;
+
 -- An issue's runs, newest first, with what each spent (D53).
 -- name: ListIssueRuns :many
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,

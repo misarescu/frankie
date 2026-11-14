@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import { isFinished, retryIssue, shortID, startIssues, type IssueDetail, type IssueRef, type StartReply } from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
+import { watch, type LiveRunRef } from "./live";
+import { LiveRun } from "./LiveRun";
 import { decideSpec, type SpecDecision } from "./specs";
 import { usd } from "./steps";
 
@@ -13,25 +15,42 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
   const [error, setError] = useState<string | null>(null);
   const [reply, setReply] = useState<StartReply | null>(null);
   const [busy, setBusy] = useState(false);
+  // Runs the live view follows: those in progress, and those that finished
+  // while the page was open (M5.1).
+  const [watched, setWatched] = useState<LiveRunRef[]>([]);
+  // Poll quickly while something runs or right after a start, so the first
+  // run shows up within seconds of the scheduler starting it.
+  const [fastUntil, setFastUntil] = useState(0);
 
   const load = useCallback(() => {
     fetch(`/api/issues/${encodeURIComponent(issueKey)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? "no such issue" : `status ${r.status}`))))
-      .then((d: IssueDetail) => { setIssue(d); setError(null); })
+      .then((d: IssueDetail) => { setIssue(d); setError(null); setWatched((w) => watch(w, d.live_runs ?? [])); })
       .catch((e: Error) => setError(e.message));
   }, [issueKey]);
   useEffect(() => {
     setIssue(null);
     setReply(null);
+    setWatched([]);
+  }, [issueKey]);
+  const fast = (is?.live_runs?.length ?? 0) > 0 || fastUntil > Date.now();
+  useEffect(() => {
     load();
-    const t = setInterval(load, 10000);
+    const t = setInterval(() => {
+      if (fastUntil !== 0 && fastUntil <= Date.now()) setFastUntil(0);
+      load();
+    }, fast ? 3000 : 10000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, fast, fastUntil]);
 
   const act = (p: Promise<unknown>) => {
     setBusy(true);
     setError(null);
     p.then(load).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
+  };
+  const start = () => {
+    setFastUntil(Date.now() + 60000);
+    act(startIssues(apiFetch, [issueKey]).then(setReply));
   };
 
   const head = <h1><a href="#/issues">Issues</a> / {issueKey}</h1>;
@@ -50,7 +69,7 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
       </p>
       <div className="actions">
         {!isFinished(is.status) && (
-          <button disabled={busy} onClick={() => act(startIssues(apiFetch, [is.key]).then(setReply))}>
+          <button disabled={busy} onClick={start}>
             {is.children.length > 0 ? "Start all under it" : "Start"}
           </button>
         )}
@@ -58,6 +77,7 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
         {error && <span className="status">{error}</span>}
       </div>
       {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
+      {watched.map((r) => <LiveRun key={r.id} run={r} showIssue={r.issue_key !== is.key} />)}
       {is.spec_feedback && <p className="question">Last spec sent back: {is.spec_feedback}</p>}
       {is.overlaps.length > 0 && (
         <p className="question">

@@ -22,6 +22,8 @@ const (
 	EventTokenUsage       EventType = "token_usage"
 	EventError            EventType = "error"
 	EventDone             EventType = "done"
+	// EventQuestion is the agent asking a person through the ask-human tool.
+	EventQuestion EventType = "question"
 
 	EventGateResult  EventType = "gate_result"
 	EventStateChange EventType = "state_change"

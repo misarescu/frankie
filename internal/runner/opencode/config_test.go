@@ -88,3 +88,40 @@ func TestEnvironmentLocksDownOpencode(t *testing.T) {
 		}
 	}
 }
+
+// D54: the session's MCP servers are remote servers with a long execution
+// timeout, and their tools are allowed whatever the role's tools.
+func TestConfigMCP(t *testing.T) {
+	raw, err := Config(runner.SessionConfig{Model: "m", Gateway: runner.Gateway{BaseURL: "http://gw"}, AllowedTools: []string{"read"},
+		MCPServers: []runner.MCPServer{{Name: "frankie", URL: "http://127.0.0.1:9000", Tools: []string{"ask_human"}}}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		MCP struct {
+			Servers map[string]struct {
+				Type    string           `json:"type"`
+				URL     string           `json:"url"`
+				Timeout map[string]int64 `json:"timeout"`
+			} `json:"servers"`
+		} `json:"mcp"`
+		Agents map[string]struct {
+			Permissions []rule `json:"permissions"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	s := c.MCP.Servers["frankie"]
+	if s.Type != "remote" || s.URL != "http://127.0.0.1:9000" || s.Timeout["execution"] != runner.MCPToolTimeout.Milliseconds() {
+		t.Errorf("server = %+v", s)
+	}
+	rules := c.Agents[agentID].Permissions
+	if rules[len(rules)-1] != (rule{"frankie_ask_human", "*", "allow"}) {
+		t.Errorf("rules = %v", rules)
+	}
+	none, _ := Config(runner.SessionConfig{Model: "m", Gateway: runner.Gateway{BaseURL: "http://gw"}}, "")
+	if strings.Contains(string(none), `"mcp"`) {
+		t.Errorf("MCP config without servers: %s", none)
+	}
+}

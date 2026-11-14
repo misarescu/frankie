@@ -73,7 +73,7 @@ Implementation (D48): provider profiles are platform configuration, `llmGateway.
 
 ## Human intervention, least to most invasive
 
-1. **Ask-human tool**: an MCP tool the agent calls when stuck. It blocks on a Temporal Signal answered from the UI.
+1. **Ask-human tool**: an MCP tool the agent calls when stuck. It blocks on a Temporal Signal answered from the UI. Runner side (D54): with `StartRequest.ask_human`, the runner serves an MCP server (`frankie`, tool `ask_human`, `internal/runner/askhuman`) on a loopback port and hands it to the harness as the session's only MCP server; a call emits a `question` event (`question_id`, `question`) and waits for the `Answer` RPC, sending MCP progress notifications meanwhile, or ends with an error result when the session ends. While a question waits the idle timeout does not run; the wall-clock timeout does.
 2. **Steer**: inject a message into a running session via the runner (`Steer`). Harnesses without native support get it at the next turn boundary.
 3. **Abort** a step via Signal. **Pause** is deferred (D52): no harness pauses natively, and a steer ("stop and wait", "change direction") or an abort followed by re-running the issue covers its uses.
 
@@ -82,7 +82,7 @@ Implementation (D52): the run page shows the running agent step (`GET /api/runs/
 
 ## Agent MCP servers
 
-- `ask-human` (above).
+- `ask-human` (above). Adapters (D54): Claude Code gets it through `--mcp-config` with `--strict-mcp-config`, which also keeps a repo's `.mcp.json` and the home directory's servers out of every session, and `MCP_TOOL_TIMEOUT` of a day (the runner's session timeouts bound the wait); opencode through `mcp.servers` with a day's execution timeout and an allow rule for `frankie_ask_human`; pi through `mcp.json` in its agent directory with `direct` exposure and `--extension builtin:mcp` (its MCP support is a built-in extension that `--no-extensions` turns off), naming the tool in `--tools` for restricted roles (a `--tools` allowlist drops MCP tools it does not name, unlike pi 1.5.2's docs say). The conformance suite asks through the real server in every harness and API, with a read-only role.
 - `factory-driver` (optional): scoped release-driver tools. Reversible/harmless tools allowed (e.g. `Status`, beta channel publish). Irreversible tools (stable publish) create a pending action that requires a human gate.
 - Project-defined MCP servers per role are allowed but must be declared in the role file and pass the egress allowlist.
 

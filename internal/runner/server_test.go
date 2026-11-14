@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -478,4 +479,116 @@ func TestGatewayConfig(t *testing.T) {
 			t.Errorf("gatewayConfig(%v) = %+v, want %+v", tt.in, got, tt.want)
 		}
 	}
+}
+
+// askOverMCP calls the session's ask_human tool as a harness would, and
+// returns the tool result's raw stream.
+func askOverMCP(t *testing.T, url, question string) <-chan string {
+	t.Helper()
+	out := make(chan string, 1)
+	go func() {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask_human","arguments":{"question":"` + question + `"}}}`
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
+		if err != nil {
+			out <- err.Error()
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			out <- err.Error()
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		out <- string(b)
+	}()
+	return out
+}
+
+// docs/spec/04, "Human intervention": the agent asks through the runner's
+// MCP server, the question is an event, and the person's answer (Answer)
+// returns from the tool call. The idle timeout waits for the person.
+func TestAskHuman(t *testing.T) {
+	h := &fakeHarness{}
+	srv := NewServer("/workspace", map[runnerv1.Harness]Harness{runnerv1.Harness_HARNESS_CLAUDE_CODE: h})
+	srv.tick = 10 * time.Millisecond
+	c := newTestClient(t, srv)
+	if _, err := c.Start(t.Context(), &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, AskHuman: true,
+		IdleTimeout: durationpb.New(100 * time.Millisecond)}); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	servers := h.cfg.MCPServers
+	h.mu.Unlock()
+	if len(servers) != 1 || servers[0].Name != "frankie" || !slices.Equal(servers[0].Tools, []string{"ask_human"}) || !strings.HasPrefix(servers[0].URL, "http://127.0.0.1:") {
+		t.Fatalf("MCP servers = %+v", servers)
+	}
+	if _, err := c.Prompt(t.Context(), &runnerv1.PromptRequest{Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	result := askOverMCP(t, servers[0].URL, "Which port?")
+
+	var questionID string
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stream, err := c.Events(ctx, &runnerv1.EventsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for questionID == "" {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("no question event: %v", err)
+		}
+		if e := resp.GetEvent(); e.GetType() == runnerv1.EventType_EVENT_TYPE_QUESTION {
+			var q Question
+			_ = json.Unmarshal(e.GetPayload(), &q)
+			if q.Question != "Which port?" {
+				t.Errorf("question = %+v", q)
+			}
+			questionID = q.QuestionID
+		}
+	}
+	// Several idle timeouts pass while the person thinks.
+	time.Sleep(350 * time.Millisecond)
+	h.mu.Lock()
+	sess := h.sessions[0]
+	h.mu.Unlock()
+	select {
+	case <-sess.Done():
+		t.Fatal("the idle timeout ended the session while a question waited")
+	default:
+	}
+	_, err = c.Answer(t.Context(), &runnerv1.AnswerRequest{QuestionId: "nope", Text: "x"})
+	wantCode(t, err, codes.NotFound)
+	if _, err := c.Answer(t.Context(), &runnerv1.AnswerRequest{QuestionId: questionID, Text: "8080"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-result; !strings.Contains(got, `"text":"8080"`) || !strings.Contains(got, `"isError":false`) {
+		t.Errorf("tool result = %s", got)
+	}
+	// Once answered, idle time runs again.
+	select {
+	case <-sess.Done():
+	case <-time.After(2 * time.Second):
+		t.Error("the idle timeout did not resume after the answer")
+	}
+}
+
+func TestAnswerWithoutAskHuman(t *testing.T) {
+	c, h := newTestRunner(t)
+	if _, err := c.Start(t.Context(), &runnerv1.StartRequest{Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE}); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	servers := h.cfg.MCPServers
+	h.mu.Unlock()
+	if len(servers) != 0 {
+		t.Errorf("MCP servers without ask_human: %+v", servers)
+	}
+	_, err := c.Answer(t.Context(), &runnerv1.AnswerRequest{QuestionId: "q", Text: "x"})
+	wantCode(t, err, codes.FailedPrecondition)
+	_, err = c.Answer(t.Context(), &runnerv1.AnswerRequest{})
+	wantCode(t, err, codes.InvalidArgument)
 }

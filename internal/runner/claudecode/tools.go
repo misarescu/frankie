@@ -27,7 +27,7 @@ var builtinTools = map[string]string{
 // bash:readonly shell additionally runs in dontAsk mode, where only the listed
 // tools and read-only command patterns are allowed and everything else is
 // denied without a prompt.
-func toolArgs(allowed []string) ([]string, error) {
+func toolArgs(allowed, mcpTools []string) ([]string, error) {
 	if len(allowed) == 0 {
 		return []string{"--dangerously-skip-permissions"}, nil
 	}
@@ -49,6 +49,7 @@ func toolArgs(allowed []string) ([]string, error) {
 		return nil, fmt.Errorf("claudecode: bash and bash:readonly together")
 	}
 	rules := slices.DeleteFunc(slices.Clone(tools), func(t string) bool { return t == "Bash" })
+	rules = append(rules, mcpTools...) // dontAsk denies anything not listed
 	for _, c := range runner.ReadOnlyCommands {
 		rules = append(rules, "Bash("+c+")", "Bash("+c+" *)")
 	}

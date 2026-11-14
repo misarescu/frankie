@@ -128,6 +128,15 @@ func prepare(cfg runner.SessionConfig, dir string) ([]string, map[string]string,
 	if err := os.WriteFile(filepath.Join(dir, "models.json"), models, 0o600); err != nil {
 		return nil, nil, fmt.Errorf("pi: models.json: %w", err)
 	}
+	if len(cfg.MCPServers) > 0 {
+		mcp, err := MCP(cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "mcp.json"), mcp, 0o600); err != nil {
+			return nil, nil, fmt.Errorf("pi: mcp.json: %w", err)
+		}
+	}
 	promptFile := ""
 	if cfg.SystemPrompt != "" {
 		promptFile = filepath.Join(dir, "role.md")

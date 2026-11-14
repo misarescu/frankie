@@ -21,6 +21,9 @@ service RunnerService {
   rpc Steer(SteerRequest) returns (SteerResponse);
   // Abort stops the session; the stream ends with done status "aborted".
   rpc Abort(AbortRequest) returns (AbortResponse);
+  // Answer answers a question the agent asked with the ask-human tool
+  // (EVENT_TYPE_QUESTION); the agent's tool call returns the text.
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
   // Events replays the session's events after after_seq, then follows live
   // events until done. Reconnect with the last seen seq to resume.
   rpc Events(EventsRequest) returns (stream EventsResponse);
@@ -81,6 +84,10 @@ message StartRequest {
   // The LLM gateway and virtual key. Adapters prefer it over harness-specific
   // variables in env, which older control planes set instead.
   Gateway gateway = 11;
+  // Offer the agent the ask-human tool: an MCP server in the runner whose
+  // ask_human call emits EVENT_TYPE_QUESTION and waits for Answer. While a
+  // question waits, the idle timeout does not run; the wall-clock one does.
+  bool ask_human = 12;
 }
 
 // Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
@@ -128,6 +135,14 @@ message SteerRequest {
 
 message SteerResponse {}
 
+message AnswerRequest {
+  // The question_id of an EVENT_TYPE_QUESTION.
+  string question_id = 1;
+  string text = 2;
+}
+
+message AnswerResponse {}
+
 message AbortRequest {
   string reason = 1;
 }
@@ -173,6 +188,9 @@ enum EventType {
   // session changed anything, and commit_sha is the pushed head (or the base
   // commit when nothing changed). A failed push turns the status into failed.
   EVENT_TYPE_DONE = 8;
+  // The agent asked a person (ask-human tool) and waits for Answer.
+  // payload: {"question_id": string, "question": string}
+  EVENT_TYPE_QUESTION = 9;
 }
 
 message Event {

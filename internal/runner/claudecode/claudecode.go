@@ -40,7 +40,7 @@ var _ runner.Harness = (*Harness)(nil)
 
 // Args returns the claude command-line flags for a session.
 func Args(cfg runner.SessionConfig) ([]string, error) {
-	tools, err := toolArgs(cfg.AllowedTools)
+	tools, err := toolArgs(cfg.AllowedTools, mcpToolNames(cfg.MCPServers))
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,31 @@ func Args(cfg runner.SessionConfig) ([]string, error) {
 	if cfg.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(cfg.MaxTurns))
 	}
-	return args, nil
+	// Only the session's MCP servers: none from the repo's .mcp.json or the
+	// home directory, which the agent controls.
+	if len(cfg.MCPServers) > 0 {
+		servers := map[string]any{}
+		for _, m := range cfg.MCPServers {
+			servers[m.Name] = map[string]string{"type": "http", "url": m.URL}
+		}
+		raw, err := json.Marshal(map[string]any{"mcpServers": servers})
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--mcp-config", string(raw))
+	}
+	return append(args, "--strict-mcp-config"), nil
+}
+
+// mcpToolNames are the session's MCP tools as Claude Code names them.
+func mcpToolNames(servers []runner.MCPServer) []string {
+	var names []string
+	for _, m := range servers {
+		for _, t := range m.Tools {
+			names = append(names, "mcp__"+m.Name+"__"+t)
+		}
+	}
+	return names
 }
 
 // gatewayEnv points Claude Code at the gateway with the virtual key. Its
@@ -100,7 +124,13 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 	}
 	cmd.Env = os.Environ()
 	env := maps.Clone(cfg.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
 	maps.Copy(env, gatewayEnv(cfg))
+	if len(cfg.MCPServers) > 0 {
+		env["MCP_TOOL_TIMEOUT"] = strconv.FormatInt(runner.MCPToolTimeout.Milliseconds(), 10)
+	}
 	for _, k := range slices.Sorted(maps.Keys(env)) {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}

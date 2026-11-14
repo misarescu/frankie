@@ -80,22 +80,11 @@ func (s *Server) listSpecs(w http.ResponseWriter, r *http.Request) {
 
 // requester is who asked to start the issue, or the nearest parent someone asked to start.
 func (s *Server) requester(r *http.Request, is domain.Issue) string {
-	seen := map[string]bool{}
-	for cur := is; !seen[cur.Key]; {
-		seen[cur.Key] = true
-		if cur.StartRequestedBy != "" {
-			return cur.StartRequestedBy
-		}
-		if cur.ParentID == nil {
-			break
-		}
-		parent, err := s.Store.GetIssue(r.Context(), *cur.ParentID)
-		if err != nil {
-			break
-		}
-		cur = parent
+	by, _, err := s.Store.StartRequester(r.Context(), is)
+	if err != nil {
+		s.Log.Warn("find who requested a start", "issue", is.Key, "error", err)
 	}
-	return ""
+	return by
 }
 
 // specDecisionRequest is the body of POST /api/issues/{key}/spec.

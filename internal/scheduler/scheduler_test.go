@@ -201,6 +201,49 @@ func TestSchedulerStartFailures(t *testing.T) {
 	}
 }
 
+// M5.1: an issue started through a request on an ancestor logs that ancestor's
+// requester and the issue the request was made on.
+func TestSchedulerLogsRequesterThroughParent(t *testing.T) {
+	s := storetest.New(t)
+	ctx := t.Context()
+	p, _ := s.CreateProject(ctx, "o/r", "or")
+	epic, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueEpic, Title: "e", Status: domain.IssueReady, CreatedBy: "t"})
+	story, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueStory, Title: "s", Status: domain.IssueReady, CreatedBy: "t", ParentID: &epic.ID})
+	task, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", Status: domain.IssueReady, CreatedBy: "t", ParentID: &story.ID})
+	direct, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "d", Status: domain.IssueReady, CreatedBy: "t"})
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{epic.ID}, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{direct.ID}, "bo"); err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	sch := &Scheduler{Store: s, Starter: &fakeStarter{s: s}, Projects: map[uuid.UUID]Project{p.ID: {Repo: "o/r"}},
+		Limit: 5, Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	if err := sch.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	started := map[string]string{}
+	for line := range strings.Lines(logs.String()) {
+		if strings.Contains(line, `msg="issue started"`) {
+			for _, k := range []string{task.Key, direct.Key} {
+				if strings.Contains(line, "issue="+k+" ") {
+					started[k] = line
+				}
+			}
+		}
+	}
+	for _, c := range []struct{ key, want, notWant string }{
+		{task.Key, "requested_by=ana requested_via=" + epic.Key, ""},
+		{direct.Key, "requested_by=bo", "requested_via"},
+	} {
+		line := started[c.key]
+		if !strings.Contains(line, c.want) || (c.notWant != "" && strings.Contains(line, c.notWant)) {
+			t.Errorf("%s: log line = %q, want %q", c.key, line, c.want)
+		}
+	}
+}
+
 // D63: starting an issue that likely overlaps one in flight logs a warning and
 // still starts it.
 func TestSchedulerWarnsAboutOverlap(t *testing.T) {

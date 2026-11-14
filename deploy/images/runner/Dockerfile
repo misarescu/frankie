@@ -14,7 +14,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM debian:trixie-slim
 ARG TARGETARCH
-# Pinned to the version the adapter was verified against (mise run test:smoke-claude).
+# Pinned to the version the adapter was verified against (mise run test:smoke-claude,
+# and the conformance suite, which CI runs with the same version: .github/workflows/ci.yml).
 ARG CLAUDE_CODE_VERSION=2.1.323
 # Pinned to the version the opencode adapter's tests run (mise.toml); the
 # checksums are the release assets' (mise.lock). Downloaded from GitHub, not

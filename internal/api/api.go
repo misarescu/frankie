@@ -32,4 +32,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/{id}/steps", s.listSteps)
 	mux.HandleFunc("POST /api/steps/{id}/steer", s.steerStep)
 	mux.HandleFunc("POST /api/steps/{id}/abort", s.abortStep)
+	mux.HandleFunc("GET /api/questions", s.listQuestions)
+	mux.HandleFunc("POST /api/questions/{id}/answer", s.answerQuestion)
 }

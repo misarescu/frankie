@@ -77,6 +77,9 @@ type AgentStep struct {
 	// a contract reviews: its workspace is read-only and its final message is
 	// the result.
 	Contract string `json:",omitempty"`
+	// AskHuman offers the agent the ask-human tool; the workflow sets it only
+	// when it relays answers to the session (D55).
+	AskHuman bool `json:",omitempty"`
 }
 
 // Review is one reviewer branch's session, for an agent-verdict gate.

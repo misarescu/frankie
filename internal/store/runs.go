@@ -171,7 +171,8 @@ func (s *Store) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]domain.Ste
 }
 
 // TransitionStepRun moves a StepRun between statuses and records a state_change event on
-// its Run's stream (FR-WF-7), with the same contract as TransitionIssue.
+// its Run's stream (FR-WF-7), with the same contract as TransitionIssue. A
+// final status expires the StepRun's unanswered questions.
 func (s *Store) TransitionStepRun(ctx context.Context, id uuid.UUID, from, to domain.ExecStatus) (domain.StepRun, error) {
 	if !domain.CanTransitionExec(from, to) {
 		return domain.StepRun{}, fmt.Errorf("store: step run %s: %w: %s -> %s", id, domain.ErrInvalidTransition, from, to)
@@ -183,6 +184,12 @@ func (s *Store) TransitionStepRun(ctx context.Context, id uuid.UUID, from, to do
 			return mapErr("transition step run", err)
 		}
 		out = stepRunFromRow(row)
+		// A finished session takes no more answers (D55).
+		if to.Terminal() {
+			if _, err := q.ExpireStepRunQuestions(ctx, id); err != nil {
+				return mapErr("expire questions", err)
+			}
+		}
 		return appendStateChange(ctx, q, &row.RunID, &id, domain.StateChange{Entity: "step_run", ID: id, From: string(from), To: string(to)})
 	})
 	if errors.Is(err, ErrNotFound) {

@@ -27,7 +27,8 @@ const (
 
 	EventGateResult  EventType = "gate_result"
 	EventStateChange EventType = "state_change"
-	// EventIntervention is a person steering or aborting a running agent step.
+	// EventIntervention is a person steering, aborting or answering a running
+	// agent step.
 	EventIntervention EventType = "intervention"
 )
 
@@ -35,16 +36,21 @@ const (
 const (
 	InterventionSteer = "steer"
 	InterventionAbort = "abort"
+	// InterventionAnswer answers a question the agent asked (D55).
+	InterventionAnswer = "answer"
 )
 
 // Intervention is the payload of an EventIntervention: who did what to a
 // running agent step, and whether its session still accepted it.
 type Intervention struct {
-	Action string `json:"action"` // InterventionSteer or InterventionAbort
+	Action string `json:"action"` // InterventionSteer, InterventionAbort or InterventionAnswer
 	By     string `json:"by"`
-	// Text is the steering message, or the reason for an abort.
+	// Text is the steering message, the reason for an abort, or the answer.
 	Text string `json:"text"`
-	// Delivered is false when the session had already finished.
+	// QuestionID is the runner's ID of the question an answer answers.
+	QuestionID string `json:"question_id,omitempty"`
+	// Delivered is false when the session had already finished, or no
+	// longer waited for the question.
 	Delivered bool `json:"delivered"`
 }
 

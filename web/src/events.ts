@@ -56,7 +56,11 @@ export function summary(e: RunEvent): string {
     case "done": return [str(p.status), p.reason ? `: ${str(p.reason)}` : "", p.commit_sha ? ` · ${str(p.commit_sha)}` : ""].join("");
     case "error": return p.detail ? `${str(p.message)}: ${str(p.detail)}` : str(p.message);
     case "question": return `asked: ${str(p.question)}`;
-    case "intervention": return `${str(p.by)} ${p.action === "abort" ? "aborted" : "steered"}: ${str(p.text)}${p.delivered === false ? " (the session had already ended)" : ""}`;
+    case "intervention": {
+      const verb = p.action === "abort" ? "aborted" : p.action === "answer" ? "answered" : "steered";
+      const missed = p.action === "answer" ? " (the agent no longer waited for it)" : " (the session had already ended)";
+      return `${str(p.by)} ${verb}: ${str(p.text)}${p.delivered === false ? missed : ""}`;
+    }
     default: return str(p);
   }
 }

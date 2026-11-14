@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import { dependencyGraph, isFinished, startIssues, tree, type IssueSummary, type Project, type StartReply } from "./issues";
+import {
+  dependencyGraph, isFinished, leafStatuses, progress, progressText, startIssues, tree, type IssueSummary, type Project, type StartReply,
+} from "./issues";
 import { usd } from "./steps";
 
 const getJSON = <T,>(url: string): Promise<T> =>
@@ -107,7 +109,10 @@ export function IssuesPage() {
                   <a href={`#/issues/${i.key}`}>{i.key}</a> {i.title} <span className="type">· {i.type}</span>
                   {i.start_requested_at && <span className="type" title="someone asked to start it"> · requested</span>}
                 </td>
-                <td><StatusChip status={i.status} /></td>
+                <td>
+                  <StatusChip status={i.status} />
+                  {issues && <Progress statuses={leafStatuses(issues, i.key)} />}
+                </td>
                 <td>{i.depends_on.map((d, n) => <span key={d}>{n > 0 && ", "}<a href={`#/issues/${d}`}>{d}</a></span>)}</td>
                 <td>{i.cost_usd > 0 ? usd(i.cost_usd) : ""}</td>
                 <td>{i.latest_run && <a href={`#/runs/${i.latest_run.id}`}>{i.latest_run.status}</a>}</td>
@@ -119,6 +124,12 @@ export function IssuesPage() {
       {issues && <DependencyGraph issues={issues.filter((i) => showFinished || !isFinished(i.status) || issues.some((o) => o.depends_on.includes(i.key) && !isFinished(o.status)))} />}
     </>
   );
+}
+
+// Progress shows how far a parent is, over the leaves under it (D70).
+function Progress({ statuses }: { statuses: string[] }) {
+  if (statuses.length === 0) return null;
+  return <span className="type"> {progressText(progress(statuses))}</span>;
 }
 
 export function StatusChip({ status }: { status: string }) {

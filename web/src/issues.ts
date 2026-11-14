@@ -49,6 +49,10 @@ export type IssueDetail = {
   spec_approved_by?: string;
   spec_feedback?: string;
   spec_proposal?: RefinedSpec;
+  // Who completed or canceled the issue, when, and why (D70).
+  closed_at?: string;
+  closed_by?: string;
+  close_reason?: string;
   parent?: IssueRef;
   children: IssueRef[];
   depends_on: IssueRef[];
@@ -86,6 +90,67 @@ export const startIssues = (fetchFn: Fetch, keys: string[], by?: string | null):
 // retryIssue re-arms a failed issue and asks to start it.
 export const retryIssue = (fetchFn: Fetch, key: string, by?: string | null): Promise<IssueRef> =>
   post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, signed({}, by));
+
+export type CloseReply = { closed: IssueRef[] };
+
+// completeIssue moves a parent whose sub-issues are all finished to merged
+// (D70); Frankie then closes its provider issue as completed (D71).
+export const completeIssue = (fetchFn: Fetch, key: string, by?: string | null): Promise<CloseReply> =>
+  post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/complete`, signed({}, by));
+
+// cancelIssue cancels an issue and everything unfinished under it, saying why
+// (D70); Frankie then closes their provider issues as not planned (D71).
+export async function cancelIssue(fetchFn: Fetch, key: string, reason: string, by?: string | null): Promise<CloseReply> {
+  const r = reason.trim();
+  if (r === "") throw new Error("say why it is canceled");
+  return post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/cancel`, signed({ reason: r }, by));
+}
+
+export type Progress = { merged: number; canceled: number; total: number };
+
+// progress counts a parent's sub-issues (D70): merged (or released), canceled,
+// and all. The issue page uses the direct sub-issues, which completing needs
+// finished; the issue list counts the leaves under a parent, where the work is.
+export function progress(statuses: string[]): Progress {
+  return {
+    merged: statuses.filter((s) => s === "merged" || s === "released").length,
+    canceled: statuses.filter((s) => s === "canceled").length,
+    total: statuses.length,
+  };
+}
+
+// leafStatuses lists the statuses of the leaves under key: the issues under it
+// that have no sub-issues. A leaf itself has none under it.
+export function leafStatuses(issues: IssueSummary[], key: string): string[] {
+  const children = new Map<string, IssueSummary[]>();
+  for (const i of issues) if (i.parent) children.set(i.parent, [...(children.get(i.parent) ?? []), i]);
+  const out: string[] = [];
+  const seen = new Set<string>([key]);
+  const walk = (k: string) => {
+    for (const c of children.get(k) ?? []) {
+      if (seen.has(c.key)) continue;
+      seen.add(c.key);
+      if (children.has(c.key)) walk(c.key);
+      else out.push(c.status);
+    }
+  };
+  walk(key);
+  return out;
+}
+
+// progressText says how far a parent is: "2 of 3 merged, 1 canceled".
+export function progressText(p: Progress): string {
+  return `${p.merged} of ${p.total} merged${p.canceled > 0 ? `, ${p.canceled} canceled` : ""}`;
+}
+
+// canComplete mirrors domain.CheckComplete, so the page offers Complete only
+// when the API would accept it: a draft or ready parent whose sub-issues are all
+// finished, at least one not canceled.
+export function canComplete(is: Pick<IssueDetail, "status" | "children">): boolean {
+  const p = progress(is.children.map((c) => c.status));
+  return (is.status === "draft" || is.status === "ready") && p.total > 0 &&
+    is.children.every((c) => isFinished(c.status)) && p.canceled < p.total;
+}
 
 // shortID shortens a run's ID for lists. IDs are UUIDv7, whose leading digits
 // are a timestamp shared by runs started close together, so it keeps the end.

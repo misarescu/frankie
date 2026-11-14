@@ -42,6 +42,7 @@ All interventions are recorded as events with the acting user.
 ## UI surfaces (from the product brief: "nice management")
 
 - Project board / issue list with DAG view and status; start one/many.
+  - M5 API (D59): `GET /api/projects`, `GET /api/issues?project=<name>` (the whole project with parents, dependency keys, cost and latest run) and `GET /api/issues/{key}` (the issue page: spec, relations, runs, usage, change requests).
 - Issue detail: spec editor, acceptance criteria, run history, live view, cost.
 - Approvals inbox: pending human gates (spec approval, protected-path changes, prod promotion, flag rollout steps).
 - Merge queue view per repo.

@@ -78,3 +78,19 @@ SET loop_counts = jsonb_set(loop_counts, ARRAY[@step_id::text], to_jsonb(@loops:
     updated_at  = now()
 WHERE id = @id
 RETURNING *;
+
+-- An issue's runs, newest first, with what each spent (D53).
+-- name: ListIssueRuns :many
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
+FROM runs r
+WHERE r.issue_id = @issue_id
+ORDER BY r.created_at DESC, r.id DESC;
+
+-- What all runs of an issue used: cost and tokens (D53).
+-- name: IssueUsage :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS cost_usd,
+       coalesce(sum(s.input_tokens), 0)::bigint AS input_tokens,
+       coalesce(sum(s.output_tokens), 0)::bigint AS output_tokens
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.issue_id = @issue_id;

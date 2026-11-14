@@ -256,6 +256,73 @@ func (q *Queries) IssueSpend(ctx context.Context, issueID uuid.UUID) (float64, e
 	return spent, err
 }
 
+const issueUsage = `-- name: IssueUsage :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS cost_usd,
+       coalesce(sum(s.input_tokens), 0)::bigint AS input_tokens,
+       coalesce(sum(s.output_tokens), 0)::bigint AS output_tokens
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.issue_id = $1
+`
+
+type IssueUsageRow struct {
+	CostUsd      float64
+	InputTokens  int64
+	OutputTokens int64
+}
+
+// What all runs of an issue used: cost and tokens (D53).
+func (q *Queries) IssueUsage(ctx context.Context, issueID uuid.UUID) (IssueUsageRow, error) {
+	row := q.db.QueryRow(ctx, issueUsage, issueID)
+	var i IssueUsageRow
+	err := row.Scan(&i.CostUsd, &i.InputTokens, &i.OutputTokens)
+	return i, err
+}
+
+const listIssueRuns = `-- name: ListIssueRuns :many
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
+FROM runs r
+WHERE r.issue_id = $1
+ORDER BY r.created_at DESC, r.id DESC
+`
+
+type ListIssueRunsRow struct {
+	ID         uuid.UUID
+	Status     string
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+	CostUsd    float64
+}
+
+// An issue's runs, newest first, with what each spent (D53).
+func (q *Queries) ListIssueRuns(ctx context.Context, issueID uuid.UUID) ([]ListIssueRunsRow, error) {
+	rows, err := q.db.Query(ctx, listIssueRuns, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIssueRunsRow
+	for rows.Next() {
+		var i ListIssueRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentRuns = `-- name: ListRecentRuns :many
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd

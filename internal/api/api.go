@@ -3,7 +3,8 @@
 // live transcript streaming (docs/spec/07-observability.md, FR-OB-1, FR-OB-2).
 // M3: the approvals inbox and decisions on human gates (docs/spec/03, FR-WF-3).
 // M4: a run's steps, and steering or aborting a running agent step (docs/spec/04).
-// M5: every write needs the API token (D58); reads stay open.
+// M5: every write needs the API token (D58); reads stay open. Projects and
+// issues for the board and the issue page (D59).
 package api
 
 import (
@@ -37,5 +38,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/steps/{id}/steer", s.requireToken(s.steerStep))
 	mux.HandleFunc("POST /api/steps/{id}/abort", s.requireToken(s.abortStep))
 	mux.HandleFunc("GET /api/questions", s.listQuestions)
+	mux.HandleFunc("GET /api/projects", s.listProjects)
+	mux.HandleFunc("GET /api/issues", s.listIssues)
+	mux.HandleFunc("GET /api/issues/{key}", s.getIssue)
 	mux.HandleFunc("POST /api/questions/{id}/answer", s.requireToken(s.answerQuestion))
 }

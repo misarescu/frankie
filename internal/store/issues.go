@@ -35,6 +35,15 @@ func (s *Store) GetProjectByName(ctx context.Context, name string) (domain.Proje
 	return projectFromRow(row), nil
 }
 
+// GetProject returns a project by ID.
+func (s *Store) GetProject(ctx context.Context, id uuid.UUID) (domain.Project, error) {
+	row, err := s.q.GetProject(ctx, id)
+	if err != nil {
+		return domain.Project{}, mapErr("get project", err)
+	}
+	return projectFromRow(row), nil
+}
+
 // NewIssue is the input for CreateIssue. Status defaults to draft.
 type NewIssue struct {
 	ProjectID          uuid.UUID

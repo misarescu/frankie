@@ -62,3 +62,18 @@ ORDER BY number;
 SELECT * FROM issues
 WHERE id IN (SELECT issue_id FROM issue_dependencies WHERE depends_on_id = @depends_on_id)
 ORDER BY number;
+
+-- A project's issues for the board: model spend across all runs and the latest run.
+-- name: ListProjectIssues :many
+SELECT sqlc.embed(i),
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8
+          FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
+       -- An issue without runs gets the nil UUID and an empty status.
+       coalesce(lr.id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_run_id,
+       coalesce(lr.status, '')::text AS latest_run_status
+FROM issues i
+LEFT JOIN LATERAL (
+  SELECT r.id, r.status FROM runs r WHERE r.issue_id = i.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1
+) lr ON true
+WHERE i.project_id = @project_id
+ORDER BY i.priority DESC, i.number;

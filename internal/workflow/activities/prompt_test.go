@@ -121,3 +121,30 @@ func TestStepPromptCarriesAnswers(t *testing.T) {
 		t.Errorf("prompt does not keep only the latest %d answers:\n%s", maxAnswers, p)
 	}
 }
+
+// M5.1: refinement gets its dependencies: status, change requests and spec, and
+// is told to read an unmerged one's branch instead of calling the issue blocked.
+func TestStepPromptCarriesDependencies(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-10", Title: "Document the count", Spec: "Write docs.", BaseBranch: "main",
+		Dependencies: []IssueDependency{
+			{Key: "gc-8", Title: "Add the count endpoint", Status: "awaiting_human", Spec: "GET /books/count returns {count}.",
+				ChangeRequests: []DependencyChange{{URL: "https://github.com/o/r/pull/26", Branch: "agent/gc-8/add-count", Status: "open"}}},
+			{Key: "gc-5", Title: "Base layout", Status: "merged"},
+		}}
+	p := StepPrompt(in, "agent/gc-10/document", false, AgentStep{StepID: "refine", Contract: "refined-spec", Inputs: []string{"spec"}}, nil)
+	for _, want := range []string{
+		"depends on the issues below", "git fetch origin <branch>", "rather than calling this issue blocked",
+		"gc-8: Add the count endpoint (awaiting human)", "Change request https://github.com/o/r/pull/26 (open), branch agent/gc-8/add-count",
+		"GET /books/count returns {count}.", "gc-5: Base layout (merged)",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q:\n%s", want, p)
+		}
+	}
+	if strings.Index(p, "Write docs.") > strings.Index(p, "depends on the issues below") {
+		t.Errorf("dependencies come before the issue's own spec:\n%s", p)
+	}
+	if p := StepPrompt(IssueRunInput{IssueKey: "gc-3", BaseBranch: "main"}, "b", false, AgentStep{StepID: "implement", Inputs: []string{"spec"}}, nil); strings.Contains(p, "depends on") {
+		t.Errorf("a run without dependencies mentions them:\n%s", p)
+	}
+}

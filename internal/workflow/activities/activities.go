@@ -35,6 +35,28 @@ type IssueRunInput struct {
 	// SpecFeedback is why a person sent the issue's last refined spec back, or
 	// why the last refinement failed; only refinement passes it (D66).
 	SpecFeedback string `json:",omitempty"`
+	// Dependencies are the issues this one waits for, its own and its
+	// ancestors', as they stood when the run started; only refinement passes
+	// them, so the refiner writes the spec against what they deliver (M5.1).
+	Dependencies []IssueDependency `json:",omitempty"`
+}
+
+// IssueDependency is an issue another one depends on, as refinement sees it.
+type IssueDependency struct {
+	Key    string
+	Title  string
+	Status string // the issue's status, e.g. merged or awaiting_human
+	Spec   string // clipped
+	// ChangeRequests are the dependency's change requests, newest first: where
+	// its code is before it reaches the base branch.
+	ChangeRequests []DependencyChange `json:",omitempty"`
+}
+
+// DependencyChange is one change request of a dependency.
+type DependencyChange struct {
+	URL    string
+	Branch string
+	Status string // open, merged or closed
 }
 
 // StartRunResult identifies the run and the agent step being executed: the

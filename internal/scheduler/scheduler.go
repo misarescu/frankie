@@ -133,6 +133,9 @@ func (s *Scheduler) start(ctx context.Context, id uuid.UUID, refine bool) error 
 	startFn := s.Starter.StartIssueRun
 	if refine {
 		in.SpecFeedback, startFn = is.SpecFeedback, s.Starter.StartRefinement
+		if in.Dependencies, err = s.dependencies(ctx, is); err != nil {
+			return err
+		}
 	}
 	if err := startFn(ctx, in); err != nil {
 		return err

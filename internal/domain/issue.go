@@ -128,8 +128,10 @@ type Issue struct {
 	ClosedAt    *time.Time
 	ClosedBy    string
 	CloseReason string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// SourceClosedAt is when the provider issue was closed to match (D71).
+	SourceClosedAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

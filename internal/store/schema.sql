@@ -57,6 +57,9 @@ CREATE TABLE issues (
   closed_at           timestamptz,
   closed_by           text,
   close_reason        text        NOT NULL DEFAULT '',
+  -- When the provider issue was closed to match (D71); null while that is
+  -- still to do for an issue a person closed.
+  source_closed_at    timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

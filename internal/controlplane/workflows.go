@@ -178,6 +178,9 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		mw := &mergequeue.Watcher{Store: st, Source: gh, Interval: max(cfg.PollInterval, 10*time.Second),
 			Log: log.With("component", "mergequeue")}
 		go mw.Run(ctx)
+		closer := &intake.Closer{Store: st, Source: gh, Interval: max(cfg.PollInterval, 10*time.Second),
+			Log: log.With("component", "closer")}
+		go closer.Run(ctx)
 	}
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
 		in := &intake.Intake{Store: st, Source: gh, Config: gh, Projects: projects,

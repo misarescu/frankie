@@ -228,6 +228,7 @@ func issueFromRow(r db.Issue) domain.Issue {
 		ClosedAt:           r.ClosedAt,
 		ClosedBy:           deref(r.ClosedBy),
 		CloseReason:        r.CloseReason,
+		SourceClosedAt:     r.SourceClosedAt,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

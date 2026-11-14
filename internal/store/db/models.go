@@ -92,6 +92,7 @@ type Issue struct {
 	ClosedAt           *time.Time
 	ClosedBy           *string
 	CloseReason        string
+	SourceClosedAt     *time.Time
 }
 
 type IssueDependency struct {

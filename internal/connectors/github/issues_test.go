@@ -1,9 +1,13 @@
 package github
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/misarescu/frankie/internal/domain"
@@ -96,5 +100,67 @@ func TestIssueNumber(t *testing.T) {
 		if got != want || ok != (want > 0) {
 			t.Errorf("IssueNumber(%q) = %d, %v; want %d", ref, got, ok, want)
 		}
+	}
+}
+
+// D71: the write-back reads an issue, comments on it and closes it as completed
+// or not planned, addressed by its source ref.
+func TestIssueWriteBack(t *testing.T) {
+	type call struct{ method, path, body string }
+	var calls []call
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.Method, r.URL.Path, strings.TrimSpace(string(b))})
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/o/r/issues/7":
+			_, _ = w.Write([]byte(`{"number":7,"state":"open","title":"t","html_url":"https://github.com/o/r/issues/7","repository_url":"https://api.github.com/repos/o/r"}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/o/r/issues/7":
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/repos/o/r/issues/9":
+			http.NotFound(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/o/r/issues/7/comments":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.Error(w, "Resource not accessible by personal access token", http.StatusForbidden)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient("pat", srv.URL)
+	ctx := t.Context()
+	ref := "https://github.com/o/r/issues/7"
+
+	got, err := c.Get(ctx, ref)
+	if err != nil || !got.Open || got.Number != 7 || got.Repo != "o/r" {
+		t.Fatalf("Get = %+v, %v", got, err)
+	}
+	if err := c.Comment(ctx, ref, "Canceled in Frankie"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []domain.IssueStatus{domain.IssueMerged, domain.IssueCanceled, domain.IssueReady} {
+		if err := c.UpdateStatus(ctx, ref, s); err != nil {
+			t.Fatalf("UpdateStatus(%s): %v", s, err)
+		}
+	}
+	want := []call{
+		{"GET", "/repos/o/r/issues/7", ""},
+		{"POST", "/repos/o/r/issues/7/comments", `{"body":"Canceled in Frankie"}`},
+		{"PATCH", "/repos/o/r/issues/7", `{"state":"closed","state_reason":"completed"}`},
+		{"PATCH", "/repos/o/r/issues/7", `{"state":"closed","state_reason":"not_planned"}`},
+		// ready: nothing to mirror
+	}
+	if !slices.Equal(calls, want) {
+		t.Errorf("requests =\n%v\nwant\n%v", calls, want)
+	}
+
+	if _, err := c.Get(ctx, "https://github.com/o/r/issues/9"); !errors.Is(err, domain.ErrExternalIssueGone) {
+		t.Errorf("Get of a missing issue = %v, want ErrExternalIssueGone", err)
+	}
+	calls = nil
+	if err := c.Comment(ctx, "https://github.com/o/r/pull/7", "x"); err == nil {
+		t.Error("a pull request URL was taken as an issue")
+	}
+	if err := c.UpdateStatus(ctx, "https://github.com/o/r/issues/8", domain.IssueCanceled); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Errorf("a refused write = %v, want the 403", err)
 	}
 }

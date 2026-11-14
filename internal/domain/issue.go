@@ -64,7 +64,9 @@ func (s IssueStatus) Valid() bool {
 // failed and canceled are reachable from every state before merged; failed -> ready re-arms
 // an issue for a new Run. awaiting_human -> merged records a change request merged on the
 // provider by a person (D61), until the merge queue (M6) merges them itself.
-// refining -> draft is a rejected or failed refinement (D66).
+// refining -> draft is a rejected or failed refinement (D66). failed -> canceled
+// is a person giving up on an issue (D70). Completing a parent (draft or ready
+// -> merged) is not in this table: only CheckComplete allows it, for parents.
 var issueTransitions = map[IssueStatus][]IssueStatus{
 	IssueDraft:         {IssueRefining, IssueReady, IssueFailed, IssueCanceled},
 	IssueRefining:      {IssueReady, IssueDraft, IssueFailed, IssueCanceled},
@@ -74,7 +76,7 @@ var issueTransitions = map[IssueStatus][]IssueStatus{
 	IssueQueued:        {IssueRunning, IssueMerged, IssueFailed, IssueCanceled},
 	IssueMerged:        {IssueReleased},
 	IssueReleased:      {},
-	IssueFailed:        {IssueReady},
+	IssueFailed:        {IssueReady, IssueCanceled},
 	IssueCanceled:      {},
 }
 
@@ -121,8 +123,13 @@ type Issue struct {
 	// SpecProposal is the refiner's result waiting for approval while the issue
 	// is refining (D66); approving applies it.
 	SpecProposal *RefinedSpec
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Closing by a person (D70): when and by whom a parent was completed or an
+	// issue canceled, and why it was canceled.
+	ClosedAt    *time.Time
+	ClosedBy    string
+	CloseReason string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

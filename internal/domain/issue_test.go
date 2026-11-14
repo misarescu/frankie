@@ -33,6 +33,11 @@ func TestCanTransitionIssue(t *testing.T) {
 		{IssueRefining, IssueDraft, true},
 		// D61: a person merged the change request on the provider (until M6).
 		{IssueAwaitingHuman, IssueMerged, true},
+		// D70: a person gives up on a failed issue.
+		{IssueFailed, IssueCanceled, true},
+		// D70: completing a parent goes through CheckComplete, not this table.
+		{IssueDraft, IssueMerged, false},
+		{IssueReady, IssueMerged, false},
 
 		// Spec approval cannot be skipped: no workflow before ready.
 		{IssueDraft, IssueRunning, false},

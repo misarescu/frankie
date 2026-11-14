@@ -225,6 +225,9 @@ func issueFromRow(r db.Issue) domain.Issue {
 		SpecRejectedAt:     r.SpecRejectedAt,
 		SpecFeedback:       r.SpecFeedback,
 		SpecProposal:       proposalFromRow(r.SpecProposal),
+		ClosedAt:           r.ClosedAt,
+		ClosedBy:           deref(r.ClosedBy),
+		CloseReason:        r.CloseReason,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

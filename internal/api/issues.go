@@ -159,13 +159,17 @@ type issueDetailJSON struct {
 	SpecApprovedBy     string              `json:"spec_approved_by,omitempty"`
 	SpecFeedback       string              `json:"spec_feedback,omitempty"`
 	SpecProposal       *domain.RefinedSpec `json:"spec_proposal,omitempty"`
-	CreatedAt          time.Time           `json:"created_at"`
-	UpdatedAt          time.Time           `json:"updated_at"`
-	Parent             *issueRefJSON       `json:"parent,omitempty"`
-	Children           []issueRefJSON      `json:"children"`
-	DependsOn          []issueRefJSON      `json:"depends_on"`
-	Dependents         []issueRefJSON      `json:"dependents"`
-	Runs               []issueRunJSON      `json:"runs"`
+	// Who completed or canceled the issue, when, and why (D70).
+	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
+	ClosedBy    string         `json:"closed_by,omitempty"`
+	CloseReason string         `json:"close_reason,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Parent      *issueRefJSON  `json:"parent,omitempty"`
+	Children    []issueRefJSON `json:"children"`
+	DependsOn   []issueRefJSON `json:"depends_on"`
+	Dependents  []issueRefJSON `json:"dependents"`
+	Runs        []issueRunJSON `json:"runs"`
 	// LiveRuns are the active runs of the issue and of every issue under it,
 	// oldest first, for the issue page's live view (M5.1).
 	LiveRuns       []liveRunJSON       `json:"live_runs"`
@@ -206,7 +210,7 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 		SourceRef: is.SourceRef, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt,
 		StartRequestedAt: is.StartRequestedAt, StartRequestedBy: is.StartRequestedBy,
 		SpecApprovedAt: is.SpecApprovedAt, SpecApprovedBy: is.SpecApprovedBy, SpecFeedback: is.SpecFeedback,
-		SpecProposal: is.SpecProposal}
+		SpecProposal: is.SpecProposal, ClosedAt: is.ClosedAt, ClosedBy: is.ClosedBy, CloseReason: is.CloseReason}
 	p, err := s.Store.GetProject(ctx, is.ProjectID)
 	if err != nil {
 		return out, err

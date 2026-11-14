@@ -47,6 +47,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/issues/{key}", s.getIssue)
 	mux.HandleFunc("POST /api/issues/start", s.requireToken(s.startIssues))
 	mux.HandleFunc("POST /api/issues/{key}/retry", s.requireToken(s.retryIssue))
+	mux.HandleFunc("POST /api/issues/{key}/complete", s.requireToken(s.completeIssue))
+	mux.HandleFunc("POST /api/issues/{key}/cancel", s.requireToken(s.cancelIssue))
 	mux.HandleFunc("GET /api/specs", s.listSpecs)
 	mux.HandleFunc("POST /api/issues/{key}/spec", s.requireToken(s.decideSpec))
 	mux.HandleFunc("POST /api/questions/{id}/answer", s.requireToken(s.answerQuestion))

@@ -88,6 +88,7 @@ type Issue struct {
 	SpecApprovedBy     *string
 	SpecRejectedAt     *time.Time
 	SpecFeedback       string
+	SpecProposal       []byte
 }
 
 type IssueDependency struct {

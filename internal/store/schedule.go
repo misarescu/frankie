@@ -22,7 +22,7 @@ func (s *Store) SchedulingState(ctx context.Context) ([]domain.SchedIssue, []dom
 	for i, r := range rows {
 		issues[i] = domain.SchedIssue{ID: r.ID, Key: r.Key, Type: domain.IssueType(r.Type), ParentID: r.ParentID,
 			Status: domain.IssueStatus(r.Status), Priority: int(r.Priority), Number: int(r.Number), Requested: r.Requested, Busy: r.Busy,
-			NeedsApproval: r.NeedsApproval, SpecRejected: r.SpecRejected}
+			NeedsApproval: r.NeedsApproval, SpecRejected: r.SpecRejected, HasProposal: r.HasProposal}
 	}
 	depRows, err := s.q.ListAllDependencies(ctx)
 	if err != nil {

@@ -76,6 +76,26 @@ func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueR
 	return err
 }
 
+// StartRefinement starts the issue's refinement (D66) with its snapshot. An
+// invalid configuration still starts Refine, which records the reason on the
+// issue; a failure to read the repo returns an error, and the scheduler tries again.
+func (t temporalStarter) StartRefinement(ctx context.Context, in activities.IssueRunInput) error {
+	snap, err := snapshot.ResolveRefinement(ctx, t.files, in.Repo, in.BaseBranch)
+	if errors.Is(err, snapshot.ErrInvalid) {
+		snap, err = snapshot.Snapshot{Error: err.Error()}, nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = t.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:                       "refine-" + in.IssueKey,
+		TaskQueue:                workflow.TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	}, workflow.Refine, workflow.RefineInput{Issue: in, Snapshot: snap})
+	return err
+}
+
 // chooseWorkflow snapshots what the issue's run will execute (invariant 4) and
 // runs it with Interpret: the project's workflow, or the default one. An invalid
 // or not yet runnable configuration, or one naming models the gateway does not
@@ -145,6 +165,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	w := worker.New(c, workflow.TaskQueue, worker.Options{WorkerStopTimeout: 30 * time.Second})
 	w.RegisterWorkflow(workflow.IssueRun)
 	w.RegisterWorkflow(workflow.Interpret)
+	w.RegisterWorkflow(workflow.Refine)
 	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
 		Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {

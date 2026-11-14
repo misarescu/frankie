@@ -50,6 +50,8 @@ CREATE TABLE issues (
   spec_approved_by    text,
   spec_rejected_at    timestamptz,
   spec_feedback       text        NOT NULL DEFAULT '',
+  -- The refiner's result (a domain.RefinedSpec) while it waits for approval (D66).
+  spec_proposal       jsonb,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

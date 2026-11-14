@@ -39,7 +39,7 @@ draft -> refining -> ready -> running -> awaiting_human -> queued -> merged -> r
                        \________________ failed / canceled (from any non-terminal state)
 ```
 
-- Spec approval (D64) is opt-in: a project sets `specApproval: required` in `.factory/config.yaml` (synced into `projects.spec_approval`), and the labels `needs-spec-approval` / `no-spec-approval` override it per issue. Synced issues start as `draft` and follow the source's text while they are drafts. When someone asks to start one, the scheduler makes a draft that needs no approval `ready` itself; one that needs approval waits in the inbox until a person approves its spec (`spec_approved_at`/`by`) or rejects it with feedback (`spec_feedback`; the rejection holds the draft until its text changes or someone asks to start it again).
+- Spec approval (D64) is opt-in: a project sets `specApproval: required` in `.factory/config.yaml` (synced into `projects.spec_approval`), and the labels `needs-spec-approval` / `no-spec-approval` override it per issue. Synced issues start as `draft` and follow the source's text while they are drafts. When someone asks to start one, the scheduler makes a draft that needs no approval `ready` itself; one that needs approval is refined first (D66): the refiner runs as a Run of the issue (`draft` -> `refining`), and its result waits on the issue (`spec_proposal`) in the inbox until a person approves it, which makes it the issue's spec, acceptance criteria and file hints (`refining` -> `ready`, `spec_approved_at`/`by`), or rejects it with feedback (`refining` -> `draft`, `spec_feedback`; the rejection holds the draft until its text changes or someone asks to start it again, and the next refinement gets the feedback). A refinement without a usable result returns the issue to `draft`, held the same way.
 - `refining`: optional refinement agent rewrites the ticket into acceptance criteria and asks questions. An issue becomes `ready` only after refinement/approval (spec approval is the first human gate; it happens before the workflow starts).
 - `running`: a Run is active. `awaiting_human`: a `human` gate or ask-human tool is blocking.
 - `queued`: in the repo merge queue. `merged`: on `main`; until the merge queue exists (M6), an issue reaches it when a person merges its change request on the provider (D61). `released`: included in a Release that reached the final stage.
@@ -49,7 +49,7 @@ Allowed transitions (enforced in `internal/domain`; anything not listed is rejec
 | From | To |
 |---|---|
 | `draft` | `refining`, `ready` (approved without refinement) |
-| `refining` | `ready` |
+| `refining` | `ready`, `draft` (refined spec rejected, or refinement failed, D66) |
 | `ready` | `running` |
 | `running` | `awaiting_human`, `queued` |
 | `awaiting_human` | `running`, `merged` (a person merged the change request on the provider, D61) |

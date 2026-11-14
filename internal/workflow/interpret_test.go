@@ -106,12 +106,12 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
 		f.sessions = append(f.sessions, run)
 		n := len(f.sessions)
+		if f.sessionStatus != "" {
+			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
+		}
 		if run.Step.Contract != "" { // a reviewer checks out the head and pushes nothing
 			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head,
 				Result: `{"verdict":"pass","findings":[]}`}, nil
-		}
-		if f.sessionStatus != "" {
-			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
 		}
 		pushed := f.push == nil || f.push(n)
 		if pushed {

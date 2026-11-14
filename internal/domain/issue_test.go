@@ -29,6 +29,8 @@ func TestCanTransitionIssue(t *testing.T) {
 		{IssueQueued, IssueCanceled, true},
 		// A failed issue can be re-armed for a new Run.
 		{IssueFailed, IssueReady, true},
+		// D66: a rejected or failed refinement returns the issue to draft.
+		{IssueRefining, IssueDraft, true},
 		// D61: a person merged the change request on the provider (until M6).
 		{IssueAwaitingHuman, IssueMerged, true},
 

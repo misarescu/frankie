@@ -27,6 +27,8 @@ type SchedIssue struct {
 	// runs (D64); SpecRejected while a rejection holds the draft.
 	NeedsApproval bool
 	SpecRejected  bool
+	// HasProposal is set while a refining issue's refined spec waits for approval (D66).
+	HasProposal bool
 }
 
 // Waiting says why a requested issue does not start now.
@@ -42,7 +44,10 @@ type SchedulePlan struct {
 	// MakeReady are requested drafts whose spec needs no approval: they become
 	// ready now (D64), and may be in Start too.
 	MakeReady []SchedIssue
-	// AwaitingApproval are requested drafts whose spec waits for a person (D64).
+	// Refine are requested drafts whose spec needs approval: the refiner runs
+	// first (D66). Each takes a slot, like a start.
+	Refine []SchedIssue
+	// AwaitingApproval are refining issues whose refined spec waits for a person (D66).
 	AwaitingApproval []SchedIssue
 }
 
@@ -74,7 +79,8 @@ func issueDone(id uuid.UUID, byID map[uuid.UUID]SchedIssue, children map[uuid.UU
 	return true
 }
 
-// PlanSchedule decides which requested issues start now (D62). An issue starts
+// PlanSchedule decides which requested issues start now (D62), and which
+// requested drafts the refiner works on first (D66). An issue starts
 // when it is runnable, requested (itself or through an ancestor), ready, not busy,
 // and every dependency of it and of its ancestors is done, while fewer than limit
 // issues are busy. Candidates go by priority, highest first, then by number.
@@ -110,7 +116,11 @@ func PlanSchedule(issues []SchedIssue, deps []Dependency, limit int) SchedulePla
 		return out
 	}
 
-	var candidates []SchedIssue
+	type candidate struct {
+		SchedIssue
+		refine bool
+	}
+	var candidates []candidate
 	var plan SchedulePlan
 	for _, is := range issues {
 		if !Runnable(is, len(children[is.ID]) > 0) {
@@ -133,8 +143,14 @@ func PlanSchedule(issues []SchedIssue, deps []Dependency, limit int) SchedulePla
 		case is.Status == IssueDraft && is.SpecRejected:
 			reason = "spec rejected; edit the issue or start it again"
 		case is.Status == IssueDraft:
+			// The refiner needs no dependency done: it writes a spec, not code.
+			candidates = append(candidates, candidate{SchedIssue: is, refine: true})
+			continue
+		case is.Status == IssueRefining && is.HasProposal:
 			plan.AwaitingApproval = append(plan.AwaitingApproval, is)
 			reason = "spec waits for approval"
+		case is.Status == IssueRefining:
+			reason = "the refiner is writing its spec"
 		case is.Status != IssueReady:
 			reason = fmt.Sprintf("%s; starts once its spec is approved", is.Status)
 		}
@@ -153,17 +169,21 @@ func PlanSchedule(issues []SchedIssue, deps []Dependency, limit int) SchedulePla
 			plan.Waiting = append(plan.Waiting, Waiting{Key: is.Key, Reason: reason})
 			continue
 		}
-		candidates = append(candidates, is)
+		candidates = append(candidates, candidate{SchedIssue: is})
 	}
-	slices.SortFunc(candidates, func(a, b SchedIssue) int {
+	slices.SortFunc(candidates, func(a, b candidate) int {
 		return cmp.Or(cmp.Compare(b.Priority, a.Priority), cmp.Compare(a.Number, b.Number))
 	})
-	for _, is := range candidates {
+	for _, c := range candidates {
 		if busy >= limit {
-			plan.Waiting = append(plan.Waiting, Waiting{Key: is.Key, Reason: fmt.Sprintf("no free slot (%d of %d busy)", busy, limit)})
+			plan.Waiting = append(plan.Waiting, Waiting{Key: c.Key, Reason: fmt.Sprintf("no free slot (%d of %d busy)", busy, limit)})
 			continue
 		}
-		plan.Start = append(plan.Start, is)
+		if c.refine {
+			plan.Refine = append(plan.Refine, c.SchedIssue)
+		} else {
+			plan.Start = append(plan.Start, c.SchedIssue)
+		}
 		busy++
 	}
 	return plan

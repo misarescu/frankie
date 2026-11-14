@@ -11,7 +11,8 @@ import (
 	"github.com/misarescu/frankie/internal/store"
 )
 
-// specJSON is a spec waiting for approval in the inbox (D64).
+// specJSON is a refined spec waiting for approval in the inbox (D64, D66):
+// Spec, AcceptanceCriteria and FileHints are what approving makes the issue's.
 type specJSON struct {
 	Key                string   `json:"key"`
 	Type               string   `json:"type"`
@@ -20,14 +21,21 @@ type specJSON struct {
 	Spec               string   `json:"spec"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 	FileHints          []string `json:"file_hints"`
-	Labels             []string `json:"labels"`
-	SourceRef          string   `json:"source_ref,omitempty"`
+	// Summary is the refiner's note to the approver: what it changed and assumed.
+	Summary string `json:"summary,omitempty"`
+	// OriginalSpec is the issue's text before refinement.
+	OriginalSpec string `json:"original_spec"`
+	// RunID is the refinement's run, for its transcript.
+	RunID     string   `json:"run_id,omitempty"`
+	Labels    []string `json:"labels"`
+	SourceRef string   `json:"source_ref,omitempty"`
 	// RequestedBy asked to start the issue or a parent of it.
 	RequestedBy string `json:"requested_by,omitempty"`
 }
 
-// listSpecs lists the specs waiting for a person: requested drafts whose project
-// or labels require approval and that no rejection holds (D64). GET /api/specs.
+// listSpecs lists the refined specs waiting for a person: requested issues whose
+// project or labels require approval, refined and not yet decided (D64, D66).
+// GET /api/specs.
 func (s *Server) listSpecs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	issues, deps, err := s.Store.SchedulingState(ctx)
@@ -54,9 +62,17 @@ func (s *Server) listSpecs(w http.ResponseWriter, r *http.Request) {
 			name = p.Name
 			projects[is.ProjectID.String()] = name
 		}
-		out = append(out, specJSON{Key: is.Key, Type: string(is.Type), Title: is.Title, Project: name, Spec: is.Spec,
-			AcceptanceCriteria: nonNilStrings(is.AcceptanceCriteria), FileHints: nonNilStrings(is.FileHints),
-			Labels: nonNilStrings(is.Labels), SourceRef: is.SourceRef, RequestedBy: s.requester(r, is)})
+		if is.SpecProposal == nil {
+			continue // decided since the plan was made
+		}
+		p := is.SpecProposal
+		sp := specJSON{Key: is.Key, Type: string(is.Type), Title: is.Title, Project: name, Spec: p.Spec,
+			AcceptanceCriteria: nonNilStrings(p.AcceptanceCriteria), FileHints: nonNilStrings(p.FileHints), Summary: p.Summary,
+			OriginalSpec: is.Spec, Labels: nonNilStrings(is.Labels), SourceRef: is.SourceRef, RequestedBy: s.requester(r, is)}
+		if runs, err := s.Store.ListIssueRuns(ctx, is.ID); err == nil && len(runs) > 0 {
+			sp.RunID = runs[0].ID.String()
+		}
+		out = append(out, sp)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -89,10 +105,12 @@ type specDecisionRequest struct {
 	By       string `json:"by"`
 }
 
-// decideSpec approves or rejects a draft's spec (D64). Approving makes the issue
-// ready, and the scheduler starts it once requested and its dependencies are done;
-// rejecting keeps the draft and holds it until its text changes or someone asks
-// to start it again.
+// decideSpec approves or rejects an issue's spec (D64, D66): the refiner's result
+// for a refining issue, or a draft's text as written. Approving makes the issue
+// ready (with the refined spec, if any), and the scheduler starts it once
+// requested and its dependencies are done; rejecting returns it to draft and
+// holds it until its text changes or someone asks to start it again, when the
+// refiner works again with the feedback.
 func (s *Server) decideSpec(w http.ResponseWriter, r *http.Request) {
 	var req specDecisionRequest
 	if !decodeJSON(w, r, &req) {
@@ -128,7 +146,7 @@ func (s *Server) decideSpec(w http.ResponseWriter, r *http.Request) {
 		got, err = s.Store.RejectSpec(ctx, is.ID, fmt.Sprintf("%s (%s)", comment, by))
 	}
 	if errors.Is(err, store.ErrConflict) {
-		http.Error(w, fmt.Sprintf("%s is %s; only a draft's spec can be decided", is.Key, is.Status), http.StatusConflict)
+		http.Error(w, strings.TrimPrefix(err.Error(), "store: "), http.StatusConflict)
 		return
 	}
 	if err != nil {

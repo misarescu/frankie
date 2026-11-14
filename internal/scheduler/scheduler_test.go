@@ -23,6 +23,24 @@ type fakeStarter struct {
 	started []string
 	inputs  []activities.IssueRunInput
 	fail    map[string]bool
+	refined []activities.IssueRunInput
+}
+
+// StartRefinement creates the refinement's run and moves the issue to refining,
+// like the Refine workflow's first Activity.
+func (f *fakeStarter) StartRefinement(ctx context.Context, in activities.IssueRunInput) error {
+	f.refined = append(f.refined, in)
+	id := uuid.MustParse(in.IssueID)
+	run, err := f.s.CreateRun(ctx, store.NewRun{IssueID: id, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "refine@1",
+		TemporalWorkflowID: "refine-" + in.IssueKey})
+	if err != nil {
+		return err
+	}
+	if _, err := f.s.TransitionRun(ctx, run.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		return err
+	}
+	_, err = f.s.TransitionIssue(ctx, id, domain.IssueDraft, domain.IssueRefining)
+	return err
 }
 
 func (f *fakeStarter) StartIssueRun(ctx context.Context, in activities.IssueRunInput) error {
@@ -213,8 +231,9 @@ func TestSchedulerWarnsAboutOverlap(t *testing.T) {
 	}
 }
 
-// D64: a requested draft whose spec needs no approval becomes ready and starts in
-// the same pass; one that needs approval stays a draft until a person approves it.
+// D64, D66: a requested draft whose spec needs no approval becomes ready and
+// starts in the same pass; one that needs approval is refined first, waits for a
+// person while its refined spec is pending, and starts once approved.
 func TestSchedulerSpecApproval(t *testing.T) {
 	s := storetest.New(t)
 	ctx := t.Context()
@@ -222,28 +241,47 @@ func TestSchedulerSpecApproval(t *testing.T) {
 	plain, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", CreatedBy: "t"})
 	gated, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", CreatedBy: "t",
 		Labels: []string{"needs-spec-approval"}})
+	if _, err := s.RejectSpec(ctx, gated.ID, "name the endpoint"); err != nil { // an earlier rejection
+		t.Fatal(err)
+	}
 	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{plain.ID, gated.ID}, "ana"); err != nil {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{s: s}
 	sch := &Scheduler{Store: s, Starter: starter, Projects: map[uuid.UUID]Project{p.ID: {Repo: "o/r"}},
 		Limit: 5, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	if err := sch.Pass(ctx); err != nil {
-		t.Fatal(err)
+	pass := func() {
+		t.Helper()
+		if err := sch.Pass(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
+	pass()
 	if strings.Join(starter.started, ",") != plain.Key {
 		t.Fatalf("started %v, want only %s", starter.started, plain.Key)
 	}
-	if got, _ := s.GetIssue(ctx, gated.ID); got.Status != domain.IssueDraft {
-		t.Fatalf("%s = %s, want a draft until approved", gated.Key, got.Status)
+	if len(starter.refined) != 1 || starter.refined[0].IssueKey != gated.Key || starter.refined[0].SpecFeedback != "name the endpoint" {
+		t.Fatalf("refined %+v, want %s with the earlier feedback", starter.refined, gated.Key)
+	}
+
+	// While the refiner works, and while its spec waits for a person, nothing more happens.
+	pass()
+	run, err := s.GetActiveRunForIssue(ctx, gated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordRefinement(ctx, gated.ID, run.ID, domain.RefinedSpec{Spec: "GET /search", AcceptanceCriteria: []string{"returns matches"}}); err != nil {
+		t.Fatal(err)
+	}
+	pass()
+	if len(starter.refined) != 1 || len(starter.started) != 1 {
+		t.Fatalf("refined %d, started %v; want nothing new before approval", len(starter.refined), starter.started)
 	}
 	if _, err := s.ApproveSpec(ctx, gated.ID, "ana"); err != nil {
 		t.Fatal(err)
 	}
-	if err := sch.Pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(starter.started) != 2 || starter.started[1] != gated.Key {
-		t.Fatalf("started %v, want %s after approval", starter.started, gated.Key)
+	pass()
+	if len(starter.started) != 2 || starter.started[1] != gated.Key || starter.inputs[1].Spec != "GET /search" {
+		t.Fatalf("started %v (spec %q), want %s with its approved spec", starter.started, starter.inputs[len(starter.inputs)-1].Spec, gated.Key)
 	}
 }

@@ -24,3 +24,13 @@ test("decideSpec reports the server's reason", async () => {
   const conflict = async () => new Response("gc-7 is ready; only a draft's spec can be decided\n", { status: 409 });
   await expect(decideSpec(conflict, "gc-7", "approve", "")).rejects.toThrow("only a draft");
 });
+
+test("M5.1: decideSpec sends the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 200 });
+  };
+  await decideSpec(fetchFn, "gc-7", "approve", "", "Ana");
+  expect(bodies).toEqual([{ decision: "approve", comment: "", by: "Ana" }]);
+});

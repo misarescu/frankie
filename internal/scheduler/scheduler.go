@@ -141,6 +141,16 @@ func (s *Scheduler) start(ctx context.Context, id uuid.UUID, refine bool) error 
 	if err := s.Store.MarkIssueScheduled(ctx, is.ID); err != nil {
 		return err
 	}
-	s.Log.Info("issue started", "issue", is.Key, "refinement", refine, "requested_by", is.StartRequestedBy)
+	// The requester is for the log: a failed lookup does not fail a start that
+	// already happened.
+	by, via, err := s.Store.StartRequester(ctx, is)
+	if err != nil {
+		s.Log.Warn("find who requested a start", "issue", is.Key, "error", err)
+	}
+	attrs := []any{"issue", is.Key, "refinement", refine, "requested_by", by}
+	if via != "" && via != is.Key {
+		attrs = append(attrs, "requested_via", via)
+	}
+	s.Log.Info("issue started", attrs...)
 	return nil
 }

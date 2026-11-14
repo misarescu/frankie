@@ -35,6 +35,27 @@ func (s *Store) SchedulingState(ctx context.Context) ([]domain.SchedIssue, []dom
 	return issues, deps, nil
 }
 
+// StartRequester says who asked to start the issue and the key of the issue they
+// asked on: the issue itself or its nearest ancestor with a request, since a
+// request on a parent covers everything under it (D62). Both are empty when
+// nobody asked.
+func (s *Store) StartRequester(ctx context.Context, is domain.Issue) (by, via string, err error) {
+	seen := map[uuid.UUID]bool{}
+	for cur := is; !seen[cur.ID]; {
+		seen[cur.ID] = true
+		if cur.StartRequestedBy != "" {
+			return cur.StartRequestedBy, cur.Key, nil
+		}
+		if cur.ParentID == nil {
+			break
+		}
+		if cur, err = s.GetIssue(ctx, *cur.ParentID); err != nil {
+			return "", "", fmt.Errorf("store: start requester of %s: %w", is.Key, err)
+		}
+	}
+	return "", "", nil
+}
+
 // RequestIssueStart asks to start each issue, and so everything under it (D62).
 // Asking again keeps the first request. A terminal issue (released or canceled)
 // cannot be started.

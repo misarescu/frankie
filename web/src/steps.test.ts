@@ -48,3 +48,14 @@ test("M5.1: says who does a step's work and names its attempt", () => {
   expect(stepName(base)).toBe("implement");
   expect(stepName({ ...base, attempt: 3 })).toBe("implement (attempt 3)");
 });
+
+test("M5.1: steer and abort send the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 202 });
+  };
+  await steer(fetchFn, "s1", "go", "Ana");
+  await abort(fetchFn, "s1", "stop", "Ana");
+  expect(bodies).toEqual([{ text: "go", by: "Ana" }, { reason: "stop", by: "Ana" }]);
+});

@@ -97,6 +97,8 @@ func TestCheckModels(t *testing.T) {
 		w := parse(t, "  - id: a\n    agent: {role: coder}\n"+
 			"  - id: b\n    agent: {role: coder, model: anthropic/claude-opus-5-5}\n"+
 			"  - id: c\n    agent: {role: router, model: anthropic/claude-sonnet-5-5}\n"+
+			"  - id: d\n    agent: {role: router, harness: opencode}\n"+
+			"  - id: e\n    agent: {role: coder, harness: opencode, model: anthropic/claude-opus-5-5}\n"+
 			"  - id: checks\n    gate: {type: command}\n"+
 			"  - id: review\n    parallel: [{agent: {role: code-reviewer}}]\n    gate: {type: agent-verdict}\n")
 		if err := CheckModels(w, roles, defaultModel, testProviders); err != nil {

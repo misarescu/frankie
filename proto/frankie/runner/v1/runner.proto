@@ -30,6 +30,26 @@ service RunnerService {
 enum Harness {
   HARNESS_UNSPECIFIED = 0;
   HARNESS_CLAUDE_CODE = 1;
+  HARNESS_OPENCODE = 2;
+}
+
+// ModelAPI is the wire protocol the gateway serves a model with natively: the
+// API of its provider (D48). The adapter configures its harness to speak it.
+enum ModelAPI {
+  MODEL_API_UNSPECIFIED = 0;
+  MODEL_API_ANTHROPIC = 1; // Anthropic Messages
+  MODEL_API_OPENAI = 2; // OpenAI-compatible chat completions
+}
+
+// Gateway is how the session reaches its model: the LLM gateway and the run's
+// short-lived virtual key (invariant 1). Each adapter turns it into its
+// harness's own configuration.
+message Gateway {
+  // Base URL of the gateway, without an API path, e.g. http://frankie-llm-gateway.frankie.svc:4000.
+  string base_url = 1;
+  // The virtual key. Never a real provider key.
+  string api_key = 2;
+  ModelAPI api = 3;
 }
 
 message StartRequest {
@@ -40,8 +60,8 @@ message StartRequest {
   string model = 3;
   // Role system prompt, appended to the harness's own.
   string system_prompt = 4;
-  // Extra environment for the harness, e.g. the gateway base URL and the
-  // short-lived virtual key. Never real provider keys (invariant 1).
+  // Extra environment for the harness. Never real provider keys (invariant 1).
+  // Control planes before gateway set Claude Code's gateway variables here.
   map<string, string> env = 5;
   // Wall-clock limit for the whole session (FR-AG-3). Zero means no limit.
   google.protobuf.Duration timeout = 6;
@@ -57,6 +77,9 @@ message StartRequest {
   // limited to commands that do not change the workspace), web-fetch. Empty
   // means the harness's default tools. The adapter refuses names it cannot map.
   repeated string allowed_tools = 10;
+  // The LLM gateway and virtual key. Adapters prefer it over harness-specific
+  // variables in env, which older control planes set instead.
+  Gateway gateway = 11;
 }
 
 // Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through

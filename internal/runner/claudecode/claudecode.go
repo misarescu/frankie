@@ -62,6 +62,22 @@ func Args(cfg runner.SessionConfig) ([]string, error) {
 	return args, nil
 }
 
+// gatewayEnv points Claude Code at the gateway with the virtual key. Its
+// background tasks (titles, summaries) use the small fast model, which must be
+// one the key is granted, so it is the session's model too.
+func gatewayEnv(cfg runner.SessionConfig) map[string]string {
+	g := cfg.Gateway
+	if g.BaseURL == "" {
+		return nil
+	}
+	env := map[string]string{"ANTHROPIC_BASE_URL": g.BaseURL, "ANTHROPIC_AUTH_TOKEN": g.APIKey}
+	if cfg.Model != "" {
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = cfg.Model
+		env["ANTHROPIC_SMALL_FAST_MODEL"] = cfg.Model
+	}
+	return env
+}
+
 // Start launches claude and begins translating its output.
 func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runner.Emit) (runner.Session, error) {
 	bin := h.Binary
@@ -79,11 +95,16 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 	// ctx is the session context; it is not canceled, Abort stops the process.
 	cmd := exec.CommandContext(ctx, bin, append(slices.Clone(h.prefixArgs), args...)...)
 	cmd.Dir = cfg.Workdir
-	cmd.Env = os.Environ()
-	for _, k := range slices.Sorted(maps.Keys(cfg.Env)) {
-		cmd.Env = append(cmd.Env, k+"="+cfg.Env[k])
+	if cfg.Gateway.API == runner.ModelAPIOpenAI {
+		return nil, errors.New("claudecode: Claude Code speaks the Anthropic API only")
 	}
-	setProcessGroup(cmd)
+	cmd.Env = os.Environ()
+	env := maps.Clone(cfg.Env)
+	maps.Copy(env, gatewayEnv(cfg))
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		cmd.Env = append(cmd.Env, k+"="+env[k])
+	}
+	runner.SetProcessGroup(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -93,7 +114,7 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: stdout: %w", err)
 	}
-	stderr := &tailBuffer{limit: 8 << 10}
+	stderr := runner.NewTailBuffer(8 << 10)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("claudecode: start %s: %w", bin, err)
@@ -111,7 +132,7 @@ type session struct {
 	stdin  io.WriteCloser
 	emit   runner.Emit
 	tr     *translator
-	stderr *tailBuffer
+	stderr *runner.TailBuffer
 	grace  time.Duration
 	done   chan struct{}
 
@@ -182,12 +203,12 @@ func (s *session) Abort(status runner.DoneStatus, reason string) {
 	}
 	s.mu.Unlock()
 
-	signalGroup(s.cmd, sigTerm)
+	runner.TerminateGroup(s.cmd)
 	go func() {
 		select {
 		case <-s.done:
 		case <-time.After(s.grace):
-			signalGroup(s.cmd, sigKill)
+			runner.KillGroup(s.cmd)
 		}
 	}()
 }
@@ -246,27 +267,4 @@ func (s *session) wait(readDone <-chan struct{}) {
 	}
 	s.emit(domain.EventDone, done)
 	close(s.done)
-}
-
-// tailBuffer keeps the last limit bytes written to it.
-type tailBuffer struct {
-	mu    sync.Mutex
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.buf = append(b.buf, p...)
-	if over := len(b.buf) - b.limit; over > 0 {
-		b.buf = b.buf[over:]
-	}
-	return len(p), nil
-}
-
-func (b *tailBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.buf)
 }

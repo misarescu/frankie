@@ -7,7 +7,7 @@
 3. **In-cluster registry (full profile).** Harbor (heavier; scanning, proxy cache) vs Zot (lightweight). The concrete profile uses `registry:2`.
 4. **Dependency proxy (full profile).** One Nexus, or one proxy per ecosystem (Athens, Verdaccio, devpi).
 5. **Preview limits.** How many concurrent previews the homelab can hold, and their TTL.
-6. **ACP adapter maturity.** Whether to rely on ACP for Claude Code/pi or on their native protocols.
+6. **ACP adapter maturity.** Whether to rely on ACP for Claude Code/pi or on their native protocols. M4 starts with native protocols (D49: opencode's HTTP server, which already offers native mid-turn steering); revisit ACP once all three adapters exist, if it would replace three adapters with one.
 7. **Auth.** Single-user token vs OIDC. Needed before exposing the UI beyond Tailscale. Since M3 the UI can approve human gates, including protected-path changes, so anyone who reaches the API can decide them and name themselves as the decider (D43); until this is resolved the API must stay reachable only through port-forward or Tailscale.
 8. **Secrets management.** SOPS vs external-secrets for the GitOps repo.
 9. ~~**Migration tool.** golang-migrate vs goose. Decide in M0.~~ Resolved by D19 (Atlas authors, goose applies).

@@ -177,7 +177,7 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	}
 	role := it.in.Snapshot.Roles[s.Agent.RoleName()]
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
-		Model: config.GatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), BudgetUSD: s.BudgetUSD, Timeout: time.Duration(s.Timeout),
+		Model: config.GatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), Harness: s.Agent.Harness, BudgetUSD: s.BudgetUSD, Timeout: time.Duration(s.Timeout),
 		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract}
 	if slices.Contains(s.Inputs, "feedback") && step.Contract == "" {
 		step.Feedback = it.feedback

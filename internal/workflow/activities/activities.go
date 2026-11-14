@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/gateway"
@@ -57,7 +58,10 @@ type AgentStep struct {
 	RoleVersion  int
 	SystemPrompt string
 	// Model is the gateway's model name; empty means the platform's.
-	Model     string
+	Model string
+	// Harness runs the step (claude-code, opencode); empty means claude-code,
+	// as for steps recorded before the field existed.
+	Harness   string        `json:",omitempty"`
 	BudgetUSD float64       // 0: the platform's
 	Timeout   time.Duration // 0: the platform's session timeout
 	Inputs    []string
@@ -159,6 +163,9 @@ type AgentConfig struct {
 	GitProxyURL    string // as agents reach it, e.g. http://frankie-controlplane.frankie.svc:8081
 	GatewayURL     string // as agents reach it, e.g. http://frankie-llm-gateway.frankie.svc:4000
 	Model          string
+	// ModelAPIs maps the gateway's model names to the API each is served with
+	// (D48), so the runner can configure a harness to speak it.
+	ModelAPIs      map[string]config.API
 	BudgetUSD      float64
 	SessionTimeout time.Duration
 	IdleTimeout    time.Duration

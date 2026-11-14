@@ -18,6 +18,7 @@ import (
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
 	"github.com/misarescu/frankie/internal/runner"
 	"github.com/misarescu/frankie/internal/runner/claudecode"
+	"github.com/misarescu/frankie/internal/runner/opencode"
 )
 
 func main() {
@@ -31,6 +32,7 @@ func run() error {
 	listen := flag.String("listen", ":7070", "gRPC listen address")
 	workdir := flag.String("workdir", "/workspace", "directory the harness works in")
 	claudeBin := flag.String("claude-bin", "claude", "Claude Code executable")
+	opencodeBin := flag.String("opencode-bin", "opencode", "opencode executable")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -45,6 +47,7 @@ func run() error {
 	srv := grpc.NewServer()
 	runnerv1.RegisterRunnerServiceServer(srv, runner.NewServer(*workdir, map[runnerv1.Harness]runner.Harness{
 		runnerv1.Harness_HARNESS_CLAUDE_CODE: &claudecode.Harness{Binary: *claudeBin},
+		runnerv1.Harness_HARNESS_OPENCODE:    &opencode.Harness{Binary: *opencodeBin},
 	}))
 
 	go func() {

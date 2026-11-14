@@ -79,6 +79,18 @@ func (ps Providers) Serves(ref string) bool {
 	return i >= 0 && slices.Contains(ps[i].Models, model)
 }
 
+// GatewayAPIs maps every served model, by the name the gateway serves it
+// under, to the API its provider serves.
+func (ps Providers) GatewayAPIs() map[string]API {
+	out := map[string]API{}
+	for _, p := range ps {
+		for _, m := range p.Models {
+			out[m] = providerAPIs[p.Name]
+		}
+	}
+	return out
+}
+
 // GatewayModel is the name the LLM gateway serves a model ref under: the ref
 // without its provider ("openrouter/openai/gpt-5" is served as "openai/gpt-5").
 // A name without a provider is returned unchanged.

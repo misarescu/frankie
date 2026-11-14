@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/misarescu/frankie/internal/runner"
 )
 
 // builtinTools maps the harness-neutral tool names of a role's allowed_tools
@@ -17,16 +19,6 @@ var builtinTools = map[string]string{
 	"bash":          "Bash",
 	"bash:readonly": "Bash",
 	"web-fetch":     "WebFetch",
-}
-
-// readonlyCommands are the shell commands bash:readonly allows: they inspect
-// the workspace and its history without changing them. This narrows what a
-// reviewer does; the boundary is still the read-only workspace, which the
-// runner never commits or pushes.
-var readonlyCommands = []string{
-	"git diff", "git log", "git show", "git status", "git blame", "git grep",
-	"git ls-files", "git rev-parse", "git merge-base",
-	"ls", "cat", "head", "tail", "wc", "grep", "rg", "tree", "pwd",
 }
 
 // toolArgs returns the flags that limit a session to the allowed tools. With
@@ -57,7 +49,7 @@ func toolArgs(allowed []string) ([]string, error) {
 		return nil, fmt.Errorf("claudecode: bash and bash:readonly together")
 	}
 	rules := slices.DeleteFunc(slices.Clone(tools), func(t string) bool { return t == "Bash" })
-	for _, c := range readonlyCommands {
+	for _, c := range runner.ReadOnlyCommands {
 		rules = append(rules, "Bash("+c+")", "Bash("+c+" *)")
 	}
 	return append(args, "--permission-mode", "dontAsk", "--allowedTools", strings.Join(rules, ",")), nil

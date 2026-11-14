@@ -88,8 +88,9 @@ func CanTransitionIssue(from, to IssueStatus) bool {
 type Issue struct {
 	ID                 uuid.UUID
 	ProjectID          uuid.UUID
-	Number             int    // per project, from 1
-	Key                string // <project key prefix>-<number>, e.g. frk-42
+	Number             int        // per project, from 1
+	Key                string     // <project key prefix>-<number>, e.g. frk-42
+	ParentID           *uuid.UUID // nil for a root issue; see ValidParent
 	Type               IssueType
 	Title              string
 	Spec               string

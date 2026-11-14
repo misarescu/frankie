@@ -20,6 +20,8 @@ CREATE TABLE issues (
   -- Allocated from projects.next_issue_number; key is <key_prefix>-<number> (D22).
   number              integer     NOT NULL CHECK (number >= 1),
   key                 text        NOT NULL UNIQUE,
+  -- epic > story > task/bug (D57); the store checks the types and that the parent is in the same project.
+  parent_id           uuid        REFERENCES issues (id),
   type                text        NOT NULL CHECK (type IN ('epic', 'story', 'task', 'bug')),
   title               text        NOT NULL,
   spec                text        NOT NULL DEFAULT '',
@@ -37,6 +39,20 @@ CREATE TABLE issues (
   CONSTRAINT issues_project_source_ref_key UNIQUE (project_id, source_ref),
   CONSTRAINT issues_project_number_key UNIQUE (project_id, number)
 );
+
+CREATE INDEX issues_parent_id_idx ON issues (parent_id);
+
+-- The dependency DAG (D57): issue_id waits for depends_on_id. Both are in the same
+-- project, and the store rejects edges that close a cycle (counting the hierarchy).
+CREATE TABLE issue_dependencies (
+  issue_id      uuid        NOT NULL REFERENCES issues (id),
+  depends_on_id uuid        NOT NULL REFERENCES issues (id),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (issue_id, depends_on_id),
+  CONSTRAINT issue_dependencies_not_self CHECK (issue_id <> depends_on_id)
+);
+
+CREATE INDEX issue_dependencies_depends_on_id_idx ON issue_dependencies (depends_on_id);
 
 CREATE INDEX issues_project_status_idx ON issues (project_id, status);
 

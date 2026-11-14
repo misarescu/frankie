@@ -11,10 +11,26 @@ import (
 	"github.com/google/uuid"
 )
 
+const addIssueDependency = `-- name: AddIssueDependency :exec
+INSERT INTO issue_dependencies (issue_id, depends_on_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddIssueDependencyParams struct {
+	IssueID     uuid.UUID
+	DependsOnID uuid.UUID
+}
+
+func (q *Queries) AddIssueDependency(ctx context.Context, arg AddIssueDependencyParams) error {
+	_, err := q.db.Exec(ctx, addIssueDependency, arg.IssueID, arg.DependsOnID)
+	return err
+}
+
 const createIssue = `-- name: CreateIssue :one
-INSERT INTO issues (id, project_id, number, key, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key
+INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
 `
 
 type CreateIssueParams struct {
@@ -22,6 +38,7 @@ type CreateIssueParams struct {
 	ProjectID          uuid.UUID
 	Number             int32
 	Key                string
+	ParentID           *uuid.UUID
 	Type               string
 	Title              string
 	Spec               string
@@ -39,6 +56,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		arg.ProjectID,
 		arg.Number,
 		arg.Key,
+		arg.ParentID,
 		arg.Type,
 		arg.Title,
 		arg.Spec,
@@ -66,12 +84,13 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.UpdatedAt,
 		&i.Number,
 		&i.Key,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -93,12 +112,13 @@ func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
 		&i.UpdatedAt,
 		&i.Number,
 		&i.Key,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getIssueByKey = `-- name: GetIssueByKey :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE key = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE key = $1
 `
 
 func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) {
@@ -120,12 +140,13 @@ func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) 
 		&i.UpdatedAt,
 		&i.Number,
 		&i.Key,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getIssueBySourceRef = `-- name: GetIssueBySourceRef :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues WHERE project_id = $1 AND source_ref = $2
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE project_id = $1 AND source_ref = $2
 `
 
 type GetIssueBySourceRefParams struct {
@@ -152,12 +173,174 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 		&i.UpdatedAt,
 		&i.Number,
 		&i.Key,
+		&i.ParentID,
 	)
 	return i, err
 }
 
+const listIssueChildren = `-- name: ListIssueChildren :many
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE parent_id = $1
+ORDER BY priority DESC, number
+`
+
+func (q *Queries) ListIssueChildren(ctx context.Context, parentID *uuid.UUID) ([]Issue, error) {
+	rows, err := q.db.Query(ctx, listIssueChildren, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Issue
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Type,
+			&i.Title,
+			&i.Spec,
+			&i.AcceptanceCriteria,
+			&i.Status,
+			&i.Priority,
+			&i.SourceRef,
+			&i.Labels,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.Key,
+			&i.ParentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueDependencies = `-- name: ListIssueDependencies :many
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
+WHERE id IN (SELECT depends_on_id FROM issue_dependencies WHERE issue_id = $1)
+ORDER BY number
+`
+
+// The issues this one waits for.
+func (q *Queries) ListIssueDependencies(ctx context.Context, issueID uuid.UUID) ([]Issue, error) {
+	rows, err := q.db.Query(ctx, listIssueDependencies, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Issue
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Type,
+			&i.Title,
+			&i.Spec,
+			&i.AcceptanceCriteria,
+			&i.Status,
+			&i.Priority,
+			&i.SourceRef,
+			&i.Labels,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.Key,
+			&i.ParentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueDependents = `-- name: ListIssueDependents :many
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
+WHERE id IN (SELECT issue_id FROM issue_dependencies WHERE depends_on_id = $1)
+ORDER BY number
+`
+
+// The issues that wait for this one.
+func (q *Queries) ListIssueDependents(ctx context.Context, dependsOnID uuid.UUID) ([]Issue, error) {
+	rows, err := q.db.Query(ctx, listIssueDependents, dependsOnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Issue
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Type,
+			&i.Title,
+			&i.Spec,
+			&i.AcceptanceCriteria,
+			&i.Status,
+			&i.Priority,
+			&i.SourceRef,
+			&i.Labels,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.Key,
+			&i.ParentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueNodes = `-- name: ListIssueNodes :many
+SELECT id, key, parent_id FROM issues WHERE project_id = $1
+`
+
+type ListIssueNodesRow struct {
+	ID       uuid.UUID
+	Key      string
+	ParentID *uuid.UUID
+}
+
+// The hierarchy of a project's issues, for cycle checks (D57).
+func (q *Queries) ListIssueNodes(ctx context.Context, projectID uuid.UUID) ([]ListIssueNodesRow, error) {
+	rows, err := q.db.Query(ctx, listIssueNodes, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIssueNodesRow
+	for rows.Next() {
+		var i ListIssueNodesRow
+		if err := rows.Scan(&i.ID, &i.Key, &i.ParentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
 WHERE project_id = $1 AND status = $2
 ORDER BY priority DESC, created_at, id
 `
@@ -192,6 +375,7 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 			&i.UpdatedAt,
 			&i.Number,
 			&i.Key,
+			&i.ParentID,
 		); err != nil {
 			return nil, err
 		}
@@ -203,11 +387,92 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 	return items, nil
 }
 
+const listProjectDependencies = `-- name: ListProjectDependencies :many
+SELECT d.issue_id, d.depends_on_id
+FROM issue_dependencies d JOIN issues i ON i.id = d.issue_id
+WHERE i.project_id = $1
+`
+
+type ListProjectDependenciesRow struct {
+	IssueID     uuid.UUID
+	DependsOnID uuid.UUID
+}
+
+func (q *Queries) ListProjectDependencies(ctx context.Context, projectID uuid.UUID) ([]ListProjectDependenciesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectDependencies, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectDependenciesRow
+	for rows.Next() {
+		var i ListProjectDependenciesRow
+		if err := rows.Scan(&i.IssueID, &i.DependsOnID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const removeIssueDependency = `-- name: RemoveIssueDependency :exec
+DELETE FROM issue_dependencies WHERE issue_id = $1 AND depends_on_id = $2
+`
+
+type RemoveIssueDependencyParams struct {
+	IssueID     uuid.UUID
+	DependsOnID uuid.UUID
+}
+
+func (q *Queries) RemoveIssueDependency(ctx context.Context, arg RemoveIssueDependencyParams) error {
+	_, err := q.db.Exec(ctx, removeIssueDependency, arg.IssueID, arg.DependsOnID)
+	return err
+}
+
+const setIssueParent = `-- name: SetIssueParent :one
+UPDATE issues
+SET parent_id = $1, updated_at = now()
+WHERE id = $2
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+`
+
+type SetIssueParentParams struct {
+	ParentID *uuid.UUID
+	ID       uuid.UUID
+}
+
+func (q *Queries) SetIssueParent(ctx context.Context, arg SetIssueParentParams) (Issue, error) {
+	row := q.db.QueryRow(ctx, setIssueParent, arg.ParentID, arg.ID)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Type,
+		&i.Title,
+		&i.Spec,
+		&i.AcceptanceCriteria,
+		&i.Status,
+		&i.Priority,
+		&i.SourceRef,
+		&i.Labels,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
+		&i.ParentID,
+	)
+	return i, err
+}
+
 const transitionIssue = `-- name: TransitionIssue :one
 UPDATE issues
 SET status = $1, updated_at = now()
 WHERE id = $2 AND status = $3
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
 `
 
 type TransitionIssueParams struct {
@@ -236,6 +501,7 @@ func (q *Queries) TransitionIssue(ctx context.Context, arg TransitionIssueParams
 		&i.UpdatedAt,
 		&i.Number,
 		&i.Key,
+		&i.ParentID,
 	)
 	return i, err
 }

@@ -12,3 +12,8 @@ UPDATE projects
 SET next_issue_number = next_issue_number + 1, updated_at = now()
 WHERE id = @id
 RETURNING key_prefix, (next_issue_number - 1)::integer AS number;
+
+-- Serializes changes to a project's issue graph, so two concurrent edits cannot
+-- together close a cycle that each alone would not.
+-- name: LockProject :exec
+SELECT id FROM projects WHERE id = @id FOR UPDATE;

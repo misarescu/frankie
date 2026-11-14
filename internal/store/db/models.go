@@ -78,6 +78,13 @@ type Issue struct {
 	UpdatedAt          time.Time
 	Number             int32
 	Key                string
+	ParentID           *uuid.UUID
+}
+
+type IssueDependency struct {
+	IssueID     uuid.UUID
+	DependsOnID uuid.UUID
+	CreatedAt   time.Time
 }
 
 type Project struct {

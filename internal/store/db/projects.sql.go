@@ -74,3 +74,14 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 	)
 	return i, err
 }
+
+const lockProject = `-- name: LockProject :exec
+SELECT id FROM projects WHERE id = $1 FOR UPDATE
+`
+
+// Serializes changes to a project's issue graph, so two concurrent edits cannot
+// together close a cycle that each alone would not.
+func (q *Queries) LockProject(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, lockProject, id)
+	return err
+}

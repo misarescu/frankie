@@ -38,6 +38,7 @@ func (s *Store) GetProjectByName(ctx context.Context, name string) (domain.Proje
 // NewIssue is the input for CreateIssue. Status defaults to draft.
 type NewIssue struct {
 	ProjectID          uuid.UUID
+	ParentID           *uuid.UUID // optional; must be in the same project and fit domain.ValidParent
 	Type               domain.IssueType
 	Title              string
 	Spec               string
@@ -67,6 +68,11 @@ func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, err
 	}
 	var out domain.Issue
 	err := s.inTx(ctx, func(q *db.Queries) error {
+		if in.ParentID != nil {
+			if err := checkParent(ctx, q, in.ProjectID, in.Type, *in.ParentID); err != nil {
+				return fmt.Errorf("store: create issue: %w", err)
+			}
+		}
 		alloc, err := q.AllocateIssueNumber(ctx, in.ProjectID)
 		if err != nil {
 			return mapErr("allocate issue number", err)
@@ -76,6 +82,7 @@ func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, err
 			ProjectID:          in.ProjectID,
 			Number:             alloc.Number,
 			Key:                domain.IssueKey(alloc.KeyPrefix, int(alloc.Number)),
+			ParentID:           in.ParentID,
 			Type:               string(in.Type),
 			Title:              in.Title,
 			Spec:               in.Spec,
@@ -182,6 +189,7 @@ func issueFromRow(r db.Issue) domain.Issue {
 		ProjectID:          r.ProjectID,
 		Number:             int(r.Number),
 		Key:                r.Key,
+		ParentID:           r.ParentID,
 		Type:               domain.IssueType(r.Type),
 		Title:              r.Title,
 		Spec:               r.Spec,

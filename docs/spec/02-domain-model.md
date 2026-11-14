@@ -27,6 +27,8 @@ Project 1--* WorkflowDefinition (versioned)   Role (versioned)
 `id, project_id, number, key, parent_id?, type (epic|story|task|bug), title, spec (markdown), acceptance_criteria[], flag_name?, depends_on[], status, priority/order, source_ref? (e.g. GitHub issue URL), file_hints[]? (for overlap warnings), created_by, labels`.
 
 - `number` is allocated per project starting at 1; `key` is `<key_prefix>-<number>` (e.g. `frk-42`), globally unique (D22). Agent branches are `agent/<key>/<slug>`.
+- `parent_id` (D57): an epic is a root, a story sits under an epic, a task or bug under an epic or a story; any type but epic may also be a root. The parent is in the same project.
+- `depends_on` (D57) is stored as `issue_dependencies` rows, between issues of the same project. An issue waits for its own dependencies and for those of every ancestor; a parent is finished only once all its children are. A change after which an issue would wait for itself, through dependencies and the hierarchy together, is rejected.
 - `flag_name` is required for type `story|task` features when flags are enabled; empty for bug fixes.
 - Acceptance criteria are first-class: the e2e test agent writes tests from them and tags each test with the issue key.
 

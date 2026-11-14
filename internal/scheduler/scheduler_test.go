@@ -212,3 +212,38 @@ func TestSchedulerWarnsAboutOverlap(t *testing.T) {
 		t.Errorf("logs = %s", out)
 	}
 }
+
+// D64: a requested draft whose spec needs no approval becomes ready and starts in
+// the same pass; one that needs approval stays a draft until a person approves it.
+func TestSchedulerSpecApproval(t *testing.T) {
+	s := storetest.New(t)
+	ctx := t.Context()
+	p, _ := s.CreateProject(ctx, "o/r", "or")
+	plain, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", CreatedBy: "t"})
+	gated, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", CreatedBy: "t",
+		Labels: []string{"needs-spec-approval"}})
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{plain.ID, gated.ID}, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{s: s}
+	sch := &Scheduler{Store: s, Starter: starter, Projects: map[uuid.UUID]Project{p.ID: {Repo: "o/r"}},
+		Limit: 5, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := sch.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(starter.started, ",") != plain.Key {
+		t.Fatalf("started %v, want only %s", starter.started, plain.Key)
+	}
+	if got, _ := s.GetIssue(ctx, gated.ID); got.Status != domain.IssueDraft {
+		t.Fatalf("%s = %s, want a draft until approved", gated.Key, got.Status)
+	}
+	if _, err := s.ApproveSpec(ctx, gated.ID, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sch.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(starter.started) != 2 || starter.started[1] != gated.Key {
+		t.Fatalf("started %v, want %s after approval", starter.started, gated.Key)
+	}
+}

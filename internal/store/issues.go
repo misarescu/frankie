@@ -197,7 +197,7 @@ func (s *Store) resolveMissedIssueTransition(ctx context.Context, id uuid.UUID, 
 }
 
 func projectFromRow(r db.Project) domain.Project {
-	return domain.Project{ID: r.ID, Name: r.Name, KeyPrefix: r.KeyPrefix, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return domain.Project{ID: r.ID, Name: r.Name, KeyPrefix: r.KeyPrefix, SpecApproval: r.SpecApproval, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
 func issueFromRow(r db.Issue) domain.Issue {
@@ -220,6 +220,10 @@ func issueFromRow(r db.Issue) domain.Issue {
 		StartRequestedBy:   deref(r.StartRequestedBy),
 		FileHints:          r.FileHints,
 		ChangedPaths:       r.ChangedPaths,
+		SpecApprovedAt:     r.SpecApprovedAt,
+		SpecApprovedBy:     deref(r.SpecApprovedBy),
+		SpecRejectedAt:     r.SpecRejectedAt,
+		SpecFeedback:       r.SpecFeedback,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

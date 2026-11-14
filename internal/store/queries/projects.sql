@@ -23,3 +23,7 @@ SELECT * FROM projects ORDER BY name;
 
 -- name: GetProject :one
 SELECT * FROM projects WHERE id = @id;
+
+-- name: SetProjectSpecApproval :exec
+UPDATE projects SET spec_approval = @spec_approval, updated_at = now()
+WHERE id = @id AND spec_approval IS DISTINCT FROM @spec_approval;

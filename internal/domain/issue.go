@@ -11,8 +11,10 @@ type Project struct {
 	ID        uuid.UUID
 	Name      string
 	KeyPrefix string // immutable; see ValidKeyPrefix
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// SpecApproval: issues need an approved spec unless a label says otherwise (D64).
+	SpecApproval bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // IssueType is the level of an issue in the epic > story > task hierarchy, or a bug.
@@ -109,8 +111,14 @@ type Issue struct {
 	// its latest change touched (D63).
 	FileHints    []string
 	ChangedPaths []string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Spec approval (D64): who approved the spec and when; the last rejection's
+	// feedback and when it was given (a rejection holds a draft).
+	SpecApprovedAt *time.Time
+	SpecApprovedBy string
+	SpecRejectedAt *time.Time
+	SpecFeedback   string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

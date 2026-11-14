@@ -39,6 +39,7 @@ draft -> refining -> ready -> running -> awaiting_human -> queued -> merged -> r
                        \________________ failed / canceled (from any non-terminal state)
 ```
 
+- Spec approval (D64) is opt-in: a project sets `specApproval: required` in `.factory/config.yaml` (synced into `projects.spec_approval`), and the labels `needs-spec-approval` / `no-spec-approval` override it per issue. Synced issues start as `draft` and follow the source's text while they are drafts. When someone asks to start one, the scheduler makes a draft that needs no approval `ready` itself; one that needs approval waits in the inbox until a person approves its spec (`spec_approved_at`/`by`) or rejects it with feedback (`spec_feedback`; the rejection holds the draft until its text changes or someone asks to start it again).
 - `refining`: optional refinement agent rewrites the ticket into acceptance criteria and asks questions. An issue becomes `ready` only after refinement/approval (spec approval is the first human gate; it happens before the workflow starts).
 - `running`: a Run is active. `awaiting_human`: a `human` gate or ask-human tool is blocking.
 - `queued`: in the repo merge queue. `merged`: on `main`; until the merge queue exists (M6), an issue reaches it when a person merges its change request on the provider (D61). `released`: included in a Release that reached the final stage.

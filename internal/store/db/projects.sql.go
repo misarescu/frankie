@@ -34,7 +34,7 @@ func (q *Queries) AllocateIssueNumber(ctx context.Context, id uuid.UUID) (Alloca
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (id, name, key_prefix)
 VALUES ($1, $2, $3)
-RETURNING id, name, created_at, updated_at, key_prefix, next_issue_number
+RETURNING id, name, created_at, updated_at, key_prefix, next_issue_number, spec_approval
 `
 
 type CreateProjectParams struct {
@@ -53,12 +53,13 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.UpdatedAt,
 		&i.KeyPrefix,
 		&i.NextIssueNumber,
+		&i.SpecApproval,
 	)
 	return i, err
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects WHERE id = $1
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number, spec_approval FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProject(ctx context.Context, id uuid.UUID) (Project, error) {
@@ -71,12 +72,13 @@ func (q *Queries) GetProject(ctx context.Context, id uuid.UUID) (Project, error)
 		&i.UpdatedAt,
 		&i.KeyPrefix,
 		&i.NextIssueNumber,
+		&i.SpecApproval,
 	)
 	return i, err
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects WHERE name = $1
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number, spec_approval FROM projects WHERE name = $1
 `
 
 func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
@@ -89,12 +91,13 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 		&i.UpdatedAt,
 		&i.KeyPrefix,
 		&i.NextIssueNumber,
+		&i.SpecApproval,
 	)
 	return i, err
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects ORDER BY name
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number, spec_approval FROM projects ORDER BY name
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -113,6 +116,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.UpdatedAt,
 			&i.KeyPrefix,
 			&i.NextIssueNumber,
+			&i.SpecApproval,
 		); err != nil {
 			return nil, err
 		}
@@ -132,5 +136,20 @@ SELECT id FROM projects WHERE id = $1 FOR UPDATE
 // together close a cycle that each alone would not.
 func (q *Queries) LockProject(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, lockProject, id)
+	return err
+}
+
+const setProjectSpecApproval = `-- name: SetProjectSpecApproval :exec
+UPDATE projects SET spec_approval = $1, updated_at = now()
+WHERE id = $2 AND spec_approval IS DISTINCT FROM $1
+`
+
+type SetProjectSpecApprovalParams struct {
+	SpecApproval bool
+	ID           uuid.UUID
+}
+
+func (q *Queries) SetProjectSpecApproval(ctx context.Context, arg SetProjectSpecApprovalParams) error {
+	_, err := q.db.Exec(ctx, setProjectSpecApproval, arg.SpecApproval, arg.ID)
 	return err
 }

@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
 )
@@ -25,10 +27,18 @@ type Project struct {
 	BaseBranch string
 }
 
+// ConfigReader reads a file of a repo at a branch: intake reads the project's
+// .factory/config.yaml with it.
+type ConfigReader interface {
+	FileAt(ctx context.Context, repo, path, ref string) (content []byte, found bool, err error)
+}
+
 // Intake polls the issue source.
 type Intake struct {
-	Store    *store.Store
-	Source   IssueSource
+	Store  *store.Store
+	Source IssueSource
+	// Config, when set, syncs each project's settings from its repo (D64).
+	Config   ConfigReader
 	Projects []Project
 	Label    string
 	Interval time.Duration
@@ -61,7 +71,32 @@ func (in *Intake) Poll(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// syncConfig copies the project's settings from .factory/config.yaml on its base
+// branch into the store (docs/spec/02: the repo copy is authoritative). A file
+// that cannot be read or parsed leaves the stored settings as they are; a run
+// started from it reports the problem.
+func (in *Intake) syncConfig(ctx context.Context, p Project) {
+	raw, found, err := in.Config.FileAt(ctx, p.Repo, config.ProjectConfigPath, p.BaseBranch)
+	if err != nil {
+		in.Log.Warn("read project config", "project", p.Repo, "error", err)
+		return
+	}
+	var pc config.Project
+	if found {
+		if pc, err = config.ParseProject(raw, math.MaxInt); err != nil {
+			in.Log.Warn("project config", "project", p.Repo, "error", err)
+			return
+		}
+	}
+	if err := in.Store.SetProjectSpecApproval(ctx, p.ID, pc.RequiresSpecApproval()); err != nil {
+		in.Log.Warn("store project config", "project", p.Repo, "error", err)
+	}
+}
+
 func (in *Intake) syncProject(ctx context.Context, p Project) error {
+	if in.Config != nil {
+		in.syncConfig(ctx, p)
+	}
 	t, err := collectTree(ctx, in.Source, p.Repo, in.Label)
 	if err != nil {
 		return err
@@ -72,7 +107,7 @@ func (in *Intake) syncProject(ctx context.Context, p Project) error {
 		typ := t.issueType(n)
 		src = append(src, store.SourceIssue{Ref: ref, Type: typ, Title: n.issue.Title, Spec: n.issue.Body,
 			Labels: n.issue.Labels, CreatedBy: "github:" + n.issue.Author, ParentRef: n.parent,
-			BlockedBy: n.blockedBy, Status: domain.IssueReady, FileHints: domain.ExtractFileHints(n.issue.Body)})
+			BlockedBy: n.blockedBy, Status: domain.IssueDraft, FileHints: domain.ExtractFileHints(n.issue.Body)})
 	}
 	res, err := in.Store.SyncIssues(ctx, p.ID, src)
 	if err != nil {

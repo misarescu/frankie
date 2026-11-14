@@ -35,7 +35,23 @@ type Project struct {
 	Dependencies *Dependencies `json:"dependencies,omitempty"`
 	// Budgets cap model spend (D53).
 	Budgets Budgets `json:"budgets,omitempty"`
+	// SpecApproval is "required" when an issue's spec needs a person's approval
+	// before it runs, or "off" (the default, also when empty) (D64). Issue labels
+	// override it per issue: LabelNeedsSpecApproval and LabelNoSpecApproval.
+	SpecApproval string `json:"specApproval,omitempty"`
 }
+
+// Spec approval settings and the issue labels that override them (D64).
+const (
+	SpecApprovalRequired   = "required"
+	SpecApprovalOff        = "off"
+	LabelNeedsSpecApproval = "needs-spec-approval"
+	LabelNoSpecApproval    = "no-spec-approval"
+)
+
+// RequiresSpecApproval reports whether the project's issues need an approved spec
+// unless a label says otherwise.
+func (p Project) RequiresSpecApproval() bool { return p.SpecApproval == SpecApprovalRequired }
 
 // Budgets cap what a project's work may spend on models, in USD, enforced
 // by the LLM gateway through each session's virtual key (D53). Zero means
@@ -175,6 +191,16 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if p.Dependencies != nil {
 		errs = append(errs, p.Dependencies.validate()...)
+	}
+	// YAML reads an unquoted off as false, so the boolean forms are accepted too.
+	switch p.SpecApproval {
+	case "true":
+		p.SpecApproval = SpecApprovalRequired
+	case "false":
+		p.SpecApproval = SpecApprovalOff
+	}
+	if p.SpecApproval != "" && p.SpecApproval != SpecApprovalRequired && p.SpecApproval != SpecApprovalOff {
+		errs = append(errs, fmt.Errorf("specApproval: %q must be %q or %q", p.SpecApproval, SpecApprovalRequired, SpecApprovalOff))
 	}
 	if b := p.Budgets.IssueUSD; b < 0 || b > MaxIssueBudgetUSD {
 		errs = append(errs, fmt.Errorf("budgets.issueUSD: %v must be between 0 (the platform's default) and %d", b, MaxIssueBudgetUSD))

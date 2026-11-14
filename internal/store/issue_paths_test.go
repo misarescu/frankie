@@ -54,7 +54,7 @@ func TestSyncIssuesFileHints(t *testing.T) {
 	s := newTestStore(t)
 	p := mustProject(t, s)
 	in := src("1", domain.IssueTask, "")
-	in.Status, in.FileHints = domain.IssueReady, []string{"a/b.go"}
+	in.FileHints = []string{"a/b.go"}
 	res := mustSync(t, s, p, in)
 	if got := res.Issues[in.Ref].FileHints; !slices.Equal(got, []string{"a/b.go"}) {
 		t.Fatalf("hints = %q", got)

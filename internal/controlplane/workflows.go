@@ -159,7 +159,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		go mw.Run(ctx)
 	}
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
-		in := &intake.Intake{Store: st, Source: gh, Projects: projects,
+		in := &intake.Intake{Store: st, Source: gh, Config: gh, Projects: projects,
 			Label: cfg.IntakeLabel, Interval: max(cfg.PollInterval, 10*time.Second), Log: log.With("component", "intake")}
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)

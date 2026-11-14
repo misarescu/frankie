@@ -143,6 +143,9 @@ type issueDetailJSON struct {
 	CreatedBy          string              `json:"created_by"`
 	StartRequestedAt   *time.Time          `json:"start_requested_at,omitempty"`
 	StartRequestedBy   string              `json:"start_requested_by,omitempty"`
+	SpecApprovedAt     *time.Time          `json:"spec_approved_at,omitempty"`
+	SpecApprovedBy     string              `json:"spec_approved_by,omitempty"`
+	SpecFeedback       string              `json:"spec_feedback,omitempty"`
 	CreatedAt          time.Time           `json:"created_at"`
 	UpdatedAt          time.Time           `json:"updated_at"`
 	Parent             *issueRefJSON       `json:"parent,omitempty"`
@@ -185,7 +188,8 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 	out := issueDetailJSON{Key: is.Key, Number: is.Number, Type: string(is.Type), Title: is.Title, Status: string(is.Status),
 		Priority: is.Priority, Spec: is.Spec, AcceptanceCriteria: nonNilStrings(is.AcceptanceCriteria), Labels: nonNilStrings(is.Labels),
 		SourceRef: is.SourceRef, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt,
-		StartRequestedAt: is.StartRequestedAt, StartRequestedBy: is.StartRequestedBy}
+		StartRequestedAt: is.StartRequestedAt, StartRequestedBy: is.StartRequestedBy,
+		SpecApprovedAt: is.SpecApprovedAt, SpecApprovedBy: is.SpecApprovedBy, SpecFeedback: is.SpecFeedback}
 	p, err := s.Store.GetProject(ctx, is.ProjectID)
 	if err != nil {
 		return out, err

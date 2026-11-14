@@ -23,6 +23,10 @@ type SchedIssue struct {
 	// Busy is set while the issue holds a slot: it has an active run, or the
 	// scheduler started it moments ago and its run does not exist yet.
 	Busy bool
+	// NeedsApproval is set when a person must approve the issue's spec before it
+	// runs (D64); SpecRejected while a rejection holds the draft.
+	NeedsApproval bool
+	SpecRejected  bool
 }
 
 // Waiting says why a requested issue does not start now.
@@ -35,6 +39,11 @@ type Waiting struct {
 type SchedulePlan struct {
 	Start   []SchedIssue // in order, at most the free slots
 	Waiting []Waiting    // requested runnable issues that do not start, with why
+	// MakeReady are requested drafts whose spec needs no approval: they become
+	// ready now (D64), and may be in Start too.
+	MakeReady []SchedIssue
+	// AwaitingApproval are requested drafts whose spec waits for a person (D64).
+	AwaitingApproval []SchedIssue
 }
 
 // Runnable reports whether an issue runs a workflow itself: a leaf that is not an
@@ -119,8 +128,15 @@ func PlanSchedule(issues []SchedIssue, deps []Dependency, limit int) SchedulePla
 			continue // finished
 		case is.Status == IssueFailed:
 			reason = "failed; retry it to run again"
+		case is.Status == IssueDraft && !is.NeedsApproval:
+			plan.MakeReady = append(plan.MakeReady, is) // and plan it as ready below
+		case is.Status == IssueDraft && is.SpecRejected:
+			reason = "spec rejected; edit the issue or start it again"
+		case is.Status == IssueDraft:
+			plan.AwaitingApproval = append(plan.AwaitingApproval, is)
+			reason = "spec waits for approval"
 		case is.Status != IssueReady:
-			reason = fmt.Sprintf("%s; starts once ready", is.Status)
+			reason = fmt.Sprintf("%s; starts once its spec is approved", is.Status)
 		}
 		if reason == "" {
 		deps:

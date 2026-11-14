@@ -159,3 +159,19 @@ func TestParseProjectBudgets(t *testing.T) {
 		t.Fatalf("no budgets: %+v, %v", p, err)
 	}
 }
+
+// D64: spec approval is opt-in per project.
+func TestParseProjectSpecApproval(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"": false, "specApproval: off\n": false, "specApproval: \"off\"\n": false, "specApproval: false\n": false,
+		"specApproval: required\n": true, "specApproval: true\n": true,
+	} {
+		p, err := ParseProject([]byte(raw), 2)
+		if err != nil || p.RequiresSpecApproval() != want {
+			t.Errorf("%q: required = %v, %v; want %v", raw, p.RequiresSpecApproval(), err, want)
+		}
+	}
+	if _, err := ParseProject([]byte("specApproval: always\n"), 2); err == nil || !strings.Contains(err.Error(), "specApproval") {
+		t.Errorf("unknown value: err = %v", err)
+	}
+}

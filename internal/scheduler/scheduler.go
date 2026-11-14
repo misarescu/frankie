@@ -61,11 +61,23 @@ func (s *Scheduler) Pass(ctx context.Context) error {
 		return err
 	}
 	plan := domain.PlanSchedule(issues, deps, s.Limit)
+	var errs []error
+	// Drafts whose spec needs no approval become ready first (D64), so the ones
+	// planned to start can.
+	notReady := map[uuid.UUID]bool{}
+	for _, d := range plan.MakeReady {
+		if _, err := s.Store.TransitionIssue(ctx, d.ID, domain.IssueDraft, domain.IssueReady); err != nil {
+			errs = append(errs, fmt.Errorf("make %s ready: %w", d.Key, err))
+			notReady[d.ID] = true
+		}
+	}
 	if len(plan.Start) > 0 {
 		s.warnOverlaps(ctx, plan.Start)
 	}
-	var errs []error
 	for _, c := range plan.Start {
+		if notReady[c.ID] {
+			continue
+		}
 		if err := s.start(ctx, c.ID); err != nil {
 			errs = append(errs, fmt.Errorf("start %s: %w", c.Key, err))
 		}

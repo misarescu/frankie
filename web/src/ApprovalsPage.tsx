@@ -2,23 +2,26 @@ import { useCallback, useEffect, useState } from "react";
 import { decide, expiresIn, type Approval, type Decision } from "./approvals";
 import { answer, type Question } from "./questions";
 import { apiFetch } from "./auth";
+import { decideSpec, type Spec, type SpecDecision } from "./specs";
 
 const getJSON = <T,>(url: string): Promise<T> =>
   fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))));
 
 // The approvals inbox: questions agents asked with the ask-human tool (D55),
-// then human gates waiting for a decision (docs/spec/03). An agent waits for
-// its answer, so questions come first. Read the change on the provider before
+// then human gates waiting for a decision (docs/spec/03), then specs waiting
+// for approval before their issue runs (D64). An agent waits for its answer,
+// so questions come first. Read the change on the provider before
 // deciding; a decision goes to the run's workflow, which records it and
 // continues or fails the run.
 export function ApprovalsPage() {
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
   const [questions, setQuestions] = useState<Question[] | null>(null);
+  const [specs, setSpecs] = useState<Spec[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([getJSON<Question[]>("/api/questions"), getJSON<Approval[]>("/api/approvals")])
-      .then(([qs, as]) => { setQuestions(qs); setApprovals(as); setError(null); })
+    Promise.all([getJSON<Question[]>("/api/questions"), getJSON<Approval[]>("/api/approvals"), getJSON<Spec[]>("/api/specs")])
+      .then(([qs, as, ss]) => { setQuestions(qs); setApprovals(as); setSpecs(ss); setError(null); })
       .catch((e: Error) => setError(e.message));
   }, []);
   useEffect(() => {
@@ -32,8 +35,9 @@ export function ApprovalsPage() {
       <h1><a href="#/">Runs</a> / Approvals</h1>
       {error && <p className="status">Could not load approvals: {error}</p>}
       {questions?.map((q) => <QuestionCard key={q.id} question={q} onAnswered={load} />)}
-      {approvals?.length === 0 && questions?.length === 0 && <p className="status">Nothing waits for an answer or a decision.</p>}
+      {approvals?.length === 0 && questions?.length === 0 && specs?.length === 0 && <p className="status">Nothing waits for an answer or a decision.</p>}
       {approvals?.map((a) => <ApprovalCard key={a.step_run_id} approval={a} onDecided={load} />)}
+      {specs?.map((s) => <SpecCard key={s.key} spec={s} onDecided={load} />)}
     </>
   );
 }
@@ -96,6 +100,45 @@ function ApprovalCard({ approval: a, onDecided }: { approval: Approval; onDecide
       <div className="actions">
         <button onClick={() => send("approve")} disabled={busy}>Approve</button>
         <button className="reject" onClick={() => send("reject")} disabled={busy}>Reject</button>
+        {busy && !error && <span className="status">sent…</span>}
+        {error && <span className="status">{error}</span>}
+      </div>
+    </section>
+  );
+}
+
+function SpecCard({ spec: s, onDecided }: { spec: Spec; onDecided: () => void }) {
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = (d: SpecDecision) => {
+    setBusy(true);
+    setError(null);
+    decideSpec(apiFetch, s.key, d, comment)
+      .then(onDecided)
+      .catch((e: Error) => { setError(e.message); setBusy(false); });
+  };
+  return (
+    <section className="approval">
+      <h2>
+        {s.key} {s.title} <span className="type">· {s.type} spec</span>
+      </h2>
+      <p className="status">
+        {s.project}
+        {s.source_ref && <> · <a href={s.source_ref} target="_blank" rel="noreferrer">source</a></>}
+        {s.requested_by && <> · started by {s.requested_by}</>}
+        {" "}· runs once approved and its dependencies are merged
+      </p>
+      <pre>{s.spec || "(no description)"}</pre>
+      {s.acceptance_criteria.length > 0 && (
+        <ul>{s.acceptance_criteria.map((c, i) => <li key={i}>{c}</li>)}</ul>
+      )}
+      {s.file_hints.length > 0 && <p className="type">touches {s.file_hints.join(", ")}</p>}
+      <textarea placeholder="Comment (required to reject: what should change)" value={comment} maxLength={4000}
+        onChange={(e) => setComment(e.target.value)} disabled={busy} />
+      <div className="actions">
+        <button onClick={() => send("approve")} disabled={busy}>Approve spec</button>
+        <button className="reject" onClick={() => send("reject")} disabled={busy || comment.trim() === ""}>Reject</button>
         {busy && !error && <span className="status">sent…</span>}
         {error && <span className="status">{error}</span>}
       </div>

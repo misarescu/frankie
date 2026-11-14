@@ -172,14 +172,14 @@ func TestPlanScheduleWaitsForWholeParents(t *testing.T) {
 func TestPlanScheduleNotReady(t *testing.T) {
 	f := newSchedFixture()
 	f.deps = nil
-	f.byKey["a"].Status = IssueDraft
+	f.byKey["a"].Status, f.byKey["a"].NeedsApproval = IssueDraft, true
 	f.byKey["b"].Status = IssueFailed
 	f.byKey["c"].Status = IssueMerged
 	p := f.plan(5)
 	if startKeys(p) != "" {
 		t.Fatalf("start = %q", startKeys(p))
 	}
-	if r := waitReason(p, "a"); !strings.Contains(r, "draft") {
+	if r := waitReason(p, "a"); r != "spec waits for approval" {
 		t.Errorf("a waits because %q", r)
 	}
 	if r := waitReason(p, "b"); !strings.Contains(r, "retry") {
@@ -196,5 +196,43 @@ func TestRunnable(t *testing.T) {
 	}
 	if !Runnable(SchedIssue{Type: IssueStory}, false) || !Runnable(SchedIssue{Type: IssueBug}, false) {
 		t.Error("a leaf story or bug runs")
+	}
+}
+
+// D64: a requested draft becomes ready when its spec needs no approval, waits in
+// the inbox when it does, and is held while a rejection stands.
+func TestPlanScheduleSpecApproval(t *testing.T) {
+	f := newSchedFixture()
+	f.deps = nil
+	for _, k := range []string{"a", "b", "c", "o"} {
+		f.byKey[k].Status = IssueDraft
+	}
+	f.byKey["b"].NeedsApproval = true
+	f.byKey["c"].NeedsApproval, f.byKey["c"].SpecRejected = true, true
+	f.byKey["o"].NeedsApproval = true // not requested: nobody is asked to approve it
+
+	p := f.plan(5)
+	keys := func(is []SchedIssue) string {
+		var out []string
+		for _, x := range is {
+			out = append(out, x.Key)
+		}
+		return strings.Join(out, ",")
+	}
+	if keys(p.MakeReady) != "a" || startKeys(p) != "a" {
+		t.Errorf("make ready %q, start %q; want a for both", keys(p.MakeReady), startKeys(p))
+	}
+	if keys(p.AwaitingApproval) != "b" || waitReason(p, "b") != "spec waits for approval" {
+		t.Errorf("awaiting approval %q (%q), want b", keys(p.AwaitingApproval), waitReason(p, "b"))
+	}
+	if r := waitReason(p, "c"); !strings.Contains(r, "rejected") {
+		t.Errorf("c waits because %q", r)
+	}
+
+	// A draft made ready still waits for its dependencies before it starts.
+	f.dep("a", "o")
+	p = f.plan(5)
+	if keys(p.MakeReady) != "a" || startKeys(p) != "" || waitReason(p, "a") != "waits for o" {
+		t.Errorf("make ready %q, start %q, a waits %q", keys(p.MakeReady), startKeys(p), waitReason(p, "a"))
 	}
 }

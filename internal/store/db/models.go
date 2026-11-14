@@ -84,6 +84,10 @@ type Issue struct {
 	ScheduledAt        *time.Time
 	FileHints          []string
 	ChangedPaths       []string
+	SpecApprovedAt     *time.Time
+	SpecApprovedBy     *string
+	SpecRejectedAt     *time.Time
+	SpecFeedback       string
 }
 
 type IssueDependency struct {
@@ -99,6 +103,7 @@ type Project struct {
 	UpdatedAt       time.Time
 	KeyPrefix       string
 	NextIssueNumber int32
+	SpecApproval    bool
 }
 
 type Question struct {

@@ -185,21 +185,29 @@ func TestSyncIssuesLeavesOtherIssuesAlone(t *testing.T) {
 	}
 }
 
-// D62: until an issue runs, it follows the source's text even when ready.
-func TestSyncIssuesRefreshesReadyIssuesUntilTheyRun(t *testing.T) {
+// D64: a draft follows the source's text; a ready issue (its spec approved, or
+// made ready by the scheduler) keeps its copy. A changed text lifts a rejection.
+func TestSyncIssuesRefreshesDraftsOnly(t *testing.T) {
 	s := newTestStore(t)
 	p := mustProject(t, s)
+	ctx := t.Context()
 	in := src("1", domain.IssueTask, "")
-	in.Status = domain.IssueReady
 	res := mustSync(t, s, p, in)
+	id := res.Issues[in.Ref].ID
+	if _, err := s.RejectSpec(ctx, id, "too vague"); err != nil {
+		t.Fatal(err)
+	}
 
 	in.Title = "edited on GitHub"
-	if got := mustSync(t, s, p, in).Issues[in.Ref]; got.Title != "edited on GitHub" {
-		t.Fatalf("ready issue without runs = %q, want the source's edit", got.Title)
+	got := mustSync(t, s, p, in).Issues[in.Ref]
+	if got.Title != "edited on GitHub" || got.SpecRejectedAt != nil {
+		t.Fatalf("draft = %q, rejected %v; want the edit and the rejection lifted", got.Title, got.SpecRejectedAt)
 	}
-	mustRun(t, s, res.Issues[in.Ref].ID)
-	in.Title = "edited again"
+	if _, err := s.ApproveSpec(ctx, id, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	in.Title = "edited after approval"
 	if got := mustSync(t, s, p, in).Issues[in.Ref]; got.Title != "edited on GitHub" {
-		t.Fatalf("ready issue that ran = %q, want its copy kept", got.Title)
+		t.Fatalf("approved issue = %q, want its approved copy kept", got.Title)
 	}
 }

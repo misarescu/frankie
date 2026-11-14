@@ -50,7 +50,7 @@ func TestPollTakesInLabeledIssuesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	is, err := s.GetIssueBySourceRef(t.Context(), p.ID, src.issues[0].Ref)
-	if err != nil || is.Key != "gc-1" || is.Status != domain.IssueReady || is.CreatedBy != "github:mi" || is.Spec != src.issues[0].Body {
+	if err != nil || is.Key != "gc-1" || is.Status != domain.IssueDraft || is.CreatedBy != "github:mi" || is.Spec != src.issues[0].Body {
 		t.Fatalf("issue = %+v, %v", is, err)
 	}
 	// D63: paths the text names become file hints.
@@ -86,7 +86,7 @@ func ext(n int, labels ...string) domain.ExternalIssue {
 		Title: "issue " + strconv.Itoa(n), Author: "mi", Labels: labels, Open: true}
 }
 
-// D60: a labeled epic brings its sub-issues and their blockers, all ready (D62)
+// D60: a labeled epic brings its sub-issues and their blockers, all drafts (D64)
 // and none started.
 func TestPollSyncsTree(t *testing.T) {
 	s := storetest.New(t)
@@ -122,8 +122,8 @@ func TestPollSyncsTree(t *testing.T) {
 		t.Errorf("sub-issue parents = %v, %v; want the epic", a.ParentID, u.ParentID)
 	}
 	for _, is := range []domain.Issue{e, a, u, o} {
-		if is.Status != domain.IssueReady || is.StartRequestedAt != nil {
-			t.Errorf("%s = %s, requested %v; want ready and not requested", is.Key, is.Status, is.StartRequestedAt)
+		if is.Status != domain.IssueDraft || is.StartRequestedAt != nil {
+			t.Errorf("%s = %s, requested %v; want a draft, not requested", is.Key, is.Status, is.StartRequestedAt)
 		}
 	}
 	deps, err := s.ListIssueDependencies(t.Context(), u.ID)
@@ -146,5 +146,58 @@ func TestPollStopsOnRelationErrors(t *testing.T) {
 	}
 	if _, err := s.GetIssueBySourceRef(t.Context(), p.ID, epic.Ref); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("epic synced despite the error: %v", err)
+	}
+}
+
+// fakeConfig serves .factory/config.yaml, or fails.
+type fakeConfig struct {
+	raw   string
+	found bool
+	err   error
+	asked []string
+}
+
+func (f *fakeConfig) FileAt(_ context.Context, repo, path, ref string) ([]byte, bool, error) {
+	f.asked = append(f.asked, repo+":"+path+"@"+ref)
+	return []byte(f.raw), f.found, f.err
+}
+
+// D64: intake copies specApproval from the repo's config into the project; a
+// config it cannot read or parse leaves the setting as it was.
+func TestPollSyncsProjectConfig(t *testing.T) {
+	s := storetest.New(t)
+	p, _ := s.CreateProject(t.Context(), "o/r", "or")
+	cfg := &fakeConfig{raw: "specApproval: required\n", found: true}
+	in := &Intake{Store: s, Source: &fakeSource{}, Config: cfg, Label: "factory", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Projects: []Project{{ID: p.ID, Repo: "o/r", BaseBranch: "trunk"}}}
+	required := func() bool {
+		t.Helper()
+		if err := in.Poll(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetProject(t.Context(), p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.SpecApproval
+	}
+	if !required() {
+		t.Fatal("specApproval: required not synced")
+	}
+	if cfg.asked[0] != "o/r:.factory/config.yaml@trunk" {
+		t.Errorf("read %v", cfg.asked)
+	}
+	for name, c := range map[string]*fakeConfig{
+		"unreadable": {err: errors.New("502")},
+		"invalid":    {raw: "specApproval: always\n", found: true},
+	} {
+		in.Config = c
+		if !required() {
+			t.Errorf("%s config changed the setting", name)
+		}
+	}
+	in.Config = &fakeConfig{found: false} // no config file: the default, off
+	if required() {
+		t.Error("a repo without config still requires approval")
 	}
 }

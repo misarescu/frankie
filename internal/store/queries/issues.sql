@@ -78,14 +78,14 @@ LEFT JOIN LATERAL (
 WHERE i.project_id = @project_id
 ORDER BY i.priority DESC, i.number;
 
--- Sync from an issue source (D60, D62): an issue that never ran (a draft, or a
--- ready issue without runs) takes the source's title, body, labels and type; once
--- started, the factory's copy is authoritative.
--- name: UpdateUnstartedIssueFromSource :one
-UPDATE issues AS i
-SET title = @title, spec = @spec, labels = @labels, type = @type, file_hints = @file_hints, updated_at = now()
-WHERE i.id = @id AND (i.status = 'draft'
-  OR (i.status = 'ready' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id)))
+-- Sync from an issue source (D60, D64): a draft takes the source's title, body,
+-- labels, type and file hints; once its spec is approved (or the scheduler made it
+-- ready), the factory's copy is authoritative. A changed text lifts a rejection.
+-- name: UpdateDraftIssueFromSource :one
+UPDATE issues
+SET title = @title, spec = @spec, labels = @labels, type = @type, file_hints = @file_hints,
+    spec_rejected_at = NULL, updated_at = now()
+WHERE id = @id AND status = 'draft'
 RETURNING *;
 
 -- Asks to start an issue (D62); the first request is kept.
@@ -93,6 +93,7 @@ RETURNING *;
 UPDATE issues
 SET start_requested_at = coalesce(start_requested_at, now()),
     start_requested_by = coalesce(start_requested_by, @requested_by::text),
+    spec_rejected_at = NULL, -- asking again lifts a rejection (D64)
     updated_at = now()
 WHERE id = @id
 RETURNING *;
@@ -102,12 +103,17 @@ UPDATE issues SET scheduled_at = now(), updated_at = now() WHERE id = @id;
 
 -- Every issue as the scheduler sees it (D62). busy: an active run, or started by
 -- the scheduler in the last five minutes and still waiting for its run.
+-- needs_approval (D64): a label decides, else the project's specApproval.
 -- name: ListSchedIssues :many
 SELECT i.id, i.key, i.type, i.parent_id, i.status, i.priority, i.number,
        (i.start_requested_at IS NOT NULL)::boolean AS requested,
        (EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id AND r.status IN ('pending', 'running'))
-        OR (i.status = 'ready' AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)))::boolean AS busy
-FROM issues i;
+        OR (i.status = 'ready' AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)))::boolean AS busy,
+       (CASE WHEN 'no-spec-approval' = ANY (i.labels) THEN false
+             WHEN 'needs-spec-approval' = ANY (i.labels) THEN true
+             ELSE p.spec_approval END)::boolean AS needs_approval,
+       (i.spec_rejected_at IS NOT NULL)::boolean AS spec_rejected
+FROM issues i JOIN projects p ON p.id = i.project_id;
 
 -- name: ListAllDependencies :many
 SELECT issue_id, depends_on_id FROM issue_dependencies;
@@ -120,3 +126,15 @@ UPDATE issues SET changed_paths = @changed_paths, updated_at = now() WHERE id = 
 -- name: ListPathsIssues :many
 SELECT id, key, project_id, status, file_hints, changed_paths FROM issues
 WHERE status NOT IN ('merged', 'released', 'canceled');
+
+-- name: SetSpecApproved :one
+UPDATE issues
+SET spec_approved_at = now(), spec_approved_by = @approved_by, spec_rejected_at = NULL, spec_feedback = '', updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: RejectSpec :one
+UPDATE issues
+SET spec_rejected_at = now(), spec_feedback = @feedback, updated_at = now()
+WHERE id = @id AND status = 'draft'
+RETURNING *;

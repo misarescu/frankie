@@ -10,6 +10,8 @@ CREATE TABLE projects (
   -- Issue key prefix (D22): immutable, branch-safe.
   key_prefix        text        NOT NULL UNIQUE CHECK (key_prefix ~ '^[a-z][a-z0-9]{1,9}$'),
   next_issue_number integer     NOT NULL DEFAULT 1 CHECK (next_issue_number >= 1),
+  -- specApproval from the repo's .factory/config.yaml, synced by intake (D64).
+  spec_approval     boolean     NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -42,6 +44,12 @@ CREATE TABLE issues (
   -- files its latest change touched; compared for overlap warnings (D63).
   file_hints          text[]      NOT NULL DEFAULT '{}',
   changed_paths       text[]      NOT NULL DEFAULT '{}',
+  -- Spec approval (D64): who approved the spec, or why it was last rejected. A
+  -- rejected draft is held until its text changes or someone asks to start it again.
+  spec_approved_at    timestamptz,
+  spec_approved_by    text,
+  spec_rejected_at    timestamptz,
+  spec_feedback       text        NOT NULL DEFAULT '',
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

@@ -12,6 +12,7 @@ export type RunSummary = {
   IssueKey: string;
   IssueTitle: string;
   CreatedAt: string;
+  CostUSD: number;
 };
 
 export const eventTypes = [

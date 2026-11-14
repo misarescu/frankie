@@ -227,3 +227,59 @@ func TestSetRunLoopCount(t *testing.T) {
 		t.Fatal("empty step id accepted")
 	}
 }
+
+// D53: a session's usage adds up on its StepRun, its run and its issue,
+// across the issue's runs.
+func TestStepRunUsageAddsUpPerRunAndIssue(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	p := mustProject(t, s)
+	is := mustIssue(t, s, p.ID, domain.IssueRunning)
+	other := mustIssue(t, s, p.ID, domain.IssueRunning)
+	step := func(run domain.Run, id string) domain.StepRun {
+		t.Helper()
+		sr, err := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: id, Attempt: 1, Kind: domain.StepAgent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sr
+	}
+	first := mustRun(t, s, is.ID)
+	impl := step(first, "implement")
+	for _, u := range []domain.Usage{{CostUSD: 0.25, InputTokens: 1000, OutputTokens: 100}, {CostUSD: 0.5, InputTokens: 2000, OutputTokens: 50}} {
+		if _, err := s.AddStepRunUsage(ctx, impl.ID, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.GetStepRun(ctx, impl.ID)
+	if err != nil || got.Usage != (domain.Usage{CostUSD: 0.75, InputTokens: 3000, OutputTokens: 150}) {
+		t.Fatalf("usage = %+v, %v", got.Usage, err)
+	}
+	if _, err := s.TransitionRun(ctx, first.ID, domain.ExecPending, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	rerun := mustRun(t, s, is.ID)
+	if _, err := s.AddStepRunUsage(ctx, step(rerun, "implement").ID, domain.Usage{CostUSD: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddStepRunUsage(ctx, step(mustRun(t, s, other.ID), "implement").ID, domain.Usage{CostUSD: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if spent, err := s.IssueSpend(ctx, is.ID); err != nil || spent != 1.75 {
+		t.Errorf("issue spend = %v, %v; want 1.75 over both runs, not the other issue's", spent, err)
+	}
+	runs, err := s.ListRecentRuns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	costs := map[uuid.UUID]float64{}
+	for _, r := range runs {
+		costs[r.ID] = r.CostUSD
+	}
+	if costs[first.ID] != 0.75 || costs[rerun.ID] != 1 {
+		t.Errorf("run costs = %v", costs)
+	}
+	if _, err := s.AddStepRunUsage(ctx, impl.ID, domain.Usage{CostUSD: -5}); err == nil {
+		t.Error("a negative cost was accepted")
+	}
+}

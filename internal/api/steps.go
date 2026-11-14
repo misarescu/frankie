@@ -23,14 +23,18 @@ const (
 
 // stepJSON is a step execution as the run page shows it.
 type stepJSON struct {
-	ID         uuid.UUID  `json:"id"`
-	StepID     string     `json:"step_id"`
-	Attempt    int        `json:"attempt"`
-	Kind       string     `json:"kind"`
-	Status     string     `json:"status"`
-	CommitSHA  string     `json:"commit_sha,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID        uuid.UUID `json:"id"`
+	StepID    string    `json:"step_id"`
+	Attempt   int       `json:"attempt"`
+	Kind      string    `json:"kind"`
+	Status    string    `json:"status"`
+	CommitSHA string    `json:"commit_sha,omitempty"`
+	// Model usage of an agent step's sessions (D53).
+	CostUSD      float64    `json:"cost_usd"`
+	InputTokens  int64      `json:"input_tokens"`
+	OutputTokens int64      `json:"output_tokens"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 }
 
 // listSteps lists a run's step executions in order, so the run page knows
@@ -48,7 +52,8 @@ func (s *Server) listSteps(w http.ResponseWriter, r *http.Request) {
 	out := make([]stepJSON, 0, len(steps))
 	for _, st := range steps {
 		out = append(out, stepJSON{ID: st.ID, StepID: st.StepID, Attempt: st.Attempt, Kind: string(st.Kind), Status: string(st.Status),
-			CommitSHA: st.CommitSHA, StartedAt: st.StartedAt, FinishedAt: st.FinishedAt})
+			CommitSHA: st.CommitSHA, CostUSD: st.Usage.CostUSD, InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
+			StartedAt: st.StartedAt, FinishedAt: st.FinishedAt})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

@@ -61,10 +61,13 @@ type AgentStep struct {
 	Model string
 	// Harness runs the step (claude-code, opencode); empty means claude-code,
 	// as for steps recorded before the field existed.
-	Harness   string        `json:",omitempty"`
-	BudgetUSD float64       // 0: the platform's
-	Timeout   time.Duration // 0: the platform's session timeout
-	Inputs    []string
+	Harness   string  `json:",omitempty"`
+	BudgetUSD float64 // 0: the platform's
+	// IssueBudgetUSD caps all of the issue's sessions together; 0: the
+	// platform's (D53).
+	IssueBudgetUSD float64       `json:",omitempty"`
+	Timeout        time.Duration // 0: the platform's session timeout
+	Inputs         []string
 	// Feedback is what the gate that looped back to this step found, when the
 	// step takes the feedback input.
 	Feedback string
@@ -163,6 +166,9 @@ type AgentConfig struct {
 	GitProxyURL    string // as agents reach it, e.g. http://frankie-controlplane.frankie.svc:8081
 	GatewayURL     string // as agents reach it, e.g. http://frankie-llm-gateway.frankie.svc:4000
 	Model          string
+	// IssueBudgetUSD is the default cap on all of an issue's sessions
+	// together; projects may set their own (D53).
+	IssueBudgetUSD float64
 	// ModelAPIs maps the gateway's model names to the API each is served with
 	// (D48), so the runner can configure a harness to speak it.
 	ModelAPIs      map[string]config.API
@@ -246,6 +252,9 @@ type Activities struct {
 	// RunnerAddr is where an agent pod's runner listens; nil means the pod IP
 	// on sandbox.RunnerPort. Tests point it at a fake runner.
 	RunnerAddr func(pod AgentPod) string
+	// SpendSettle is how long to wait between reads of a session's spend
+	// while the gateway writes it; default 3s (D53).
+	SpendSettle time.Duration
 }
 
 // hardcodedWorkflow is the snapshot recorded on M1 runs (invariant 4).

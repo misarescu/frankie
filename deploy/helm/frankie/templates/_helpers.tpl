@@ -43,7 +43,11 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- end -}}
 {{- $providers := list -}}
 {{- range .Values.llmGateway.providers -}}
-{{- $providers = append $providers (dict "name" .name "models" .models) -}}
+{{- $ids := list -}}
+{{- range .models -}}
+{{- if kindIs "map" . }}{{ $ids = append $ids .id }}{{ else }}{{ $ids = append $ids . }}{{ end -}}
+{{- end -}}
+{{- $providers = append $providers (dict "name" .name "models" $ids) -}}
 {{- end -}}
 {{- $tc := .Values.toolchains -}}
 {{- $gate := .Values.controlPlane.gate -}}
@@ -65,7 +69,7 @@ app.kubernetes.io/component: {{ index . 1 }}
     "workspaceSize" $a.workspaceSize "podDeadline" $a.podDeadline
     "gitProxyURL" (printf "http://%s-controlplane.%s.svc:%v" $full .Release.Namespace .Values.controlPlane.gitProxyPort)
     "gatewayURL" (printf "http://%s-llm-gateway.%s.svc:%v" $full .Release.Namespace .Values.llmGateway.port)
-    "model" $a.model "budgetUSD" $a.budgetUSD
+    "model" $a.model "budgetUSD" $a.budgetUSD "issueBudgetUSD" $a.issueBudgetUSD
     "sessionTimeout" $a.sessionTimeout "idleTimeout" $a.idleTimeout
     "authorName" $a.authorName "authorEmail" $a.authorEmail)
   "gate" (dict

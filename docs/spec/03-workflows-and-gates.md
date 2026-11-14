@@ -128,7 +128,7 @@ Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code
 
 - **Scheduling.** "Start" on one issue creates a Run. "Start many" asks the scheduler to run all ready issues respecting the DAG and concurrency limits (`maxConcurrentIssues`). Independent issues run in parallel.
 - **Overlap warning.** Before launching parallel issues, the scheduler compares `file_hints` and recent diffs by package; likely overlap produces a UI warning (and optionally serialization).
-- **Budgets.** Per-step, per-issue and per-release token/cost budgets enforced at the LLM gateway. Exceeding a budget aborts the step and escalates.
+- **Budgets.** Per-step, per-issue and per-release token/cost budgets enforced at the LLM gateway. Exceeding a budget aborts the step and escalates. Implemented (D53): per step (`budgetUSD`, default `controlPlane.agent.budgetUSD`) and per issue (`budgets.issueUSD` in `.factory/config.yaml`, default `controlPlane.agent.issueBudgetUSD`), across all the issue's runs; each session's virtual key is capped at the lower of the step's budget and what is left of the issue's. A used-up budget fails the step, and so the run, naming the budget; escalating to a person who can grant more is not built yet, and per-release budgets come with releases (M7).
 - **Loop counts** are recorded per issue. High loop counts usually indicate a weak spec and surface in metrics.
 - **Concurrency of reviewers** is configurable; on the concrete profile reviewers run sequentially.
 

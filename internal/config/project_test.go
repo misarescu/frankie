@@ -72,6 +72,9 @@ func TestParseProjectRejects(t *testing.T) {
 	}{
 		{"too many services", "services: [postgres:17, redis:7]\n", "platform allows 1", 1},
 		{"unknown top-level field", "servcies: [postgres:17]\n", "servcies", 2},
+		{"negative issue budget", "budgets: {issueUSD: -1}\n", "budgets.issueUSD", 2},
+		{"huge issue budget", "budgets: {issueUSD: 5000}\n", "budgets.issueUSD", 2},
+		{"unknown budget", "budgets: {releaseUSD: 5}\n", "releaseUSD", 2},
 		{"unknown service field", "services:\n  - image: postgres:17\n    command: [sh]\n", "command", 2},
 		{"bad image", "services: [\"postgres 17\"]\n", "not an image reference", 2},
 		{"duplicate name", "services: [postgres:16, postgres:17]\n", "duplicate name", 2},
@@ -143,5 +146,16 @@ dependencies:
 		if _, err := ParseProject([]byte(raw), 0); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", raw, err, want)
 		}
+	}
+}
+
+// D53: a project may cap what each issue spends on models.
+func TestParseProjectBudgets(t *testing.T) {
+	p, err := ParseProject([]byte("budgets: {issueUSD: 12.5}\n"), 2)
+	if err != nil || p.Budgets.IssueUSD != 12.5 {
+		t.Fatalf("project = %+v, err = %v", p, err)
+	}
+	if p, err := ParseProject(nil, 2); err != nil || p.Budgets.IssueUSD != 0 {
+		t.Fatalf("no budgets: %+v, %v", p, err)
 	}
 }

@@ -59,6 +59,7 @@ type fileConfig struct {
 		GatewayURL     string   `json:"gatewayURL"`
 		Model          string   `json:"model"` // model ref, served by Providers
 		BudgetUSD      float64  `json:"budgetUSD"`
+		IssueBudgetUSD float64  `json:"issueBudgetUSD"`
 		SessionTimeout string   `json:"sessionTimeout"`
 		IdleTimeout    string   `json:"idleTimeout"`
 		AuthorName     string   `json:"authorName"`
@@ -257,7 +258,7 @@ func LoadConfigFile(path string, cfg *Config) error {
 	agent := activities.AgentConfig{
 		Namespace: a.Namespace, RunnerImage: a.RunnerImage, RuntimeClass: a.RuntimeClass, ServiceAccount: a.ServiceAccount,
 		EgressProxyURL: a.EgressProxyURL, NoProxy: a.NoProxy, PodDeadline: deadline, GitProxyURL: a.GitProxyURL,
-		GatewayURL: a.GatewayURL, Model: config.GatewayModel(a.Model), BudgetUSD: a.BudgetUSD, SessionTimeout: session, IdleTimeout: idle,
+		GatewayURL: a.GatewayURL, Model: config.GatewayModel(a.Model), BudgetUSD: a.BudgetUSD, IssueBudgetUSD: a.IssueBudgetUSD, SessionTimeout: session, IdleTimeout: idle,
 		AuthorName: a.AuthorName, AuthorEmail: a.AuthorEmail,
 	}
 	if a.CPU != "" || a.Memory != "" {

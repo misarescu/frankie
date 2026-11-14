@@ -195,3 +195,22 @@ func TestListRunsLimit(t *testing.T) {
 		}
 	}
 }
+
+// D53: the runs list shows what each run's sessions spent.
+func TestListRunsIncludesCost(t *testing.T) {
+	st, srv, run, _ := testServer(t)
+	step, err := st.CreateStepRun(t.Context(), store.NewStepRun{RunID: run.ID, StepID: "implement", Attempt: 1, Kind: domain.StepAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddStepRunUsage(t.Context(), step.ID, domain.Usage{CostUSD: 1.25}); err != nil {
+		t.Fatal(err)
+	}
+	var runs []struct {
+		ID      string
+		CostUSD float64
+	}
+	if code := getJSON(t, srv.URL+"/api/runs", &runs); code != http.StatusOK || len(runs) != 1 || runs[0].CostUSD != 1.25 {
+		t.Fatalf("runs = %+v (%d)", runs, code)
+	}
+}

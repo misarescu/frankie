@@ -204,3 +204,16 @@ func TestFrankiesOwnConfigResolves(t *testing.T) {
 		}
 	}
 }
+
+// D53: the project's issue budget is read at the base commit with the rest,
+// so an agent cannot raise it on its own branch.
+func TestResolveIssueBudget(t *testing.T) {
+	r := &repo{files: map[string]string{".factory/config.yaml": "budgets: {issueUSD: 7.5}\n"}}
+	s, err := Resolve(t.Context(), r, "acme/app", "main")
+	if err != nil || s.IssueBudgetUSD != 7.5 {
+		t.Fatalf("snapshot = %+v, %v", s, err)
+	}
+	if s, err := Resolve(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main"); err != nil || s.IssueBudgetUSD != 0 {
+		t.Fatalf("no budgets: %+v, %v", s.IssueBudgetUSD, err)
+	}
+}

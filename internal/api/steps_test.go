@@ -68,11 +68,15 @@ func getJSON(t *testing.T, url string, out any) int {
 
 func TestListSteps(t *testing.T) {
 	st, srv, run, _ := testServer(t)
-	stepIn(t, st, run, "implement", domain.StepAgent, domain.ExecSucceeded)
+	impl := stepIn(t, st, run, "implement", domain.StepAgent, domain.ExecSucceeded)
+	if _, err := st.AddStepRunUsage(t.Context(), impl.ID, domain.Usage{CostUSD: 0.42, InputTokens: 1200, OutputTokens: 80}); err != nil {
+		t.Fatal(err)
+	}
 	stepIn(t, st, run, "checks", domain.StepGate, domain.ExecRunning)
 	var got []stepJSON
 	getJSON(t, srv.URL+"/api/runs/"+run.ID.String()+"/steps", &got)
-	if len(got) != 2 || got[0].StepID != "implement" || got[0].Status != "succeeded" || got[1].Kind != "gate" || got[1].Status != "running" {
+	if len(got) != 2 || got[0].StepID != "implement" || got[0].Status != "succeeded" || got[1].Kind != "gate" || got[1].Status != "running" ||
+		got[0].CostUSD != 0.42 || got[0].InputTokens != 1200 || got[0].OutputTokens != 80 {
 		t.Errorf("steps = %+v", got)
 	}
 	if code := getJSON(t, srv.URL+"/api/runs/0198f2a4-0000-7000-8000-000000000000/steps", nil); code != http.StatusNotFound {

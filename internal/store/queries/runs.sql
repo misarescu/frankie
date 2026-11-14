@@ -48,8 +48,25 @@ UPDATE step_runs SET pod_name = @pod_name, updated_at = now() WHERE id = @id RET
 -- name: SetStepRunCommit :one
 UPDATE step_runs SET commit_sha = @commit_sha, updated_at = now() WHERE id = @id RETURNING *;
 
+-- Adds a session's usage: a step's retried session attempts each add theirs.
+-- name: AddStepRunUsage :one
+UPDATE step_runs
+SET cost_usd      = cost_usd + @cost_usd::float8,
+    input_tokens  = input_tokens + @input_tokens::bigint,
+    output_tokens = output_tokens + @output_tokens::bigint,
+    updated_at    = now()
+WHERE id = @id
+RETURNING *;
+
+-- What all runs of an issue have spent on models so far (D53).
+-- name: IssueSpend :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.issue_id = @issue_id;
+
 -- name: ListRecentRuns :many
-SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r JOIN issues i ON i.id = r.issue_id
 ORDER BY r.created_at DESC
 LIMIT @max_runs;

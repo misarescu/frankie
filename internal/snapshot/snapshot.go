@@ -34,6 +34,9 @@ type Snapshot struct {
 	// repo's own, read from the base branch so a change cannot loosen the
 	// rules it is judged by (invariant 6).
 	ProtectedPaths []string `json:"protectedPaths,omitempty"`
+	// IssueBudgetUSD is the project's cap on what the issue spends on
+	// models; zero means the platform's default (D53).
+	IssueBudgetUSD float64 `json:"issueBudgetUSD,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -92,7 +95,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 		project.Workflow = workflows.Default
 	}
 
-	s := Snapshot{BaseSHA: sha}
+	s := Snapshot{BaseSHA: sha, IssueBudgetUSD: project.Budgets.IssueUSD}
 	raw, found, err = read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)

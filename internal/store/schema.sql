@@ -71,6 +71,11 @@ CREATE TABLE step_runs (
                 'pending', 'running', 'succeeded', 'failed', 'canceled')),
   pod_name    text,
   commit_sha  text,
+  -- An agent session's model usage (D53): cost as the LLM gateway recorded
+  -- it for the session's key, tokens as the harness reported them.
+  cost_usd      double precision NOT NULL DEFAULT 0 CHECK (cost_usd >= 0),
+  input_tokens  bigint           NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens bigint           NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
   started_at  timestamptz,
   finished_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),

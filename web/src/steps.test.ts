@@ -1,7 +1,16 @@
 import { expect, test } from "bun:test";
-import { abort, runningAgentStep, steer, type Step } from "./steps";
+import { abort, runningAgentStep, steer, totals, usd, type Step } from "./steps";
 
-const step = (step_id: string, kind: string, status: string): Step => ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status });
+const step = (step_id: string, kind: string, status: string, cost_usd = 0, input_tokens = 0, output_tokens = 0): Step =>
+  ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status, cost_usd, input_tokens, output_tokens });
+
+test("adds up a run's usage", () => {
+  expect(totals([step("implement", "agent", "succeeded", 0.4, 1000, 50), step("checks", "gate", "succeeded"), step("review", "agent", "running", 0.15, 300, 20)]))
+    .toEqual({ cost: 0.55, input: 1300, output: 70 });
+  expect(usd(0)).toBe("$0.00");
+  expect(usd(0.004)).toBe("<$0.01");
+  expect(usd(1.234)).toBe("$1.23");
+});
 
 test("finds the running agent step", () => {
   expect(runningAgentStep([step("implement", "agent", "succeeded"), step("checks", "gate", "running")])).toBeUndefined();

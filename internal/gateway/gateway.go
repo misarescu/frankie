@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -86,6 +87,33 @@ func (c *Client) DeleteKey(ctx context.Context, key string) error {
 	return err
 }
 
+// ErrNoSuchKey is returned for a key alias the gateway does not know.
+var ErrNoSuchKey = errors.New("gateway: no key with that alias")
+
+// KeySpend is what the virtual key with this alias has spent so far, in USD,
+// as the gateway records it. Aliases are not secret, so a retried Activity
+// can look a key up without having kept it. The gateway writes spend in
+// batches, so it lags its requests by a few seconds
+// (llmGateway.spendWriteSeconds).
+func (c *Client) KeySpend(ctx context.Context, alias string) (float64, error) {
+	var out struct {
+		Keys []struct {
+			KeyAlias string  `json:"key_alias"`
+			Spend    float64 `json:"spend"`
+		} `json:"keys"`
+	}
+	q := url.Values{"key_alias": {alias}, "return_full_object": {"true"}}
+	if err := c.get(ctx, "/key/list?"+q.Encode(), &out); err != nil {
+		return 0, err
+	}
+	for _, k := range out.Keys {
+		if k.KeyAlias == alias {
+			return k.Spend, nil
+		}
+	}
+	return 0, ErrNoSuchKey
+}
+
 // StatusError is a non-2xx gateway response.
 type StatusError struct {
 	Code int
@@ -105,8 +133,20 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	if err != nil {
 		return fmt.Errorf("gateway: %s: %w", path, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.masterKey)
 	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, path, out)
+}
+
+func (c *Client) get(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("gateway: %s: %w", path, err)
+	}
+	return c.do(req, path, out)
+}
+
+func (c *Client) do(req *http.Request, path string, out any) error {
+	req.Header.Set("Authorization", "Bearer "+c.masterKey)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("gateway: %s: %w", path, err)

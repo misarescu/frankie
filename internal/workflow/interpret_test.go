@@ -472,3 +472,18 @@ steps:
 		t.Errorf("steps = %s", got)
 	}
 }
+
+// D53: every agent session gets the snapshot's issue budget.
+func TestAgentStepsCarryTheIssueBudget(t *testing.T) {
+	f := newInterpretFixture(t)
+	snap := loopSnapshot(t, loopDefinition)
+	snap.IssueBudgetUSD = 7.5
+	if out := f.run(t, snap); !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	for _, s := range f.sessions {
+		if s.Step.IssueBudgetUSD != 7.5 {
+			t.Errorf("session %s: issue budget %v", s.Step.StepID, s.Step.IssueBudgetUSD)
+		}
+	}
+}

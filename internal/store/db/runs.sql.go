@@ -12,6 +12,52 @@ import (
 	"github.com/google/uuid"
 )
 
+const addStepRunUsage = `-- name: AddStepRunUsage :one
+UPDATE step_runs
+SET cost_usd      = cost_usd + $1::float8,
+    input_tokens  = input_tokens + $2::bigint,
+    output_tokens = output_tokens + $3::bigint,
+    updated_at    = now()
+WHERE id = $4
+RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens
+`
+
+type AddStepRunUsageParams struct {
+	CostUsd      float64
+	InputTokens  int64
+	OutputTokens int64
+	ID           uuid.UUID
+}
+
+// Adds a session's usage: a step's retried session attempts each add theirs.
+func (q *Queries) AddStepRunUsage(ctx context.Context, arg AddStepRunUsageParams) (StepRun, error) {
+	row := q.db.QueryRow(ctx, addStepRunUsage,
+		arg.CostUsd,
+		arg.InputTokens,
+		arg.OutputTokens,
+		arg.ID,
+	)
+	var i StepRun
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.StepID,
+		&i.Attempt,
+		&i.Kind,
+		&i.Status,
+		&i.PodName,
+		&i.CommitSha,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
+	)
+	return i, err
+}
+
 const createRun = `-- name: CreateRun :one
 INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -57,7 +103,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 const createStepRun = `-- name: CreateStepRun :one
 INSERT INTO step_runs (id, run_id, step_id, attempt, kind)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at
+RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens
 `
 
 type CreateStepRunParams struct {
@@ -90,6 +136,9 @@ func (q *Queries) CreateStepRun(ctx context.Context, arg CreateStepRunParams) (S
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
 	)
 	return i, err
 }
@@ -167,7 +216,7 @@ func (q *Queries) GetRunByTemporalRunID(ctx context.Context, temporalRunID *stri
 }
 
 const getStepRun = `-- name: GetStepRun :one
-SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at FROM step_runs WHERE id = $1
+SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens FROM step_runs WHERE id = $1
 `
 
 func (q *Queries) GetStepRun(ctx context.Context, id uuid.UUID) (StepRun, error) {
@@ -186,12 +235,30 @@ func (q *Queries) GetStepRun(ctx context.Context, id uuid.UUID) (StepRun, error)
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
 	)
 	return i, err
 }
 
+const issueSpend = `-- name: IssueSpend :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.issue_id = $1
+`
+
+// What all runs of an issue have spent on models so far (D53).
+func (q *Queries) IssueSpend(ctx context.Context, issueID uuid.UUID) (float64, error) {
+	row := q.db.QueryRow(ctx, issueSpend, issueID)
+	var spent float64
+	err := row.Scan(&spent)
+	return spent, err
+}
+
 const listRecentRuns = `-- name: ListRecentRuns :many
-SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r JOIN issues i ON i.id = r.issue_id
 ORDER BY r.created_at DESC
 LIMIT $1
@@ -205,6 +272,7 @@ type ListRecentRunsRow struct {
 	FinishedAt *time.Time
 	IssueKey   string
 	IssueTitle string
+	CostUsd    float64
 }
 
 func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRecentRunsRow, error) {
@@ -224,6 +292,7 @@ func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRece
 			&i.FinishedAt,
 			&i.IssueKey,
 			&i.IssueTitle,
+			&i.CostUsd,
 		); err != nil {
 			return nil, err
 		}
@@ -236,7 +305,7 @@ func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRece
 }
 
 const listStepRuns = `-- name: ListStepRuns :many
-SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at FROM step_runs WHERE run_id = $1 ORDER BY created_at, id
+SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens FROM step_runs WHERE run_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]StepRun, error) {
@@ -261,6 +330,9 @@ func (q *Queries) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]StepRun,
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CostUsd,
+			&i.InputTokens,
+			&i.OutputTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -308,7 +380,7 @@ func (q *Queries) SetRunLoopCount(ctx context.Context, arg SetRunLoopCountParams
 }
 
 const setStepRunCommit = `-- name: SetStepRunCommit :one
-UPDATE step_runs SET commit_sha = $1, updated_at = now() WHERE id = $2 RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at
+UPDATE step_runs SET commit_sha = $1, updated_at = now() WHERE id = $2 RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens
 `
 
 type SetStepRunCommitParams struct {
@@ -332,12 +404,15 @@ func (q *Queries) SetStepRunCommit(ctx context.Context, arg SetStepRunCommitPara
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
 	)
 	return i, err
 }
 
 const setStepRunPod = `-- name: SetStepRunPod :one
-UPDATE step_runs SET pod_name = $1, updated_at = now() WHERE id = $2 RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at
+UPDATE step_runs SET pod_name = $1, updated_at = now() WHERE id = $2 RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens
 `
 
 type SetStepRunPodParams struct {
@@ -361,6 +436,9 @@ func (q *Queries) SetStepRunPod(ctx context.Context, arg SetStepRunPodParams) (S
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
 	)
 	return i, err
 }
@@ -409,7 +487,7 @@ SET status      = $1::text,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'canceled') THEN now() ELSE finished_at END,
     updated_at  = now()
 WHERE id = $2 AND status = $3::text
-RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at
+RETURNING id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens
 `
 
 type TransitionStepRunParams struct {
@@ -434,6 +512,9 @@ func (q *Queries) TransitionStepRun(ctx context.Context, arg TransitionStepRunPa
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
 	)
 	return i, err
 }

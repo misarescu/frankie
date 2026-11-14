@@ -1,6 +1,13 @@
 package domain
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+// ErrExternalIssueGone reports an issue the source no longer has (deleted, or
+// moved where the factory cannot read it).
+var ErrExternalIssueGone = errors.New("external issue gone")
 
 // ExternalIssue is an issue as an issue source reports it (docs/spec/02,
 // IssueSource), free of provider types (invariant 7).

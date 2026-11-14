@@ -101,3 +101,15 @@ func closeIssue(ctx context.Context, q *db.Queries, is domain.Issue, to domain.I
 	}
 	return issueFromRow(row), nil
 }
+
+// ListIssuesToCloseAtSource returns up to limit issues a person completed or
+// canceled whose provider issue is still to close (D71), oldest close first.
+func (s *Store) ListIssuesToCloseAtSource(ctx context.Context, limit int) ([]domain.Issue, error) {
+	rows, err := s.q.ListIssuesToCloseAtSource(ctx, int32(limit))
+	return issuesFromRows("list issues to close at the source", rows, err)
+}
+
+// MarkSourceClosed records that the issue's provider issue is closed (D71).
+func (s *Store) MarkSourceClosed(ctx context.Context, id uuid.UUID) error {
+	return mapErr("mark source closed", s.q.MarkSourceClosed(ctx, id))
+}

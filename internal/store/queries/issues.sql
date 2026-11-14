@@ -175,3 +175,15 @@ WITH RECURSIVE sub (sub_id, depth) AS (
 )
 SELECT issues.* FROM issues JOIN sub ON sub.sub_id = issues.id
 ORDER BY sub.depth, issues.number;
+
+-- Issues a person completed or canceled whose provider issue is still to close
+-- (D71), oldest first.
+-- name: ListIssuesToCloseAtSource :many
+SELECT * FROM issues
+WHERE closed_at IS NOT NULL AND source_ref IS NOT NULL AND source_ref <> '' AND source_closed_at IS NULL
+  AND status IN ('merged', 'canceled')
+ORDER BY closed_at, number
+LIMIT @max_issues;
+
+-- name: MarkSourceClosed :exec
+UPDATE issues SET source_closed_at = now() WHERE id = @id AND source_closed_at IS NULL;

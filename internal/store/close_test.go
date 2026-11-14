@@ -135,3 +135,59 @@ func TestCancelRefusals(t *testing.T) {
 		t.Error("a cancel without a closer was accepted")
 	}
 }
+
+// D71: what a person closed is closed at the source once; issues without a
+// source, and leaves merged by their change request, are not listed.
+func TestIssuesToCloseAtSource(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	ctx := t.Context()
+	mk := func(typ domain.IssueType, ref string, parent *domain.Issue) domain.Issue {
+		t.Helper()
+		in := NewIssue{ProjectID: p.ID, Type: typ, Title: "t", CreatedBy: "t", SourceRef: ref}
+		if parent != nil {
+			in.ParentID = &parent.ID
+		}
+		is, err := s.CreateIssue(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return is
+	}
+	story := mk(domain.IssueStory, "https://github.com/o/r/issues/1", nil)
+	walk(t, s, mk(domain.IssueTask, "https://github.com/o/r/issues/2", &story), toMerged...) // merged by its change request
+	native := mk(domain.IssueTask, "", nil)
+	dropped := mk(domain.IssueBug, "https://github.com/o/r/issues/3", nil)
+	if _, err := s.CompleteIssue(ctx, story.ID, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []domain.Issue{native, dropped} {
+		if _, err := s.CancelIssue(ctx, id.ID, "ana", "no"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys := func() []string {
+		t.Helper()
+		got, err := s.ListIssuesToCloseAtSource(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, is := range got {
+			out = append(out, is.Key)
+		}
+		return out
+	}
+	if got := keys(); !slices.Equal(got, []string{story.Key, dropped.Key}) {
+		t.Fatalf("to close = %v, want %s then %s", got, story.Key, dropped.Key)
+	}
+	if err := s.MarkSourceClosed(ctx, story.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := keys(); !slices.Equal(got, []string{dropped.Key}) {
+		t.Errorf("after marking %s: %v", story.Key, got)
+	}
+	if is, _ := s.GetIssue(ctx, story.ID); is.SourceClosedAt == nil {
+		t.Error("SourceClosedAt not set")
+	}
+}

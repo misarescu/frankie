@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -102,17 +103,78 @@ func (c *Client) issues(ctx context.Context, path string) ([]domain.ExternalIssu
 // IssueNumber reads the issue number from a GitHub issue URL
 // ("https://github.com/owner/name/issues/42"), the source ref intake stores.
 func IssueNumber(ref string) (int, bool) {
+	_, n, ok := parseIssueRef(ref)
+	return n, ok
+}
+
+// parseIssueRef reads the repo ("owner/name") and number from a GitHub issue URL.
+func parseIssueRef(ref string) (repo string, number int, ok bool) {
 	u, err := url.Parse(ref)
 	if err != nil {
-		return 0, false
+		return "", 0, false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 4 || parts[2] != "issues" {
-		return 0, false
+	if len(parts) != 4 || parts[2] != "issues" || parts[0] == "" || parts[1] == "" {
+		return "", 0, false
 	}
 	n, err := strconv.Atoi(parts[3])
 	if err != nil || n < 1 {
-		return 0, false
+		return "", 0, false
 	}
-	return n, true
+	return parts[0] + "/" + parts[1], n, true
+}
+
+// issuePath is the API path of the issue a source ref names.
+func issuePath(ref string) (string, error) {
+	repo, n, ok := parseIssueRef(ref)
+	if !ok {
+		return "", fmt.Errorf("github: %q is not a GitHub issue URL", ref)
+	}
+	return fmt.Sprintf("/repos/%s/issues/%d", repo, n), nil
+}
+
+// Get reads the issue a source ref names (IssueSource.Get, docs/spec/02).
+func (c *Client) Get(ctx context.Context, ref string) (domain.ExternalIssue, error) {
+	path, err := issuePath(ref)
+	if err != nil {
+		return domain.ExternalIssue{}, err
+	}
+	var raw rawIssue
+	if err := c.do(ctx, http.MethodGet, path, nil, &raw); err != nil {
+		var se *StatusError
+		if errors.As(err, &se) && (se.Code == http.StatusNotFound || se.Code == http.StatusGone) {
+			return domain.ExternalIssue{}, fmt.Errorf("%w: %s: %w", domain.ErrExternalIssueGone, ref, err)
+		}
+		return domain.ExternalIssue{}, err
+	}
+	return raw.external(), nil
+}
+
+// UpdateStatus mirrors a factory status on the issue (IssueSource.UpdateStatus,
+// D71): merged closes it as completed, canceled as not planned. Closing a
+// closed issue is harmless. Other statuses leave GitHub as it is.
+func (c *Client) UpdateStatus(ctx context.Context, ref string, status domain.IssueStatus) error {
+	var reason string
+	switch status {
+	case domain.IssueMerged, domain.IssueReleased:
+		reason = "completed"
+	case domain.IssueCanceled:
+		reason = "not_planned"
+	default:
+		return nil
+	}
+	path, err := issuePath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPatch, path, map[string]string{"state": "closed", "state_reason": reason}, nil)
+}
+
+// Comment adds a comment to the issue (IssueSource.Comment).
+func (c *Client) Comment(ctx context.Context, ref, body string) error {
+	path, err := issuePath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, path+"/comments", map[string]string{"body": body}, nil)
 }

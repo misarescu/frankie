@@ -278,6 +278,58 @@ func (q *Queries) IssueUsage(ctx context.Context, issueID uuid.UUID) (IssueUsage
 	return i, err
 }
 
+const listActiveRunsUnder = `-- name: ListActiveRunsUnder :many
+WITH RECURSIVE sub (sub_id) AS (
+  SELECT top.id FROM issues top WHERE top.id = $1
+  UNION
+  SELECT c.id FROM issues c JOIN sub ON c.parent_id = sub.sub_id
+)
+SELECT r.id, r.status, r.workflow_version, r.created_at, i.key AS issue_key, i.title AS issue_title
+FROM runs r
+JOIN sub ON sub.sub_id = r.issue_id
+JOIN issues i ON i.id = r.issue_id
+WHERE r.status IN ('pending', 'running')
+ORDER BY r.created_at, r.id
+`
+
+type ListActiveRunsUnderRow struct {
+	ID              uuid.UUID
+	Status          string
+	WorkflowVersion string
+	CreatedAt       time.Time
+	IssueKey        string
+	IssueTitle      string
+}
+
+// The active runs of an issue and of every issue under it, oldest first: what
+// the issue page's live view follows (M5.1). UNION stops at a hierarchy loop.
+func (q *Queries) ListActiveRunsUnder(ctx context.Context, issueID uuid.UUID) ([]ListActiveRunsUnderRow, error) {
+	rows, err := q.db.Query(ctx, listActiveRunsUnder, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveRunsUnderRow
+	for rows.Next() {
+		var i ListActiveRunsUnderRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.WorkflowVersion,
+			&i.CreatedAt,
+			&i.IssueKey,
+			&i.IssueTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssueRuns = `-- name: ListIssueRuns :many
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd

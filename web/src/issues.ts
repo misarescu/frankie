@@ -2,6 +2,7 @@
 // starting them (D62), and the board's tree and dependency graph.
 
 import { signed } from "./identity";
+import type { LiveRunRef } from "./live";
 
 export type Project = { id: string; name: string; key_prefix: string };
 
@@ -53,6 +54,8 @@ export type IssueDetail = {
   depends_on: IssueRef[];
   dependents: IssueRef[];
   runs: { id: string; status: string; workflow: string; created_at: string; cost_usd: number }[];
+  // The runs in progress on this issue and on the issues under it (M5.1).
+  live_runs: LiveRunRef[];
   usage: { cost_usd: number; input_tokens: number; output_tokens: number };
   change_requests: { repo: string; number: number; url: string; status: string }[];
   file_hints: string[];

@@ -86,6 +86,31 @@ func (s *Store) ListIssueRuns(ctx context.Context, issueID uuid.UUID) ([]IssueRu
 	return out, nil
 }
 
+// LiveRun is an active run of an issue or of an issue under it.
+type LiveRun struct {
+	ID              uuid.UUID
+	Status          domain.ExecStatus
+	WorkflowVersion string
+	CreatedAt       time.Time
+	IssueKey        string
+	IssueTitle      string
+}
+
+// ListActiveRunsUnder returns the pending and running runs of the issue and of
+// every issue under it, oldest first (M5.1).
+func (s *Store) ListActiveRunsUnder(ctx context.Context, issueID uuid.UUID) ([]LiveRun, error) {
+	rows, err := s.q.ListActiveRunsUnder(ctx, issueID)
+	if err != nil {
+		return nil, mapErr("list active runs under issue", err)
+	}
+	out := make([]LiveRun, len(rows))
+	for i, r := range rows {
+		out[i] = LiveRun{ID: r.ID, Status: domain.ExecStatus(r.Status), WorkflowVersion: r.WorkflowVersion, CreatedAt: r.CreatedAt,
+			IssueKey: r.IssueKey, IssueTitle: r.IssueTitle}
+	}
+	return out, nil
+}
+
 // IssueUsage sums the model usage of all an issue's runs (D53).
 func (s *Store) IssueUsage(ctx context.Context, issueID uuid.UUID) (domain.Usage, error) {
 	r, err := s.q.IssueUsage(ctx, issueID)

@@ -115,6 +115,15 @@ type issueRunJSON struct {
 	CostUSD    float64    `json:"cost_usd"`
 }
 
+type liveRunJSON struct {
+	ID         uuid.UUID `json:"id"`
+	Status     string    `json:"status"`
+	Workflow   string    `json:"workflow"`
+	CreatedAt  time.Time `json:"created_at"`
+	IssueKey   string    `json:"issue_key"`
+	IssueTitle string    `json:"issue_title"`
+}
+
 type usageJSON struct {
 	CostUSD      float64 `json:"cost_usd"`
 	InputTokens  int64   `json:"input_tokens"`
@@ -157,8 +166,11 @@ type issueDetailJSON struct {
 	DependsOn          []issueRefJSON      `json:"depends_on"`
 	Dependents         []issueRefJSON      `json:"dependents"`
 	Runs               []issueRunJSON      `json:"runs"`
-	Usage              usageJSON           `json:"usage"`
-	ChangeRequests     []changeRequestJSON `json:"change_requests"`
+	// LiveRuns are the active runs of the issue and of every issue under it,
+	// oldest first, for the issue page's live view (M5.1).
+	LiveRuns       []liveRunJSON       `json:"live_runs"`
+	Usage          usageJSON           `json:"usage"`
+	ChangeRequests []changeRequestJSON `json:"change_requests"`
 	// FileHints and ChangedPaths are what overlap warnings compare (D63);
 	// Overlaps lists the in-flight issues of the project this one likely collides with.
 	FileHints    []string      `json:"file_hints"`
@@ -233,6 +245,15 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 	for i, run := range runs {
 		out.Runs[i] = issueRunJSON{ID: run.ID, Status: string(run.Status), Workflow: run.WorkflowVersion, CreatedAt: run.CreatedAt,
 			StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, CostUSD: run.CostUSD}
+	}
+	live, err := s.Store.ListActiveRunsUnder(ctx, is.ID)
+	if err != nil {
+		return out, err
+	}
+	out.LiveRuns = make([]liveRunJSON, len(live))
+	for i, run := range live {
+		out.LiveRuns[i] = liveRunJSON{ID: run.ID, Status: string(run.Status), Workflow: run.WorkflowVersion, CreatedAt: run.CreatedAt,
+			IssueKey: run.IssueKey, IssueTitle: run.IssueTitle}
 	}
 	u, err := s.Store.IssueUsage(ctx, is.ID)
 	if err != nil {

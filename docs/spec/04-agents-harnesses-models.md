@@ -68,7 +68,7 @@ Implementation (D48): provider profiles are platform configuration, `llmGateway.
 - **LLM gateway (LiteLLM)** sits in front of every provider:
   - real API keys never enter a sandbox; each run receives a short-lived virtual key;
   - budgets per run and per issue are enforced in one place (D53: each session's key is capped at the lower of the step's budget and what is left of the issue's; LiteLLM refuses the key's requests once its recorded spend reaches the cap, so a request already in flight can overrun it slightly);
-  - token and cost data is collected uniformly regardless of harness (D53: when a session ends, the control plane reads its key's spend, found by the key's alias once the gateway has written it, and adds it with the harness's token totals to the StepRun; runs and issues sum their steps, and the runs list and run page show them; models LiteLLM cannot price need prices in their provider profile, or their spend is zero and no budget applies);
+  - token and cost data is collected uniformly regardless of harness (D53: when a session ends, the control plane reads its key's spend, found by the key's alias once the gateway has written it, and adds it with the harness's token totals to the StepRun (input tokens count all input: the adapters report it as Anthropic does, uncached input apart from cache reads and writes, and the control plane adds the three); runs and issues sum their steps, and the runs list and run page show them; models LiteLLM cannot price need prices in their provider profile, or their spend is zero and no budget applies);
   - enables fallbacks and routing later.
 
 ## Human intervention, least to most invasive

@@ -49,9 +49,20 @@ func (a *Activities) sessionBudget(ctx context.Context, in IssueRunInput, run St
 }
 
 // tokenTotals are the harness's session totals from its last token_usage event.
+// Input counts only the input the model did not read from or write to its
+// prompt cache, as every adapter reports it; the cache fields hold the rest.
 type tokenTotals struct {
-	Input  int64 `json:"input_tokens"`
-	Output int64 `json:"output_tokens"`
+	Input         int64 `json:"input_tokens"`
+	Output        int64 `json:"output_tokens"`
+	CacheRead     int64 `json:"cache_read_input_tokens,omitempty"`
+	CacheCreation int64 `json:"cache_creation_input_tokens,omitempty"`
+}
+
+// allInput is every input token the model processed: uncached, read from
+// the prompt cache and written to it. A cached session reports almost all
+// of its input in the cache fields.
+func (t tokenTotals) allInput() int64 {
+	return t.Input + t.CacheRead + t.CacheCreation
 }
 
 // observe keeps the totals of a token_usage event's payload.
@@ -96,7 +107,7 @@ func (a *Activities) recordUsage(ctx context.Context, stepRunID uuid.UUID, alias
 	if err != nil {
 		a.Log.Warn("read session spend", "step_run", stepRunID, "key", alias, "error", err)
 	}
-	u := domain.Usage{CostUSD: spend, InputTokens: tokens.Input, OutputTokens: tokens.Output}
+	u := domain.Usage{CostUSD: spend, InputTokens: tokens.allInput(), OutputTokens: tokens.Output}
 	if _, err := a.Store.AddStepRunUsage(ctx, stepRunID, u); err != nil {
 		a.Log.Warn("record session usage", "step_run", stepRunID, "error", err)
 	}

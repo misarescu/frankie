@@ -61,6 +61,9 @@ func (s *Scheduler) Pass(ctx context.Context) error {
 		return err
 	}
 	plan := domain.PlanSchedule(issues, deps, s.Limit)
+	if len(plan.Start) > 0 {
+		s.warnOverlaps(ctx, plan.Start)
+	}
 	var errs []error
 	for _, c := range plan.Start {
 		if err := s.start(ctx, c.ID); err != nil {
@@ -68,6 +71,29 @@ func (s *Scheduler) Pass(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// warnOverlaps logs what the issues about to start likely share with issues in
+// flight (D63, FR-MQ-4). It warns and does not hold anything back.
+func (s *Scheduler) warnOverlaps(ctx context.Context, starting []domain.SchedIssue) {
+	all, err := s.Store.ListPathsIssues(ctx)
+	if err != nil {
+		s.Log.Warn("overlap check", "error", err)
+		return
+	}
+	keys := map[string]bool{}
+	for _, c := range starting {
+		keys[c.Key] = true
+	}
+	var candidates []domain.PathsIssue
+	for _, is := range all {
+		if keys[is.Key] {
+			candidates = append(candidates, is)
+		}
+	}
+	for _, o := range domain.FindOverlaps(candidates, all) {
+		s.Log.Warn("starting an issue that likely overlaps one in flight", "issue", o.Key, "with", o.With, "paths", o.Paths)
+	}
 }
 
 func (s *Scheduler) start(ctx context.Context, id uuid.UUID) error {

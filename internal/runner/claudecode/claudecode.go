@@ -136,12 +136,16 @@ type session struct {
 	grace  time.Duration
 	done   chan struct{}
 
-	mu          sync.Mutex
-	written     int // user messages sent
-	answered    int // turns finished (result lines)
-	inputClosed bool
-	abortStatus runner.DoneStatus
-	abortReason string
+	mu       sync.Mutex
+	written  int // user messages sent
+	answered int // turns finished (result lines)
+	// queueReported is set once a result reported its queued turns, which
+	// makes answered and written incomparable: a message sent mid-turn is
+	// delivered into the running turn and shares its result.
+	queueReported bool
+	inputClosed   bool
+	abortStatus   runner.DoneStatus
+	abortReason   string
 }
 
 // userMessage is one stream-json input line.
@@ -173,12 +177,22 @@ func (s *session) Send(text string) error {
 	return nil
 }
 
-// turnEnded closes stdin once every message has been answered, which lets claude exit.
+// turnEnded closes stdin once every message has been answered, which lets
+// claude exit. Claude Code delivers a message sent mid-turn into the running
+// turn, at its next model call, so one result can answer several messages; a
+// result that reports no queued turns has answered everything sent before it.
+// A message written after it is still in the pipe when stdin closes, and
+// claude answers it before exiting.
 func (s *session) turnEnded() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.answered++
-	if s.answered >= s.written && !s.inputClosed {
+	allAnswered := s.answered >= s.written
+	if q := s.tr.last.queued; q != nil {
+		s.queueReported = true
+		allAnswered = *q == 0
+	}
+	if allAnswered && !s.inputClosed {
 		s.inputClosed = true
 		_ = s.stdin.Close()
 	}
@@ -251,7 +265,7 @@ func (s *session) wait(readDone <-chan struct{}) {
 		done.Status, done.Reason = runner.DoneFailed, fmt.Sprintf("harness exited: %v", waitErr)
 	case s.written == 0:
 		done.Status, done.Reason = runner.DoneFailed, "harness exited before receiving a prompt"
-	case s.answered < s.written:
+	case s.answered < s.written && !s.queueReported:
 		done.Status, done.Reason = runner.DoneFailed, fmt.Sprintf("harness exited with %d unanswered message(s)", s.written-s.answered)
 	case s.tr.last != nil && s.tr.last.isError:
 		done.Status, done.Reason = runner.DoneFailed, "harness reported an error result: "+s.tr.last.subtype

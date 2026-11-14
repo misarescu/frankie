@@ -37,5 +37,13 @@ jobs:
           test -z "$(git status --porcelain)"
       - run: mise run lint
       - run: mise run build
+      # The adapter conformance suite runs the real Claude Code against a fake
+      # model (no usage). Same version and installer as the runner image
+      # (deploy/images/runner/Dockerfile); not a mise tool, so a developer's
+      # own claude stays theirs inside the repo.
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s 2.1.323
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: mise run test
       - run: mise run test:race

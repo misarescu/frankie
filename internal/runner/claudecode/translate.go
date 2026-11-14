@@ -26,11 +26,14 @@ type streamLine struct {
 	} `json:"message"`
 
 	// Fields of "result" lines.
-	IsError      bool    `json:"is_error"`
-	Result       string  `json:"result"`
-	NumTurns     int     `json:"num_turns"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	Usage        *struct {
+	IsError  bool   `json:"is_error"`
+	Result   string `json:"result"`
+	NumTurns int    `json:"num_turns"`
+	// QueuedTurnCount is how many messages still wait for their own turn.
+	// Absent in older Claude Code versions.
+	QueuedTurnCount *int    `json:"queued_turn_count"`
+	TotalCostUSD    float64 `json:"total_cost_usd"`
+	Usage           *struct {
 		InputTokens              int64 `json:"input_tokens"`
 		OutputTokens             int64 `json:"output_tokens"`
 		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
@@ -54,6 +57,7 @@ type turnResult struct {
 	isError bool
 	subtype string
 	text    string
+	queued  *int // messages still queued for their own turn; nil if not reported
 }
 
 // translator maps stream-json lines to normalized events. Not safe for concurrent use.
@@ -120,7 +124,7 @@ func (t *translator) handle(raw []byte) (turnEnded bool) {
 			t.totals.CacheCreationInputTokens += l.Usage.CacheCreationInputTokens
 		}
 		t.emit(domain.EventTokenUsage, t.totals)
-		t.last = &turnResult{isError: l.IsError, subtype: l.Subtype, text: l.Result}
+		t.last = &turnResult{isError: l.IsError, subtype: l.Subtype, text: l.Result, queued: l.QueuedTurnCount}
 		return true
 	}
 	// "system" and any other line types carry nothing for the normalized stream.

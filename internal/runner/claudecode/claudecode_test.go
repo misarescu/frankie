@@ -60,6 +60,18 @@ func fakeClaude(mode string) int {
 		}
 		n++
 		text := msg.Message.Content[0].Text
+		if mode == "merge" {
+			// Like Claude Code with a message sent mid-turn: the second
+			// message joins the running turn, which ends with one result
+			// reporting nothing queued.
+			if !in.Scan() {
+				return 2
+			}
+			emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{{"type": "text", "text": "merged"}}}})
+			emit(map[string]any{"type": "result", "subtype": "success", "result": "final " + text + " + steer",
+				"num_turns": 2, "queued_turn_count": 0, "session_id": "fake-session", "usage": map[string]int{"input_tokens": 10, "output_tokens": 1}})
+			continue
+		}
 		switch mode {
 		case "crash":
 			fmt.Fprintln(os.Stderr, "boom")
@@ -286,5 +298,25 @@ func TestGatewayEnv(t *testing.T) {
 	cfg.Gateway.API = runner.ModelAPIOpenAI
 	if _, err := (&Harness{Binary: "/bin/true"}).Start(t.Context(), cfg, func(domain.EventType, any) {}); err == nil {
 		t.Error("Claude Code started on an OpenAI-API model")
+	}
+}
+
+// A message sent mid-turn joins the running turn and shares its result; a
+// result reporting no queued turns ends the session instead of waiting for a
+// result per message.
+func TestSessionEndsWhenAResultReportsNothingQueued(t *testing.T) {
+	s, rec := startFake(t, "merge", runner.SessionConfig{Workdir: t.TempDir()})
+	for _, m := range []string{"task", "steer"} {
+		if err := s.Send(m); err != nil {
+			t.Fatalf("Send %s: %v", m, err)
+		}
+	}
+	waitDone(t, s, 10*time.Second)
+	done := rec.done(t)
+	if done["status"] != "succeeded" || done["result"] != "final task + steer" {
+		t.Fatalf("done = %v", done)
+	}
+	if err := s.Send("late"); !errors.Is(err, runner.ErrSessionFinished) {
+		t.Errorf("Send after the end = %v", err)
 	}
 }

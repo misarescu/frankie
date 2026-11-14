@@ -68,3 +68,14 @@ test("retryIssue reports the server's reason", async () => {
   const conflict = async () => new Response("gc-1 is running; only a failed issue can be retried\n", { status: 409 });
   await expect(retryIssue(conflict, "gc-1")).rejects.toThrow("only a failed issue");
 });
+
+test("M5.1: startIssues and retryIssue send the person's name as by", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_url: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return Response.json({}, { status: 202 });
+  };
+  await startIssues(fetchFn, ["gc-1"], "Ana");
+  await retryIssue(fetchFn, "gc-1", "Ana");
+  expect(bodies).toEqual([{ keys: ["gc-1"], by: "Ana" }, { by: "Ana" }]);
+});

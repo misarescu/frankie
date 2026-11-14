@@ -41,7 +41,7 @@ func TestPollTakesInLabeledIssuesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := &fakeSource{issues: []domain.ExternalIssue{{Number: 3, Title: "Add search", Body: "Users can search.", Open: true,
+	src := &fakeSource{issues: []domain.ExternalIssue{{Number: 3, Title: "Add search", Body: "Users can search from `web/src/Search.tsx`.", Open: true,
 		Ref: "https://github.com/misarescu/Goodreads-Clone/issues/3", Repo: "misarescu/Goodreads-Clone", Author: "mi", Labels: []string{"factory"}}}}
 	in := &Intake{Store: s, Source: src, Label: "factory", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Projects: []Project{{ID: p.ID, Repo: "misarescu/Goodreads-Clone", BaseBranch: "main"}}}
@@ -50,8 +50,12 @@ func TestPollTakesInLabeledIssuesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	is, err := s.GetIssueBySourceRef(t.Context(), p.ID, src.issues[0].Ref)
-	if err != nil || is.Key != "gc-1" || is.Status != domain.IssueReady || is.CreatedBy != "github:mi" || is.Spec != "Users can search." {
+	if err != nil || is.Key != "gc-1" || is.Status != domain.IssueReady || is.CreatedBy != "github:mi" || is.Spec != src.issues[0].Body {
 		t.Fatalf("issue = %+v, %v", is, err)
+	}
+	// D63: paths the text names become file hints.
+	if len(is.FileHints) != 1 || is.FileHints[0] != "web/src/Search.tsx" {
+		t.Errorf("file hints = %q", is.FileHints)
 	}
 	// D62: intake starts nothing; the scheduler starts what someone asked for.
 	if is.StartRequestedAt != nil {

@@ -38,6 +38,10 @@ CREATE TABLE issues (
   start_requested_by  text,
   -- When the scheduler last started it; holds a slot until its run exists (D62).
   scheduled_at        timestamptz,
+  -- Paths the issue is expected to touch, from its text or refinement, and the
+  -- files its latest change touched; compared for overlap warnings (D63).
+  file_hints          text[]      NOT NULL DEFAULT '{}',
+  changed_paths       text[]      NOT NULL DEFAULT '{}',
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

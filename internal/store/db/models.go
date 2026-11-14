@@ -82,6 +82,8 @@ type Issue struct {
 	StartRequestedAt   *time.Time
 	StartRequestedBy   *string
 	ScheduledAt        *time.Time
+	FileHints          []string
+	ChangedPaths       []string
 }
 
 type IssueDependency struct {

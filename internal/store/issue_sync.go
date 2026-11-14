@@ -27,6 +27,8 @@ type SourceIssue struct {
 	BlockedBy []string
 	// Status is the status of a new issue (draft or ready); existing issues keep theirs.
 	Status domain.IssueStatus
+	// FileHints are the paths the source's text names (D63); they follow the text.
+	FileHints []string
 }
 
 // SyncResult reports what SyncIssues did.
@@ -150,7 +152,7 @@ func upsertSourceIssue(ctx context.Context, q *db.Queries, projectID uuid.UUID, 
 	row, err = q.GetIssueBySourceRef(ctx, db.GetIssueBySourceRefParams{ProjectID: projectID, SourceRef: &ref})
 	if err = mapErr("get issue by source ref", err); errors.Is(err, ErrNotFound) {
 		row, err = createIssue(ctx, q, NewIssue{ProjectID: projectID, Type: in.Type, Title: in.Title, Spec: in.Spec,
-			Status: in.Status, SourceRef: in.Ref, Labels: in.Labels, CreatedBy: in.CreatedBy})
+			Status: in.Status, SourceRef: in.Ref, Labels: in.Labels, CreatedBy: in.CreatedBy, FileHints: in.FileHints})
 		return row, err == nil, "", err
 	}
 	if err != nil || (row.Status != string(domain.IssueDraft) && row.Status != string(domain.IssueReady)) {
@@ -170,11 +172,12 @@ func upsertSourceIssue(ctx context.Context, q *db.Queries, projectID uuid.UUID, 
 			}
 		}
 	}
-	if row.Title == in.Title && row.Spec == in.Spec && slices.Equal(row.Labels, nonNil(in.Labels)) && row.Type == string(typ) {
+	if row.Title == in.Title && row.Spec == in.Spec && slices.Equal(row.Labels, nonNil(in.Labels)) && row.Type == string(typ) &&
+		slices.Equal(row.FileHints, nonNil(in.FileHints)) {
 		return row, false, warn, nil
 	}
 	updated, err := q.UpdateUnstartedIssueFromSource(ctx, db.UpdateUnstartedIssueFromSourceParams{ID: row.ID, Title: in.Title, Spec: in.Spec,
-		Labels: nonNil(in.Labels), Type: string(typ)})
+		Labels: nonNil(in.Labels), Type: string(typ), FileHints: nonNil(in.FileHints)})
 	if err = mapErr("update issue from source", err); errors.Is(err, ErrNotFound) {
 		return row, false, warn, nil // a ready issue that ran before keeps its copy
 	}

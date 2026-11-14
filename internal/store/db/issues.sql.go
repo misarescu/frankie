@@ -28,9 +28,9 @@ func (q *Queries) AddIssueDependency(ctx context.Context, arg AddIssueDependency
 }
 
 const createIssue = `-- name: CreateIssue :one
-INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, file_hints)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths
 `
 
 type CreateIssueParams struct {
@@ -48,6 +48,7 @@ type CreateIssueParams struct {
 	SourceRef          *string
 	Labels             []string
 	CreatedBy          string
+	FileHints          []string
 }
 
 func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error) {
@@ -66,6 +67,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		arg.SourceRef,
 		arg.Labels,
 		arg.CreatedBy,
+		arg.FileHints,
 	)
 	var i Issue
 	err := row.Scan(
@@ -88,12 +90,14 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -119,12 +123,14 @@ func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
 
 const getIssueByKey = `-- name: GetIssueByKey :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE key = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues WHERE key = $1
 `
 
 func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) {
@@ -150,12 +156,14 @@ func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) 
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
 
 const getIssueBySourceRef = `-- name: GetIssueBySourceRef :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE project_id = $1 AND source_ref = $2
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues WHERE project_id = $1 AND source_ref = $2
 `
 
 type GetIssueBySourceRefParams struct {
@@ -186,6 +194,8 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
@@ -220,7 +230,7 @@ func (q *Queries) ListAllDependencies(ctx context.Context) ([]ListAllDependencie
 }
 
 const listIssueChildren = `-- name: ListIssueChildren :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE parent_id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues WHERE parent_id = $1
 ORDER BY priority DESC, number
 `
 
@@ -253,6 +263,8 @@ func (q *Queries) ListIssueChildren(ctx context.Context, parentID *uuid.UUID) ([
 			&i.StartRequestedAt,
 			&i.StartRequestedBy,
 			&i.ScheduledAt,
+			&i.FileHints,
+			&i.ChangedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +277,7 @@ func (q *Queries) ListIssueChildren(ctx context.Context, parentID *uuid.UUID) ([
 }
 
 const listIssueDependencies = `-- name: ListIssueDependencies :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues
 WHERE id IN (SELECT depends_on_id FROM issue_dependencies WHERE issue_id = $1)
 ORDER BY number
 `
@@ -300,6 +312,8 @@ func (q *Queries) ListIssueDependencies(ctx context.Context, issueID uuid.UUID) 
 			&i.StartRequestedAt,
 			&i.StartRequestedBy,
 			&i.ScheduledAt,
+			&i.FileHints,
+			&i.ChangedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -312,7 +326,7 @@ func (q *Queries) ListIssueDependencies(ctx context.Context, issueID uuid.UUID) 
 }
 
 const listIssueDependents = `-- name: ListIssueDependents :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues
 WHERE id IN (SELECT issue_id FROM issue_dependencies WHERE depends_on_id = $1)
 ORDER BY number
 `
@@ -347,6 +361,8 @@ func (q *Queries) ListIssueDependents(ctx context.Context, dependsOnID uuid.UUID
 			&i.StartRequestedAt,
 			&i.StartRequestedBy,
 			&i.ScheduledAt,
+			&i.FileHints,
+			&i.ChangedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -396,7 +412,7 @@ func (q *Queries) ListIssueNodes(ctx context.Context, projectID uuid.UUID) ([]Li
 }
 
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths FROM issues
 WHERE project_id = $1 AND status = $2
 ORDER BY priority DESC, created_at, id
 `
@@ -435,6 +451,50 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 			&i.StartRequestedAt,
 			&i.StartRequestedBy,
 			&i.ScheduledAt,
+			&i.FileHints,
+			&i.ChangedPaths,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPathsIssues = `-- name: ListPathsIssues :many
+SELECT id, key, project_id, status, file_hints, changed_paths FROM issues
+WHERE status NOT IN ('merged', 'released', 'canceled')
+`
+
+type ListPathsIssuesRow struct {
+	ID           uuid.UUID
+	Key          string
+	ProjectID    uuid.UUID
+	Status       string
+	FileHints    []string
+	ChangedPaths []string
+}
+
+// Issues with the paths they touch, for overlap warnings (D63); finished ones are left out.
+func (q *Queries) ListPathsIssues(ctx context.Context) ([]ListPathsIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listPathsIssues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPathsIssuesRow
+	for rows.Next() {
+		var i ListPathsIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.ProjectID,
+			&i.Status,
+			&i.FileHints,
+			&i.ChangedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -478,7 +538,7 @@ func (q *Queries) ListProjectDependencies(ctx context.Context, projectID uuid.UU
 }
 
 const listProjectIssues = `-- name: ListProjectIssues :many
-SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id, i.start_requested_at, i.start_requested_by, i.scheduled_at,
+SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id, i.start_requested_at, i.start_requested_by, i.scheduled_at, i.file_hints, i.changed_paths,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8
           FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
        -- An issue without runs gets the nil UUID and an empty status.
@@ -529,6 +589,8 @@ func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([
 			&i.Issue.StartRequestedAt,
 			&i.Issue.StartRequestedBy,
 			&i.Issue.ScheduledAt,
+			&i.Issue.FileHints,
+			&i.Issue.ChangedPaths,
 			&i.CostUsd,
 			&i.LatestRunID,
 			&i.LatestRunStatus,
@@ -624,7 +686,7 @@ SET start_requested_at = coalesce(start_requested_at, now()),
     start_requested_by = coalesce(start_requested_by, $1::text),
     updated_at = now()
 WHERE id = $2
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths
 `
 
 type RequestIssueStartParams struct {
@@ -656,15 +718,32 @@ func (q *Queries) RequestIssueStart(ctx context.Context, arg RequestIssueStartPa
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
+}
+
+const setIssueChangedPaths = `-- name: SetIssueChangedPaths :exec
+UPDATE issues SET changed_paths = $1, updated_at = now() WHERE id = $2
+`
+
+type SetIssueChangedPathsParams struct {
+	ChangedPaths []string
+	ID           uuid.UUID
+}
+
+// The files an issue's latest change touched (D63).
+func (q *Queries) SetIssueChangedPaths(ctx context.Context, arg SetIssueChangedPathsParams) error {
+	_, err := q.db.Exec(ctx, setIssueChangedPaths, arg.ChangedPaths, arg.ID)
+	return err
 }
 
 const setIssueParent = `-- name: SetIssueParent :one
 UPDATE issues
 SET parent_id = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths
 `
 
 type SetIssueParentParams struct {
@@ -695,6 +774,8 @@ func (q *Queries) SetIssueParent(ctx context.Context, arg SetIssueParentParams) 
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
@@ -703,7 +784,7 @@ const transitionIssue = `-- name: TransitionIssue :one
 UPDATE issues
 SET status = $1, updated_at = now()
 WHERE id = $2 AND status = $3
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths
 `
 
 type TransitionIssueParams struct {
@@ -736,24 +817,27 @@ func (q *Queries) TransitionIssue(ctx context.Context, arg TransitionIssueParams
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }
 
 const updateUnstartedIssueFromSource = `-- name: UpdateUnstartedIssueFromSource :one
 UPDATE issues AS i
-SET title = $1, spec = $2, labels = $3, type = $4, updated_at = now()
-WHERE i.id = $5 AND (i.status = 'draft'
+SET title = $1, spec = $2, labels = $3, type = $4, file_hints = $5, updated_at = now()
+WHERE i.id = $6 AND (i.status = 'draft'
   OR (i.status = 'ready' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id)))
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at, file_hints, changed_paths
 `
 
 type UpdateUnstartedIssueFromSourceParams struct {
-	Title  string
-	Spec   string
-	Labels []string
-	Type   string
-	ID     uuid.UUID
+	Title     string
+	Spec      string
+	Labels    []string
+	Type      string
+	FileHints []string
+	ID        uuid.UUID
 }
 
 // Sync from an issue source (D60, D62): an issue that never ran (a draft, or a
@@ -765,6 +849,7 @@ func (q *Queries) UpdateUnstartedIssueFromSource(ctx context.Context, arg Update
 		arg.Spec,
 		arg.Labels,
 		arg.Type,
+		arg.FileHints,
 		arg.ID,
 	)
 	var i Issue
@@ -788,6 +873,8 @@ func (q *Queries) UpdateUnstartedIssueFromSource(ctx context.Context, arg Update
 		&i.StartRequestedAt,
 		&i.StartRequestedBy,
 		&i.ScheduledAt,
+		&i.FileHints,
+		&i.ChangedPaths,
 	)
 	return i, err
 }

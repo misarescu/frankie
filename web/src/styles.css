@@ -1,5 +1,5 @@
-:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --accent: #5b4bdb; }
-@media (prefers-color-scheme: dark) { :root { --bg: #141416; --fg: #ececf1; --muted: #9a9aa3; --line: #2c2c31; --accent: #a99cff; } }
+:root { color-scheme: light dark; --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --accent: #5b4bdb; --ok: #1f8a4c; --bad: #c4314b; }
+@media (prefers-color-scheme: dark) { :root { --bg: #141416; --fg: #ececf1; --muted: #9a9aa3; --line: #2c2c31; --accent: #a99cff; --ok: #5fcf8f; --bad: #ff7a8f; } }
 body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system, system-ui, sans-serif; }
 main { max-width: 960px; margin: 0 auto; } h1 { font-size: 20px; margin: 0 0 16px; } a { color: var(--accent); }
 table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
@@ -16,3 +16,13 @@ button.reject { background: transparent; color: var(--fg); border-color: var(--l
 table.steps { margin-bottom: 16px; } table.steps tr:last-child td { font-weight: 600; }
 .token { color: var(--muted); font-size: 12px; margin: 0 0 12px; } .token input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: min(360px, 100%); }
 button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; }
+.chip { display: inline-block; font: 11px ui-monospace, monospace; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.st-running, .st-refining, .st-awaiting_human, .st-queued { color: var(--accent); border-color: var(--accent); }
+.st-merged, .st-released { color: var(--ok); border-color: var(--ok); }
+.st-failed { color: var(--bad); border-color: var(--bad); } .st-canceled { text-decoration: line-through; }
+table.issues td { vertical-align: top; } select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.graph { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+.graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.2; } .graph .edge-head { fill: var(--muted); }
+.graph .node { fill: var(--bg); stroke: var(--line); } .graph .node.st-running, .graph .node.st-refining, .graph .node.st-awaiting_human, .graph .node.st-queued { stroke: var(--accent); }
+.graph .node.st-merged, .graph .node.st-released { stroke: var(--ok); } .graph .node.st-failed { stroke: var(--bad); }
+.graph .node-label { fill: var(--fg); font: 12px ui-monospace, monospace; } .graph a:hover .node { stroke-width: 2; }

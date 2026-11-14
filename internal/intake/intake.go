@@ -1,7 +1,8 @@
-// Package intake syncs issues from an IssueSource into the factory's store and
-// starts their runs (D27). It polls; webhooks feed the same Poll path later.
-// Since D60 it syncs whole trees: the labeled issues, their sub-issues and the
-// issues they are blocked by, with parents and dependencies.
+// Package intake syncs issues from an IssueSource into the factory's store (D27).
+// It polls; webhooks feed the same Poll path later. Since D60 it syncs whole
+// trees: the labeled issues, their sub-issues and the issues they are blocked
+// by, with parents and dependencies. Since D62 it starts nothing: the scheduler
+// starts issues someone asked to start.
 package intake
 
 import (
@@ -15,13 +16,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
-	"github.com/misarescu/frankie/internal/workflow/activities"
 )
-
-// Starter starts an issue's run; starting one that is already running is a no-op.
-type Starter interface {
-	StartIssueRun(ctx context.Context, in activities.IssueRunInput) error
-}
 
 // Project is a repo the factory takes issues from.
 type Project struct {
@@ -34,7 +29,6 @@ type Project struct {
 type Intake struct {
 	Store    *store.Store
 	Source   IssueSource
-	Starter  Starter
 	Projects []Project
 	Label    string
 	Interval time.Duration
@@ -55,9 +49,8 @@ func (in *Intake) Run(ctx context.Context) {
 	}
 }
 
-// Poll syncs every project's tree once and starts its ready issues. It is
-// idempotent: an issue is created once per source ref, and a run is started only
-// while the issue is ready.
+// Poll syncs every project's tree once. It is idempotent: an issue is created
+// once per source ref.
 func (in *Intake) Poll(ctx context.Context) error {
 	var errs []error
 	for _, p := range in.Projects {
@@ -79,7 +72,7 @@ func (in *Intake) syncProject(ctx context.Context, p Project) error {
 		typ := t.issueType(n)
 		src = append(src, store.SourceIssue{Ref: ref, Type: typ, Title: n.issue.Title, Spec: n.issue.Body,
 			Labels: n.issue.Labels, CreatedBy: "github:" + n.issue.Author, ParentRef: n.parent,
-			BlockedBy: n.blockedBy, Status: t.newStatus(n, typ)})
+			BlockedBy: n.blockedBy, Status: domain.IssueReady})
 	}
 	res, err := in.Store.SyncIssues(ctx, p.ID, src)
 	if err != nil {
@@ -92,20 +85,5 @@ func (in *Intake) syncProject(ctx context.Context, p Project) error {
 		in.Log.Warn("issue sync", "project", p.Repo, "problem", w)
 	}
 
-	var errs []error
-	for _, ref := range t.order {
-		is := res.Issues[ref]
-		if is.Status != domain.IssueReady {
-			continue
-		}
-		n := t.nodes[ref].issue
-		if err := in.Starter.StartIssueRun(ctx, activities.IssueRunInput{
-			IssueID: is.ID.String(), IssueKey: is.Key, Title: is.Title, Spec: is.Spec,
-			AcceptanceCriteria: is.AcceptanceCriteria, SourceURL: ref, SourceNumber: n.Number,
-			Repo: p.Repo, BaseBranch: p.BaseBranch,
-		}); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return nil
 }

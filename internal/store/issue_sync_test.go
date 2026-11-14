@@ -93,14 +93,15 @@ func TestSyncIssuesCreatesTree(t *testing.T) {
 	}
 }
 
-// Drafts follow the source; once past draft the factory's copy is kept. Parents
-// and dependencies always follow the source.
+// Issues that never ran follow the source; once run, the factory's copy is kept.
+// Parents and dependencies always follow the source.
 func TestSyncIssuesFollowsSource(t *testing.T) {
 	s := newTestStore(t)
 	p := mustProject(t, s)
 	ready := src("3", domain.IssueTask, "")
 	ready.Status = domain.IssueReady
 	res := mustSync(t, s, p, src("1", domain.IssueEpic, ""), src("2", domain.IssueTask, "1", "3"), ready)
+	mustRun(t, s, res.Issues[ghIssues+"3"].ID)
 
 	draft := src("2", domain.IssueBug, "", "")
 	draft.Title, draft.Spec, draft.Labels, draft.BlockedBy = "renamed", "new body", []string{"factory", "bug"}, nil
@@ -113,7 +114,7 @@ func TestSyncIssuesFollowsSource(t *testing.T) {
 		t.Errorf("draft not refreshed: %+v", d)
 	}
 	if r := res2.Issues[ghIssues+"3"]; r.Title != "issue 3" {
-		t.Errorf("ready issue took the source title %q", r.Title)
+		t.Errorf("an issue that ran took the source title %q", r.Title)
 	}
 	if got := parentKey(t, s, res2, "2"); got != "" {
 		t.Errorf("#2 parent = %q after the source dropped it", got)
@@ -181,5 +182,24 @@ func TestSyncIssuesLeavesOtherIssuesAlone(t *testing.T) {
 	deps, err := s.ListIssueDependencies(t.Context(), b.ID)
 	if err != nil || len(deps) != 1 {
 		t.Fatalf("native edge = %v, %v; want kept", deps, err)
+	}
+}
+
+// D62: until an issue runs, it follows the source's text even when ready.
+func TestSyncIssuesRefreshesReadyIssuesUntilTheyRun(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	in := src("1", domain.IssueTask, "")
+	in.Status = domain.IssueReady
+	res := mustSync(t, s, p, in)
+
+	in.Title = "edited on GitHub"
+	if got := mustSync(t, s, p, in).Issues[in.Ref]; got.Title != "edited on GitHub" {
+		t.Fatalf("ready issue without runs = %q, want the source's edit", got.Title)
+	}
+	mustRun(t, s, res.Issues[in.Ref].ID)
+	in.Title = "edited again"
+	if got := mustSync(t, s, p, in).Issues[in.Ref]; got.Title != "edited on GitHub" {
+		t.Fatalf("ready issue that ran = %q, want its copy kept", got.Title)
 	}
 }

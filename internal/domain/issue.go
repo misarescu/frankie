@@ -101,8 +101,12 @@ type Issue struct {
 	SourceRef          string // empty when the issue is native
 	Labels             []string
 	CreatedBy          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// StartRequestedAt is set once someone asked to start the issue or a parent
+	// of it (D62); StartRequestedBy says who.
+	StartRequestedAt *time.Time
+	StartRequestedBy string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

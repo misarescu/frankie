@@ -79,6 +79,9 @@ type Issue struct {
 	Number             int32
 	Key                string
 	ParentID           *uuid.UUID
+	StartRequestedAt   *time.Time
+	StartRequestedBy   *string
+	ScheduledAt        *time.Time
 }
 
 type IssueDependency struct {

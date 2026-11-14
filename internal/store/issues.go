@@ -214,6 +214,8 @@ func issueFromRow(r db.Issue) domain.Issue {
 		SourceRef:          deref(r.SourceRef),
 		Labels:             r.Labels,
 		CreatedBy:          r.CreatedBy,
+		StartRequestedAt:   r.StartRequestedAt,
+		StartRequestedBy:   deref(r.StartRequestedBy),
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

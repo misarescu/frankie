@@ -37,8 +37,9 @@ type SyncResult struct {
 }
 
 // SyncIssues applies a source's issue tree to a project in one transaction under
-// the project lock (D60). New refs become issues. A draft takes the source's
-// title, spec, labels and type; any other status keeps the factory's copy. The
+// the project lock (D60). New refs become issues. An issue that never ran (a
+// draft, or ready without runs, D62) takes the source's title, spec, labels and
+// type; a started one keeps the factory's copy. The
 // source is authoritative for the parent and the dependencies of the issues it
 // reports: each is set to what the tree says. A link that breaks the hierarchy
 // rules or would make an issue wait for itself is skipped with a warning, so one
@@ -141,8 +142,9 @@ func (s *Store) SyncIssues(ctx context.Context, projectID uuid.UUID, tree []Sour
 	return res, nil
 }
 
-// upsertSourceIssue creates the issue for a ref, or refreshes a draft from the
-// source. A type change that its existing children would not fit is not applied.
+// upsertSourceIssue creates the issue for a ref, or refreshes an issue that never
+// ran from the source. A type change that its existing children would not fit is
+// not applied.
 func upsertSourceIssue(ctx context.Context, q *db.Queries, projectID uuid.UUID, in SourceIssue) (row db.Issue, created bool, warn string, err error) {
 	ref := in.Ref
 	row, err = q.GetIssueBySourceRef(ctx, db.GetIssueBySourceRefParams{ProjectID: projectID, SourceRef: &ref})
@@ -151,7 +153,7 @@ func upsertSourceIssue(ctx context.Context, q *db.Queries, projectID uuid.UUID, 
 			Status: in.Status, SourceRef: in.Ref, Labels: in.Labels, CreatedBy: in.CreatedBy})
 		return row, err == nil, "", err
 	}
-	if err != nil || row.Status != string(domain.IssueDraft) {
+	if err != nil || (row.Status != string(domain.IssueDraft) && row.Status != string(domain.IssueReady)) {
 		return row, false, "", err
 	}
 	typ := in.Type
@@ -171,9 +173,12 @@ func upsertSourceIssue(ctx context.Context, q *db.Queries, projectID uuid.UUID, 
 	if row.Title == in.Title && row.Spec == in.Spec && slices.Equal(row.Labels, nonNil(in.Labels)) && row.Type == string(typ) {
 		return row, false, warn, nil
 	}
-	row, err = q.UpdateDraftIssueFromSource(ctx, db.UpdateDraftIssueFromSourceParams{ID: row.ID, Title: in.Title, Spec: in.Spec,
+	updated, err := q.UpdateUnstartedIssueFromSource(ctx, db.UpdateUnstartedIssueFromSourceParams{ID: row.ID, Title: in.Title, Spec: in.Spec,
 		Labels: nonNil(in.Labels), Type: string(typ)})
-	return row, false, warn, mapErr("update issue from source", err)
+	if err = mapErr("update issue from source", err); errors.Is(err, ErrNotFound) {
+		return row, false, warn, nil // a ready issue that ran before keeps its copy
+	}
+	return updated, false, warn, err
 }
 
 // syncGraph is the project's graph in memory, so each change is checked before

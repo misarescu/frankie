@@ -30,7 +30,7 @@ func (q *Queries) AddIssueDependency(ctx context.Context, arg AddIssueDependency
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
 `
 
 type CreateIssueParams struct {
@@ -85,12 +85,15 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -113,12 +116,15 @@ func (q *Queries) GetIssue(ctx context.Context, id uuid.UUID) (Issue, error) {
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
 
 const getIssueByKey = `-- name: GetIssueByKey :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE key = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE key = $1
 `
 
 func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) {
@@ -141,12 +147,15 @@ func (q *Queries) GetIssueByKey(ctx context.Context, key string) (Issue, error) 
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
 
 const getIssueBySourceRef = `-- name: GetIssueBySourceRef :one
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE project_id = $1 AND source_ref = $2
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE project_id = $1 AND source_ref = $2
 `
 
 type GetIssueBySourceRefParams struct {
@@ -174,12 +183,44 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
 
+const listAllDependencies = `-- name: ListAllDependencies :many
+SELECT issue_id, depends_on_id FROM issue_dependencies
+`
+
+type ListAllDependenciesRow struct {
+	IssueID     uuid.UUID
+	DependsOnID uuid.UUID
+}
+
+func (q *Queries) ListAllDependencies(ctx context.Context) ([]ListAllDependenciesRow, error) {
+	rows, err := q.db.Query(ctx, listAllDependencies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllDependenciesRow
+	for rows.Next() {
+		var i ListAllDependenciesRow
+		if err := rows.Scan(&i.IssueID, &i.DependsOnID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssueChildren = `-- name: ListIssueChildren :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues WHERE parent_id = $1
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues WHERE parent_id = $1
 ORDER BY priority DESC, number
 `
 
@@ -209,6 +250,9 @@ func (q *Queries) ListIssueChildren(ctx context.Context, parentID *uuid.UUID) ([
 			&i.Number,
 			&i.Key,
 			&i.ParentID,
+			&i.StartRequestedAt,
+			&i.StartRequestedBy,
+			&i.ScheduledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -221,7 +265,7 @@ func (q *Queries) ListIssueChildren(ctx context.Context, parentID *uuid.UUID) ([
 }
 
 const listIssueDependencies = `-- name: ListIssueDependencies :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
 WHERE id IN (SELECT depends_on_id FROM issue_dependencies WHERE issue_id = $1)
 ORDER BY number
 `
@@ -253,6 +297,9 @@ func (q *Queries) ListIssueDependencies(ctx context.Context, issueID uuid.UUID) 
 			&i.Number,
 			&i.Key,
 			&i.ParentID,
+			&i.StartRequestedAt,
+			&i.StartRequestedBy,
+			&i.ScheduledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +312,7 @@ func (q *Queries) ListIssueDependencies(ctx context.Context, issueID uuid.UUID) 
 }
 
 const listIssueDependents = `-- name: ListIssueDependents :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
 WHERE id IN (SELECT issue_id FROM issue_dependencies WHERE depends_on_id = $1)
 ORDER BY number
 `
@@ -297,6 +344,9 @@ func (q *Queries) ListIssueDependents(ctx context.Context, dependsOnID uuid.UUID
 			&i.Number,
 			&i.Key,
 			&i.ParentID,
+			&i.StartRequestedAt,
+			&i.StartRequestedBy,
+			&i.ScheduledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -346,7 +396,7 @@ func (q *Queries) ListIssueNodes(ctx context.Context, projectID uuid.UUID) ([]Li
 }
 
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id FROM issues
+SELECT id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at FROM issues
 WHERE project_id = $1 AND status = $2
 ORDER BY priority DESC, created_at, id
 `
@@ -382,6 +432,9 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 			&i.Number,
 			&i.Key,
 			&i.ParentID,
+			&i.StartRequestedAt,
+			&i.StartRequestedBy,
+			&i.ScheduledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -425,7 +478,7 @@ func (q *Queries) ListProjectDependencies(ctx context.Context, projectID uuid.UU
 }
 
 const listProjectIssues = `-- name: ListProjectIssues :many
-SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id,
+SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id, i.start_requested_at, i.start_requested_by, i.scheduled_at,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8
           FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
        -- An issue without runs gets the nil UUID and an empty status.
@@ -473,6 +526,9 @@ func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([
 			&i.Issue.Number,
 			&i.Issue.Key,
 			&i.Issue.ParentID,
+			&i.Issue.StartRequestedAt,
+			&i.Issue.StartRequestedBy,
+			&i.Issue.ScheduledAt,
 			&i.CostUsd,
 			&i.LatestRunID,
 			&i.LatestRunStatus,
@@ -485,6 +541,67 @@ func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSchedIssues = `-- name: ListSchedIssues :many
+SELECT i.id, i.key, i.type, i.parent_id, i.status, i.priority, i.number,
+       (i.start_requested_at IS NOT NULL)::boolean AS requested,
+       (EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id AND r.status IN ('pending', 'running'))
+        OR (i.status = 'ready' AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)))::boolean AS busy
+FROM issues i
+`
+
+type ListSchedIssuesRow struct {
+	ID        uuid.UUID
+	Key       string
+	Type      string
+	ParentID  *uuid.UUID
+	Status    string
+	Priority  int32
+	Number    int32
+	Requested bool
+	Busy      bool
+}
+
+// Every issue as the scheduler sees it (D62). busy: an active run, or started by
+// the scheduler in the last five minutes and still waiting for its run.
+func (q *Queries) ListSchedIssues(ctx context.Context) ([]ListSchedIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listSchedIssues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSchedIssuesRow
+	for rows.Next() {
+		var i ListSchedIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Type,
+			&i.ParentID,
+			&i.Status,
+			&i.Priority,
+			&i.Number,
+			&i.Requested,
+			&i.Busy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markIssueScheduled = `-- name: MarkIssueScheduled :exec
+UPDATE issues SET scheduled_at = now(), updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkIssueScheduled(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markIssueScheduled, id)
+	return err
 }
 
 const removeIssueDependency = `-- name: RemoveIssueDependency :exec
@@ -501,11 +618,53 @@ func (q *Queries) RemoveIssueDependency(ctx context.Context, arg RemoveIssueDepe
 	return err
 }
 
+const requestIssueStart = `-- name: RequestIssueStart :one
+UPDATE issues
+SET start_requested_at = coalesce(start_requested_at, now()),
+    start_requested_by = coalesce(start_requested_by, $1::text),
+    updated_at = now()
+WHERE id = $2
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
+`
+
+type RequestIssueStartParams struct {
+	RequestedBy string
+	ID          uuid.UUID
+}
+
+// Asks to start an issue (D62); the first request is kept.
+func (q *Queries) RequestIssueStart(ctx context.Context, arg RequestIssueStartParams) (Issue, error) {
+	row := q.db.QueryRow(ctx, requestIssueStart, arg.RequestedBy, arg.ID)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Type,
+		&i.Title,
+		&i.Spec,
+		&i.AcceptanceCriteria,
+		&i.Status,
+		&i.Priority,
+		&i.SourceRef,
+		&i.Labels,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
+		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
+	)
+	return i, err
+}
+
 const setIssueParent = `-- name: SetIssueParent :one
 UPDATE issues
 SET parent_id = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
 `
 
 type SetIssueParentParams struct {
@@ -533,6 +692,9 @@ func (q *Queries) SetIssueParent(ctx context.Context, arg SetIssueParentParams) 
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
@@ -541,7 +703,7 @@ const transitionIssue = `-- name: TransitionIssue :one
 UPDATE issues
 SET status = $1, updated_at = now()
 WHERE id = $2 AND status = $3
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
 `
 
 type TransitionIssueParams struct {
@@ -571,18 +733,22 @@ func (q *Queries) TransitionIssue(ctx context.Context, arg TransitionIssueParams
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }
 
-const updateDraftIssueFromSource = `-- name: UpdateDraftIssueFromSource :one
-UPDATE issues
+const updateUnstartedIssueFromSource = `-- name: UpdateUnstartedIssueFromSource :one
+UPDATE issues AS i
 SET title = $1, spec = $2, labels = $3, type = $4, updated_at = now()
-WHERE id = $5 AND status = 'draft'
-RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+WHERE i.id = $5 AND (i.status = 'draft'
+  OR (i.status = 'ready' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id)))
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id, start_requested_at, start_requested_by, scheduled_at
 `
 
-type UpdateDraftIssueFromSourceParams struct {
+type UpdateUnstartedIssueFromSourceParams struct {
 	Title  string
 	Spec   string
 	Labels []string
@@ -590,10 +756,11 @@ type UpdateDraftIssueFromSourceParams struct {
 	ID     uuid.UUID
 }
 
-// Sync from an issue source (D60): only a draft takes the source's title, body,
-// labels and type; once refined or started, the factory's copy is authoritative.
-func (q *Queries) UpdateDraftIssueFromSource(ctx context.Context, arg UpdateDraftIssueFromSourceParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, updateDraftIssueFromSource,
+// Sync from an issue source (D60, D62): an issue that never ran (a draft, or a
+// ready issue without runs) takes the source's title, body, labels and type; once
+// started, the factory's copy is authoritative.
+func (q *Queries) UpdateUnstartedIssueFromSource(ctx context.Context, arg UpdateUnstartedIssueFromSourceParams) (Issue, error) {
+	row := q.db.QueryRow(ctx, updateUnstartedIssueFromSource,
 		arg.Title,
 		arg.Spec,
 		arg.Labels,
@@ -618,6 +785,9 @@ func (q *Queries) UpdateDraftIssueFromSource(ctx context.Context, arg UpdateDraf
 		&i.Number,
 		&i.Key,
 		&i.ParentID,
+		&i.StartRequestedAt,
+		&i.StartRequestedBy,
+		&i.ScheduledAt,
 	)
 	return i, err
 }

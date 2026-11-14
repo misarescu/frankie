@@ -4,7 +4,8 @@
 // M3: the approvals inbox and decisions on human gates (docs/spec/03, FR-WF-3).
 // M4: a run's steps, and steering or aborting a running agent step (docs/spec/04).
 // M5: every write needs the API token (D58); reads stay open. Projects and
-// issues for the board and the issue page (D59).
+// issues for the board and the issue page (D59); starting issues and retrying
+// failed ones (D62).
 package api
 
 import (
@@ -25,6 +26,9 @@ type Server struct {
 	// Token is the bearer token every write request must carry (D58); with
 	// none set, writes are refused.
 	Token string
+	// MaxConcurrentIssues is the scheduler's limit, for the plans the start
+	// endpoint returns (D62).
+	MaxConcurrentIssues int
 }
 
 // Register adds the API routes to mux.
@@ -41,5 +45,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("GET /api/issues", s.listIssues)
 	mux.HandleFunc("GET /api/issues/{key}", s.getIssue)
+	mux.HandleFunc("POST /api/issues/start", s.requireToken(s.startIssues))
+	mux.HandleFunc("POST /api/issues/{key}/retry", s.requireToken(s.retryIssue))
 	mux.HandleFunc("POST /api/questions/{id}/answer", s.requireToken(s.answerQuestion))
 }

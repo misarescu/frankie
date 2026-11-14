@@ -30,6 +30,7 @@ const (
 	Harness_HARNESS_UNSPECIFIED Harness = 0
 	Harness_HARNESS_CLAUDE_CODE Harness = 1
 	Harness_HARNESS_OPENCODE    Harness = 2
+	Harness_HARNESS_PI          Harness = 3
 )
 
 // Enum value maps for Harness.
@@ -38,11 +39,13 @@ var (
 		0: "HARNESS_UNSPECIFIED",
 		1: "HARNESS_CLAUDE_CODE",
 		2: "HARNESS_OPENCODE",
+		3: "HARNESS_PI",
 	}
 	Harness_value = map[string]int32{
 		"HARNESS_UNSPECIFIED": 0,
 		"HARNESS_CLAUDE_CODE": 1,
 		"HARNESS_OPENCODE":    2,
+		"HARNESS_PI":          3,
 	}
 )
 
@@ -1044,11 +1047,13 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x120\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x1c.frankie.runner.v1.EventTypeR\x04type\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload*Q\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload*a\n" +
 	"\aHarness\x12\x17\n" +
 	"\x13HARNESS_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13HARNESS_CLAUDE_CODE\x10\x01\x12\x14\n" +
-	"\x10HARNESS_OPENCODE\x10\x02*T\n" +
+	"\x10HARNESS_OPENCODE\x10\x02\x12\x0e\n" +
+	"\n" +
+	"HARNESS_PI\x10\x03*T\n" +
 	"\bModelAPI\x12\x19\n" +
 	"\x15MODEL_API_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13MODEL_API_ANTHROPIC\x10\x01\x12\x14\n" +

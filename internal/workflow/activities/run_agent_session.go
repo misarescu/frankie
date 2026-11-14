@@ -241,6 +241,8 @@ func runnerHarness(name string) (runnerv1.Harness, error) {
 		return runnerv1.Harness_HARNESS_CLAUDE_CODE, nil
 	case "opencode":
 		return runnerv1.Harness_HARNESS_OPENCODE, nil
+	case "pi":
+		return runnerv1.Harness_HARNESS_PI, nil
 	}
 	return runnerv1.Harness_HARNESS_UNSPECIFIED, fmt.Errorf("harness %q is not supported by the runner", name)
 }

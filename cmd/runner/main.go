@@ -19,6 +19,7 @@ import (
 	"github.com/misarescu/frankie/internal/runner"
 	"github.com/misarescu/frankie/internal/runner/claudecode"
 	"github.com/misarescu/frankie/internal/runner/opencode"
+	"github.com/misarescu/frankie/internal/runner/pi"
 )
 
 func main() {
@@ -33,6 +34,7 @@ func run() error {
 	workdir := flag.String("workdir", "/workspace", "directory the harness works in")
 	claudeBin := flag.String("claude-bin", "claude", "Claude Code executable")
 	opencodeBin := flag.String("opencode-bin", "opencode", "opencode executable")
+	piBin := flag.String("pi-bin", "pi", "pi executable")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -48,6 +50,7 @@ func run() error {
 	runnerv1.RegisterRunnerServiceServer(srv, runner.NewServer(*workdir, map[runnerv1.Harness]runner.Harness{
 		runnerv1.Harness_HARNESS_CLAUDE_CODE: &claudecode.Harness{Binary: *claudeBin},
 		runnerv1.Harness_HARNESS_OPENCODE:    &opencode.Harness{Binary: *opencodeBin},
+		runnerv1.Harness_HARNESS_PI:          &pi.Harness{Binary: *piBin},
 	}))
 
 	go func() {

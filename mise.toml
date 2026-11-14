@@ -26,6 +26,8 @@ ginkgo = "2.34.0"
 # The runner's opencode adapter test runs it against a fake model endpoint;
 # must match OPENCODE_VERSION in deploy/images/runner/Dockerfile.
 "github:anomalyco/opencode" = "2.2.7"
+# Likewise for the pi adapter; must match PI_VERSION in the runner Dockerfile.
+"github:earendil-works/pi" = "1.5.2"
 
 [env]
 CGO_ENABLED = "0"

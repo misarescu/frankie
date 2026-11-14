@@ -122,10 +122,12 @@ func TestResolveRolesRejects(t *testing.T) {
 	const head = "name: w\nversion: 1\nsteps:\n"
 	const checks = "  - id: checks\n    gate: {type: command}\n"
 	foreign := Role{Name: "gpt-coder", Version: 1, SystemPrompt: "x", DefaultModel: "openai/gpt-x"}
+	browser := Role{Name: "browser", Version: 1, SystemPrompt: "x", AllowedTools: []string{"read", "web-fetch"}}
 	tests := []struct{ name, yaml, want string }{
 		{"missing role", head + "  - id: x\n    agent: {role: ghost}\n", "no such role"},
 		{"stale pin", head + "  - id: x\n    agent: {role: coder@1}\n", "pins version 1, the role is at version 2"},
 		{"default model the harness cannot use", head + "  - id: x\n    agent: {role: gpt-coder}\n", "defaults to openai/gpt-x, which harness claude-code cannot use"},
+		{"a tool the harness lacks", head + "  - id: x\n    agent: {role: browser, harness: pi}\n", "role browser allows web-fetch, which harness pi does not have"},
 		{"reviewer outside a verdict group", head + "  - id: x\n    agent: {role: code-reviewer}\n", "put it in a parallel group with an agent-verdict gate"},
 		{"coder judged by an agent-verdict gate", head + checks + "  - id: r\n    parallel: [{agent: {role: coder}}]\n    gate: {type: agent-verdict}\n", "does not return a review verdict"},
 	}
@@ -135,7 +137,7 @@ func TestResolveRolesRejects(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = ResolveRoles(w, lookupIn(coderRole, reviewerRole, foreign))
+			_, err = ResolveRoles(w, lookupIn(coderRole, reviewerRole, foreign, browser))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("err = %v, want %q", err, tt.want)
 			}

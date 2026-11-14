@@ -166,7 +166,6 @@ func TestParseWorkflowRejects(t *testing.T) {
 		{"non-agent branch", head + "  - parallel: [{id: g, gate: {type: command}}]\n", "branches must be agent steps"},
 		{"bad role", head + "  - id: x\n    agent: {role: coder@latest}\n", "role name"},
 		{"unknown harness", head + "  - id: x\n    agent: {role: coder, harness: aider}\n", `unknown harness "aider"`},
-		{"harness not yet available", head + "  - id: x\n    agent: {role: coder, harness: pi}\n", `"pi" is not available yet`},
 		{"opencode with a provider it reaches", head + "  - id: x\n    agent: {role: coder, harness: opencode, model: acme/x}\n", `unknown provider "acme"`},
 		{"model without provider", head + "  - id: x\n    agent: {role: coder, model: opus}\n", "model ref"},
 		{"provider the harness cannot reach", head + "  - id: x\n    agent: {role: coder, model: openai/gpt-x}\n", `harness claude-code cannot use provider "openai"`},
@@ -216,7 +215,7 @@ func TestParseWorkflowRejects(t *testing.T) {
 }
 
 func TestParseWorkflowReportsEveryError(t *testing.T) {
-	_, err := ParseWorkflow([]byte("name: w\nversion: 0\nsteps:\n  - id: a\n    action: nope\n  - id: b\n    agent: {role: coder, harness: pi}\n"))
+	_, err := ParseWorkflow([]byte("name: w\nversion: 0\nsteps:\n  - id: a\n    action: nope\n  - id: b\n    agent: {role: coder, harness: aider}\n"))
 	if err == nil {
 		t.Fatal("accepted")
 	}

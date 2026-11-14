@@ -121,7 +121,10 @@ func TestStartRequestCarriesHarnessAndGateway(t *testing.T) {
 			}
 		})
 	}
-	if _, err := runnerHarness("pi"); err == nil {
-		t.Error("pi is not supported by the runner yet")
+	if h, err := runnerHarness("pi"); err != nil || h != runnerv1.Harness_HARNESS_PI {
+		t.Errorf("pi = %v, %v", h, err)
+	}
+	if _, err := runnerHarness("aider"); err == nil {
+		t.Error("an unknown harness was accepted")
 	}
 }

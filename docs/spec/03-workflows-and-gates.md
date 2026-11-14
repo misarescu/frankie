@@ -93,7 +93,7 @@ Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks a
 - All `goto` targets exist and are earlier steps; each loop has `maxLoops`.
 - Step IDs are unique (branches included); each step is exactly one kind; gate fields match the gate type.
 - Harnesses and actions exist and are implemented.
-- Roles exist, a pinned version matches, a role's default model suits the step's harness, and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
+- Roles exist, a pinned version matches, a role's default model suits the step's harness, the harness provides every tool the role allows (pi has no `web-fetch`, D50), and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
 - Harness/model compatibility (D48): the provider of each model ref is known and serves an API the step's harness speaks (Claude Code: Anthropic; opencode and pi: Anthropic and OpenAI-compatible). When a run starts, every agent step's effective model (the step's, else the role's default, else the platform's) must also be served by one of the deployment's provider profiles (`config.CheckModels`); otherwise the run fails with the reason.
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.
 - Gate commands reference tasks that exist in the repo's `mise.toml` (warning, not error, if the repo is not yet cloned).

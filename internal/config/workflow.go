@@ -200,16 +200,17 @@ const (
 	maxStepsPerDefinition = 50
 )
 
-// Harnesses the definition may name: whether the runner supports it yet
-// (docs/spec/10-roadmap.md: opencode and pi arrive in M4) and the gateway APIs
-// it speaks, which decide the providers it can use (providerAPIs).
+// Harnesses the definition may name: whether the runner supports it, the
+// gateway APIs it speaks, which decide the providers it can use
+// (providerAPIs), and the role tools it lacks.
 var harnesses = map[string]struct {
 	available bool
 	apis      []API
+	lacks     []string // role tools the harness cannot provide
 }{
 	"claude-code": {available: true, apis: []API{APIAnthropic}},
 	"opencode":    {available: true, apis: []API{APIAnthropic, APIOpenAI}},
-	"pi":          {available: false, apis: []API{APIAnthropic, APIOpenAI}},
+	"pi":          {available: true, apis: []API{APIAnthropic, APIOpenAI}, lacks: []string{"web-fetch"}},
 }
 
 // Actions the control plane knows; the value says whether it is implemented yet.

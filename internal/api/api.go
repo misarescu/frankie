@@ -2,6 +2,7 @@
 // on the API port, which agent pods cannot reach. M1: runs, transcript replay and
 // live transcript streaming (docs/spec/07-observability.md, FR-OB-1, FR-OB-2).
 // M3: the approvals inbox and decisions on human gates (docs/spec/03, FR-WF-3).
+// M4: a run's steps, and steering or aborting a running agent step (docs/spec/04).
 package api
 
 import (
@@ -16,8 +17,8 @@ type Server struct {
 	Store *store.Store
 	Hub   *Hub
 	Log   *slog.Logger
-	// Signaler delivers human gate decisions to workflows; nil when the
-	// control plane runs without Temporal.
+	// Signaler delivers human gate decisions, steers and aborts to
+	// workflows; nil when the control plane runs without Temporal.
 	Signaler Signaler
 }
 
@@ -28,4 +29,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/{id}/stream", s.streamEvents)
 	mux.HandleFunc("GET /api/approvals", s.listApprovals)
 	mux.HandleFunc("POST /api/gates/{id}/decision", s.decideGate)
+	mux.HandleFunc("GET /api/runs/{id}/steps", s.listSteps)
+	mux.HandleFunc("POST /api/steps/{id}/steer", s.steerStep)
+	mux.HandleFunc("POST /api/steps/{id}/abort", s.abortStep)
 }

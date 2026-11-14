@@ -38,6 +38,17 @@ type stubActivities struct {
 	pushes     int
 	opened     chan string // step run IDs of opened human gates
 	protected  bool        // the change touches a protected path
+	// started receives the step run ID of each coder session when set; the
+	// session then runs until an abort reaches it.
+	started chan string
+	abort   chan struct{}
+}
+
+func (s *stubActivities) InterveneSession(_ context.Context, _ activities.AgentPod, in activities.Intervention) (bool, error) {
+	if in.Action == "abort" {
+		close(s.abort)
+	}
+	return true, nil
 }
 
 func (s *stubActivities) DetectProtectedChanges(context.Context, activities.IssueRunInput, activities.GuardRequest) (guard.Report, error) {
@@ -78,6 +89,11 @@ func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRu
 	if run.Step.Contract != "" { // a reviewer reads the head and pushes nothing
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("%040d", s.pushes),
 			Result: `{"verdict":"fail","summary":"Missing test.","findings":[{"severity":"major","file":"internal/server/version.go","line":3,"message":"add a handler test"}]}`}, nil
+	}
+	if s.started != nil {
+		s.started <- run.StepRunID
+		<-s.abort
+		return activities.SessionResult{Status: "aborted", Reason: "aborted by ana: wrong approach"}, nil
 	}
 	s.pushes++
 	return activities.SessionResult{Status: "succeeded", Result: "Done.", Branch: run.Branch,
@@ -128,25 +144,29 @@ func TestRecordInterpretHistories(t *testing.T) {
 		failReview func(req activities.VerdictGateRequest) bool
 		approve    bool // the decision sent to each human gate the run opens
 		protected  bool
+		intervene  bool // steer, then abort, the first agent session
 	}{
 		// The first command gate fails, the loop back to implement fixes it.
 		{"interpret_loop_then_success.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool {
 			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
-		}, nil, false, false},
+		}, nil, false, false, false},
 		// The command gate keeps failing until maxLoops is used up (recorded before
 		// escalation existed, so the run failed there).
-		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false},
+		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false, false},
 		// default-build: the reviewer fails the first commit, the loop back to
 		// implement fixes it.
 		{"interpret_default_build_review_loop.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false },
-			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false},
+			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false, false},
 		// A definition's human gate after the change request opened, approved.
-		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false},
+		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false, false},
 		// maxLoops used up: the gate escalates to a human, who approves.
 		{"interpret_loops_exhausted_escalated.json", loopSnapshot(t, loopDefinition),
-			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false},
+			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false, false},
 		// default-build on a change to a protected path: the forced human gate, approved.
-		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true},
+		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false},
+		// step-interventions version: a person steers the implement session,
+		// then aborts it, which fails the run.
+		{"interpret_steer_then_abort.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, true},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -157,6 +177,9 @@ func TestRecordInterpretHistories(t *testing.T) {
 			w := worker.New(c, queue, worker.Options{})
 			w.RegisterWorkflow(Interpret)
 			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4), protected: sc.protected}
+			if sc.intervene {
+				stub.started, stub.abort = make(chan string, 1), make(chan struct{})
+			}
 			w.RegisterActivity(stub)
 			if err := w.Start(); err != nil {
 				t.Fatal(err)
@@ -167,6 +190,13 @@ func TestRecordInterpretHistories(t *testing.T) {
 				Interpret, InterpretInput{Issue: testInput, Snapshot: sc.snap})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if sc.intervene {
+				go func() { // a person steers the running session, then aborts it
+					id := <-stub.started
+					_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), SteerSignal, StepIntervention{StepRunID: id, By: "ana", Text: "use the helper"})
+					_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), AbortSignal, StepIntervention{StepRunID: id, By: "ana", Text: "wrong approach"})
+				}()
 			}
 			go func() { // a person decides each human gate the run opens
 				for id := range stub.opened {

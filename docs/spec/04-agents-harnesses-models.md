@@ -75,7 +75,9 @@ Implementation (D48): provider profiles are platform configuration, `llmGateway.
 
 1. **Ask-human tool**: an MCP tool the agent calls when stuck. It blocks on a Temporal Signal answered from the UI.
 2. **Steer**: inject a message into a running session via the runner (`Steer`). Harnesses without native support get it at the next turn boundary.
-3. **Pause/abort** a step via Signal.
+3. **Abort** a step via Signal. **Pause** is deferred (D52): no harness pauses natively, and a steer ("stop and wait", "change direction") or an abort followed by re-running the issue covers its uses.
+
+Implementation (D52): the run page shows the running agent step (`GET /api/runs/{id}/steps`) with a message box; **Steer** posts `POST /api/steps/{id}/steer` (`{"text", "by"}`) and **Abort** `POST /api/steps/{id}/abort` (`{"reason", "by"}`). The API accepts them only for a running agent step and sends the run's workflow the signal `step-steer` or `step-abort`, naming the StepRun; without authentication (open question 7) the sender is self-reported, as for gate decisions. While an agent session runs, `Interpret` relays each signal for that step to its runner through the `InterveneSession` Activity (runner `Steer`, or `Abort` with "aborted by <who>: <reason>") and records an `intervention` event (action, who, text, and whether the session still took it) in the transcript; signals for other steps are ignored. Every harness delivers a steer into the running turn at its next model call (Claude Code, opencode, pi: verified by the conformance suite, D51). An abort ends the session `aborted`, pushes nothing, and fails the run with "aborted by <who>: <reason>". Behind `workflow.GetVersion("step-interventions")`.
 4. **Take over**: web terminal into the pod.
 
 ## Agent MCP servers

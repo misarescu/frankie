@@ -16,7 +16,7 @@ export type RunSummary = {
 
 export const eventTypes = [
   "assistant_message", "tool_call", "tool_result", "file_diff", "command_output",
-  "token_usage", "error", "done", "gate_result", "state_change",
+  "token_usage", "error", "done", "gate_result", "state_change", "intervention",
 ] as const;
 
 // The transcript has an event type named "error", which is also the name of
@@ -54,6 +54,7 @@ export function summary(e: RunEvent): string {
     case "state_change": return `${str(p.entity)}: ${str(p.from)} → ${str(p.to)}`;
     case "done": return [str(p.status), p.reason ? `: ${str(p.reason)}` : "", p.commit_sha ? ` · ${str(p.commit_sha)}` : ""].join("");
     case "error": return p.detail ? `${str(p.message)}: ${str(p.detail)}` : str(p.message);
+    case "intervention": return `${str(p.by)} ${p.action === "abort" ? "aborted" : "steered"}: ${str(p.text)}${p.delivered === false ? " (the session had already ended)" : ""}`;
     default: return str(p);
   }
 }

@@ -46,12 +46,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	runID, _ := uuid.Parse(run.RunID)
 	stepID, _ := uuid.Parse(run.StepRunID)
 
-	conn, err := grpc.NewClient(net.JoinHostPort(pod.IP, fmt.Sprint(sandbox.RunnerPort)), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, runner, err := a.runnerConn(pod)
 	if err != nil {
 		return SessionResult{}, err
 	}
 	defer func() { _ = conn.Close() }()
-	runner := runnerv1.NewRunnerServiceClient(conn)
 
 	set := a.sessionSettings(run)
 	harness, err := runnerHarness(set.harness)
@@ -256,4 +255,17 @@ func modelAPI(api config.API) runnerv1.ModelAPI {
 		return runnerv1.ModelAPI_MODEL_API_OPENAI
 	}
 	return runnerv1.ModelAPI_MODEL_API_UNSPECIFIED
+}
+
+// runnerConn connects to an agent pod's runner.
+func (a *Activities) runnerConn(pod AgentPod) (*grpc.ClientConn, runnerv1.RunnerServiceClient, error) {
+	addr := net.JoinHostPort(pod.IP, fmt.Sprint(sandbox.RunnerPort))
+	if a.RunnerAddr != nil {
+		addr = a.RunnerAddr(pod)
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, fmt.Errorf("runner %s: %w", addr, err)
+	}
+	return conn, runnerv1.NewRunnerServiceClient(conn), nil
 }

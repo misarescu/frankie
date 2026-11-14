@@ -462,3 +462,20 @@ func TestRunnerWorkspacePrepareFailure(t *testing.T) {
 		t.Errorf("Start after a failed prepare: %v", err)
 	}
 }
+
+func TestGatewayConfig(t *testing.T) {
+	tests := []struct {
+		in   *runnerv1.Gateway
+		want Gateway
+	}{
+		{nil, Gateway{}},
+		{&runnerv1.Gateway{BaseUrl: "http://gw:4000", ApiKey: "sk", Api: runnerv1.ModelAPI_MODEL_API_ANTHROPIC}, Gateway{BaseURL: "http://gw:4000", APIKey: "sk", API: ModelAPIAnthropic}},
+		{&runnerv1.Gateway{BaseUrl: "http://gw", Api: runnerv1.ModelAPI_MODEL_API_OPENAI}, Gateway{BaseURL: "http://gw", API: ModelAPIOpenAI}},
+		{&runnerv1.Gateway{BaseUrl: "http://gw"}, Gateway{BaseURL: "http://gw"}},
+	}
+	for _, tt := range tests {
+		if got := gatewayConfig(tt.in); got != tt.want {
+			t.Errorf("gatewayConfig(%v) = %+v, want %+v", tt.in, got, tt.want)
+		}
+	}
+}

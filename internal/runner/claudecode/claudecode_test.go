@@ -270,3 +270,21 @@ func TestSessionAbort(t *testing.T) {
 		})
 	}
 }
+
+func TestGatewayEnv(t *testing.T) {
+	cfg := runner.SessionConfig{Model: "claude-sonnet-5-5", Gateway: runner.Gateway{BaseURL: "http://gw:4000", APIKey: "sk-v", API: runner.ModelAPIAnthropic}}
+	env := gatewayEnv(cfg)
+	for k, want := range map[string]string{"ANTHROPIC_BASE_URL": "http://gw:4000", "ANTHROPIC_AUTH_TOKEN": "sk-v",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5-5", "ANTHROPIC_SMALL_FAST_MODEL": "claude-sonnet-5-5"} {
+		if env[k] != want {
+			t.Errorf("%s = %q, want %q", k, env[k], want)
+		}
+	}
+	if env := gatewayEnv(runner.SessionConfig{Model: "m"}); env != nil {
+		t.Errorf("no gateway: env = %v", env)
+	}
+	cfg.Gateway.API = runner.ModelAPIOpenAI
+	if _, err := (&Harness{Binary: "/bin/true"}).Start(t.Context(), cfg, func(domain.EventType, any) {}); err == nil {
+		t.Error("Claude Code started on an OpenAI-API model")
+	}
+}

@@ -104,7 +104,8 @@ func TestRecordUsageWaitsForTheGatewaysSpend(t *testing.T) {
 	var id string
 	_ = v.Get(&id)
 	var tokens tokenTotals
-	tokens.observe([]byte(`{"input_tokens":1200,"output_tokens":80,"cost_usd":0,"turns":2}`))
+	// The step's input is all of it: uncached, read from and written to the cache.
+	tokens.observe([]byte(`{"input_tokens":20,"output_tokens":80,"cache_read_input_tokens":1000,"cache_creation_input_tokens":180,"cost_usd":0,"turns":2}`))
 	tokens.observe([]byte(`not json`)) // ignored
 	if spend := a.recordUsage(t.Context(), uuid.MustParse(id), "run-1-step-2-attempt-1", tokens); spend != 0.42 {
 		t.Errorf("spend = %v, want the settled 0.42", spend)

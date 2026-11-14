@@ -124,6 +124,9 @@ type (
 		Output     string `json:"output"`
 		IsError    bool   `json:"is_error"`
 	}
+	// TokenUsage holds session totals. As in Anthropic's API, InputTokens is
+	// only the input that was neither read from nor written to the prompt
+	// cache; the two cache fields hold the rest of the input.
 	TokenUsage struct {
 		InputTokens              int64   `json:"input_tokens"`
 		OutputTokens             int64   `json:"output_tokens"`

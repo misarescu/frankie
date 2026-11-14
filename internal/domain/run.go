@@ -103,7 +103,8 @@ type StepRun struct {
 }
 
 // Usage is model usage: cost as the LLM gateway recorded it, tokens as the
-// harness reported them (D53).
+// harness reported them (D53). InputTokens counts all input, including what
+// the model read from or wrote to its prompt cache.
 type Usage struct {
 	CostUSD      float64
 	InputTokens  int64

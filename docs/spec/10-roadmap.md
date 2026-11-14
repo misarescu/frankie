@@ -58,7 +58,7 @@ Agent steps and gates start every pod with empty dependency and build caches, so
 - opencode and pi adapters in the runner (ACP where it proves mature); normalized events across all three.
 - Provider profiles vs model refs; harness/model compatibility validation.
 - Per-step model selection; budgets per step/issue; cost and token metrics.
-- Steer, pause/abort, ask-human tool.
+- Steer, pause/abort, ask-human tool. Pause is deferred (D52): no harness pauses natively, and a steer or an abort covers its uses.
 - Web terminal take-over moves to after open question 7 (authentication): a shell into an agent pod through an unauthenticated API is a larger risk than deciding a gate.
 - Second provider on the concrete profile: OpenRouter, next to Anthropic.
 - **Done when:** one workflow mixes all three harnesses and two providers, and a steer message changes the behavior of a running session in each.

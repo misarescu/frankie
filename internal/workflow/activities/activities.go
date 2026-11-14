@@ -243,6 +243,9 @@ type Activities struct {
 	Gate      GateConfig
 	Services  ServicesConfig
 	Log       *slog.Logger
+	// RunnerAddr is where an agent pod's runner listens; nil means the pod IP
+	// on sandbox.RunnerPort. Tests point it at a fake runner.
+	RunnerAddr func(pod AgentPod) string
 }
 
 // hardcodedWorkflow is the snapshot recorded on M1 runs (invariant 4).

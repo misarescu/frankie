@@ -25,7 +25,26 @@ const (
 
 	EventGateResult  EventType = "gate_result"
 	EventStateChange EventType = "state_change"
+	// EventIntervention is a person steering or aborting a running agent step.
+	EventIntervention EventType = "intervention"
 )
+
+// Intervention actions.
+const (
+	InterventionSteer = "steer"
+	InterventionAbort = "abort"
+)
+
+// Intervention is the payload of an EventIntervention: who did what to a
+// running agent step, and whether its session still accepted it.
+type Intervention struct {
+	Action string `json:"action"` // InterventionSteer or InterventionAbort
+	By     string `json:"by"`
+	// Text is the steering message, or the reason for an abort.
+	Text string `json:"text"`
+	// Delivered is false when the session had already finished.
+	Delivered bool `json:"delivered"`
+}
 
 // Event is one append-only entry. Seq is a strict total order across all events.
 type Event struct {

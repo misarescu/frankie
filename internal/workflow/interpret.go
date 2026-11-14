@@ -193,12 +193,21 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, launchOptions), it.a.LaunchAgentPod, it.in.Issue, run).Get(ctx, &pod)
 	}
 	var session activities.SessionResult
+	var aborted *StepIntervention
 	if err == nil {
 		opts := sessionOptions
 		if step.Timeout > 0 {
 			opts.StartToCloseTimeout = step.Timeout + 30*time.Minute
 		}
-		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunAgentSession, it.in.Issue, run, pod).Get(ctx, &session)
+		// People may steer or abort the session while it runs (D52); runs
+		// recorded before that only waited for it.
+		supervised := workflow.GetVersion(ctx, "step-interventions", workflow.DefaultVersion, 1) >= 1
+		running := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunAgentSession, it.in.Issue, run, pod)
+		if supervised {
+			aborted, err = it.awaitSession(ctx, stepRunID, pod, running, &session)
+		} else {
+			err = running.Get(ctx, &session)
+		}
 	}
 	if pod.Name != "" {
 		cleanup, _ := workflow.NewDisconnectedContext(ctx)
@@ -207,6 +216,8 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	}
 
 	switch {
+	case aborted != nil:
+		return session, stepRunID, abortReason(aborted)
 	case err != nil:
 		return session, stepRunID, "agent step failed: " + err.Error()
 	case session.Status != "succeeded":

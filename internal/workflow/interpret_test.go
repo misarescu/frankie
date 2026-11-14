@@ -73,12 +73,20 @@ type interpretFixture struct {
 	opened   []activities.HumanGateRequest
 	closed   []activities.HumanGateClose
 	extended []string
+	// sessionTime is how long each agent session takes; sessionStatus how it
+	// ends (default succeeded).
+	sessionTime   time.Duration
+	sessionStatus string
+	interventions []activities.Intervention
 }
 
-func newInterpretFixture(t *testing.T) *interpretFixture {
+func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
 	f := &interpretFixture{env: s.NewTestWorkflowEnvironment(), ended: map[string]bool{}}
+	for _, o := range opts {
+		o(f)
+	}
 	a := &activities.Activities{}
 	f.env.RegisterActivity(a)
 	f.env.OnActivity(a.StartWorkflowRun, mock.Anything, testInput, mock.Anything).Return(
@@ -102,11 +110,18 @@ func newInterpretFixture(t *testing.T) *interpretFixture {
 			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head,
 				Result: `{"verdict":"pass","findings":[]}`}, nil
 		}
+		if f.sessionStatus != "" {
+			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
+		}
 		pushed := f.push == nil || f.push(n)
 		if pushed {
 			f.head = fmt.Sprintf("sha%d", n)
 		}
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("sha%d", n), Pushed: pushed}, nil
+	}).After(f.sessionTime)
+	f.env.OnActivity(a.InterveneSession, mock.Anything, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.AgentPod, in activities.Intervention) (bool, error) {
+		f.interventions = append(f.interventions, in)
+		return true, nil
 	})
 	f.env.OnActivity(a.RunVerdictGate, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.VerdictGateRequest) (activities.GateOutcome, error) {
 		f.verdicts = append(f.verdicts, req)
@@ -325,6 +340,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_human_gate_approved.json", "M3: human gate after the change request, approved by signal"},
 	{"testdata/interpret_loops_exhausted_escalated.json", "M3: escalate-exhausted-loops version, escalation approved"},
 	{"testdata/interpret_protected_changes_approved.json", "M3: protected-changes version, forced human gate approved"},
+	{"testdata/interpret_steer_then_abort.json", "M4: step-interventions version, a steer then an abort fail the run"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

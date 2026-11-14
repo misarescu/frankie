@@ -13,6 +13,9 @@ import (
 	"github.com/misarescu/frankie/internal/store/storetest"
 )
 
+// testToken is the API token of every test server.
+const testToken = "test-token-0123456789abcdef0123456789"
+
 // testServer runs the API against a fresh database with a live hub.
 func testServer(t *testing.T) (*store.Store, *httptest.Server, domain.Run, *Hub) {
 	t.Helper()
@@ -47,7 +50,7 @@ func testServerWith(t *testing.T, sig Signaler) (*store.Store, *httptest.Server,
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	(&Server{Store: st, Hub: hub, Log: log, Signaler: sig}).Register(mux)
+	(&Server{Store: st, Hub: hub, Log: log, Signaler: sig, Token: testToken}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return st, srv, run, hub

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { eventTypes, isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
 import { abort, runningAgentStep, steer, totals, usd, type Step } from "./steps";
+import { apiFetch } from "./auth";
 
 // Live transcript: the control plane's SSE stream replays stored events, then
 // follows live ones; EventSource resumes with Last-Event-ID after a drop.
@@ -88,10 +89,10 @@ function InterventionPanel({ step, onSent }: { step: Step; onSent: () => void })
       <textarea placeholder="Message to the agent (steer), or the reason for aborting" value={text} maxLength={8000}
         onChange={(e) => setText(e.target.value)} disabled={busy} />
       <div className="actions">
-        <button onClick={() => run(() => steer(fetch, step.id, text), "sent; the agent gets it at its next model call")}
+        <button onClick={() => run(() => steer(apiFetch, step.id, text), "sent; the agent gets it at its next model call")}
           disabled={busy || !text.trim()}>Steer</button>
         <button className="reject" onClick={() => {
-          if (window.confirm(`Abort ${step.step_id}? The run fails.`)) run(() => abort(fetch, step.id, text), "abort sent");
+          if (window.confirm(`Abort ${step.step_id}? The run fails.`)) run(() => abort(apiFetch, step.id, text), "abort sent");
         }} disabled={busy || !text.trim()}>Abort</button>
         {note && <span className="status">{note}</span>}
       </div>

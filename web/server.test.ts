@@ -7,6 +7,7 @@ const upstream = Bun.serve({
   fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === "/api/runs") return Response.json([{ ID: "r1" }]);
+    if (url.pathname === "/api/echo-auth") return new Response(req.headers.get("authorization") ?? "", { status: 202 });
     if (url.pathname === "/api/runs/r1/stream") {
       const stream = new ReadableStream({
         async start(c) {
@@ -30,6 +31,13 @@ test("proxies the API", async () => {
   const r = await fetch(new URL("/api/runs", web.url));
   expect(r.status).toBe(200);
   expect(await r.json()).toEqual([{ ID: "r1" }]);
+});
+
+// D58: write requests carry the API token, so the proxy must pass it on.
+test("passes the Authorization header and the body of a POST", async () => {
+  const r = await fetch(new URL("/api/echo-auth", web.url), { method: "POST", headers: { Authorization: "Bearer tok" }, body: "{}" });
+  expect(r.status).toBe(202);
+  expect(await r.text()).toBe("Bearer tok");
 });
 
 test("streams SSE through without buffering, and outlives the idle timeout", async () => {

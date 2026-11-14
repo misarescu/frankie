@@ -14,3 +14,5 @@ textarea { width: 100%; box-sizing: border-box; min-height: 56px; font: inherit;
 button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 button.reject { background: transparent; color: var(--fg); border-color: var(--line); } button:disabled { opacity: .5; cursor: default; }
 table.steps { margin-bottom: 16px; } table.steps tr:last-child td { font-weight: 600; }
+.token { color: var(--muted); font-size: 12px; margin: 0 0 12px; } .token input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: min(360px, 100%); }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApprovalsPage } from "./ApprovalsPage";
 import { RunPage } from "./RunPage";
 import { RunsPage } from "./RunsPage";
+import { TokenBar } from "./TokenBar";
 
 type Route = { page: "runs" } | { page: "run"; id: string } | { page: "approvals" };
 
@@ -22,6 +23,7 @@ export function App() {
   }, []);
   return (
     <main>
+      <TokenBar />
       {r.page === "run" ? <RunPage runID={r.id} /> : r.page === "approvals" ? <ApprovalsPage /> : <RunsPage />}
     </main>
   );

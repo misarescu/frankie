@@ -36,7 +36,7 @@ ORDER BY priority DESC, number;
 
 -- The hierarchy of a project's issues, for cycle checks (D57).
 -- name: ListIssueNodes :many
-SELECT id, key, parent_id FROM issues WHERE project_id = @project_id;
+SELECT id, key, type, parent_id FROM issues WHERE project_id = @project_id;
 
 -- name: ListProjectDependencies :many
 SELECT d.issue_id, d.depends_on_id
@@ -77,3 +77,11 @@ LEFT JOIN LATERAL (
 ) lr ON true
 WHERE i.project_id = @project_id
 ORDER BY i.priority DESC, i.number;
+
+-- Sync from an issue source (D60): only a draft takes the source's title, body,
+-- labels and type; once refined or started, the factory's copy is authoritative.
+-- name: UpdateDraftIssueFromSource :one
+UPDATE issues
+SET title = @title, spec = @spec, labels = @labels, type = @type, updated_at = now()
+WHERE id = @id AND status = 'draft'
+RETURNING *;

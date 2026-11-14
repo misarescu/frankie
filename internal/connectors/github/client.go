@@ -28,52 +28,6 @@ func NewClient(token, baseURL string) *Client {
 	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), token: token, http: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// Issue is a GitHub issue as the intake needs it.
-type Issue struct {
-	Number  int
-	Title   string
-	Body    string
-	URL     string // html_url, used as the Issue's source_ref
-	Author  string
-	Labels  []string
-	Updated time.Time
-}
-
-// ListOpenIssues returns open issues (not pull requests) of repo ("owner/name")
-// carrying label.
-func (c *Client) ListOpenIssues(ctx context.Context, repo, label string) ([]Issue, error) {
-	var raw []struct {
-		Number      int       `json:"number"`
-		Title       string    `json:"title"`
-		Body        string    `json:"body"`
-		HTMLURL     string    `json:"html_url"`
-		UpdatedAt   time.Time `json:"updated_at"`
-		PullRequest *struct{} `json:"pull_request"`
-		User        struct {
-			Login string `json:"login"`
-		} `json:"user"`
-		Labels []struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-	}
-	q := url.Values{"state": {"open"}, "labels": {label}, "per_page": {"100"}}
-	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/issues?"+q.Encode(), nil, &raw); err != nil {
-		return nil, err
-	}
-	out := make([]Issue, 0, len(raw))
-	for _, r := range raw {
-		if r.PullRequest != nil {
-			continue
-		}
-		is := Issue{Number: r.Number, Title: r.Title, Body: r.Body, URL: r.HTMLURL, Author: r.User.Login, Updated: r.UpdatedAt}
-		for _, l := range r.Labels {
-			is.Labels = append(is.Labels, l.Name)
-		}
-		out = append(out, is)
-	}
-	return out, nil
-}
-
 // PullRequest is an opened pull request.
 type PullRequest struct {
 	Number int

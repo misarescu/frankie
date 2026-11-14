@@ -112,6 +112,8 @@ type IssueSource interface {
 
 Intake (D27): the control plane polls `List` (with `since`) and, once webhooks are reachable, also accepts `Webhook` deliveries; both go through one idempotent intake keyed by `source_ref`, so a delivery and a poll that see the same issue create it once.
 
+Since D60 intake syncs trees: the labeled issues with their open sub-issues and their open same-repo blockers, with parents and dependencies, applied atomically per project. The source is authoritative for the links of the issues it reports and for a draft's text; refined or started issues keep the factory's copy. Intake uses the narrower provider-neutral `IssueSource` methods `ListLabeledIssues`, `SubIssues` and `BlockedBy` (`domain.ExternalIssue`) so far.
+
 `ReleaseDriver` is specified in `06-delivery.md`.
 
 ## Postgres conventions

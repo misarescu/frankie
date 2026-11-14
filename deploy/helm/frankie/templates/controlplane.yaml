@@ -2,8 +2,12 @@
 {{- $name := printf "%s-controlplane" (include "frankie.fullname" .) }}
 {{- $pg := printf "%s-postgres" (include "frankie.fullname" .) }}
 {{- $key := randAlphaNum 48 }}
+{{- $apiToken := randAlphaNum 48 }}
 {{- with lookup "v1" "Secret" .Release.Namespace $name }}
 {{- $key = index .data "gitproxy-key" | b64dec }}
+{{- if hasKey .data "api-token" }}
+{{- $apiToken = index .data "api-token" | b64dec }}
+{{- end }}
 {{- end }}
 apiVersion: v1
 kind: Secret
@@ -17,6 +21,9 @@ type: Opaque
 stringData:
   # Signs git proxy tokens (D21). Rotating it invalidates tokens of running steps.
   gitproxy-key: {{ $key | quote }}
+  # Bearer token for the API's write endpoints (D58); the web UI asks for it once.
+  # mise run api-token prints it.
+  api-token: {{ $apiToken | quote }}
 ---
 # The control plane launches agent and gate pods, and reads gate pod logs, and
 # nothing else, in the agents namespace.
@@ -116,6 +123,9 @@ spec:
             - name: FRANKIE_GITPROXY_KEY
               valueFrom:
                 secretKeyRef: { name: {{ $name }}, key: gitproxy-key }
+            - name: FRANKIE_API_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: api-token }
             - name: FRANKIE_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef: { name: {{ .Values.controlPlane.githubSecret }}, key: token, optional: true }

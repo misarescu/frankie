@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { decide, expiresIn, type Approval, type Decision } from "./approvals";
 import { answer, type Question } from "./questions";
+import { apiFetch } from "./auth";
 
 const getJSON = <T,>(url: string): Promise<T> =>
   fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))));
@@ -44,7 +45,7 @@ function QuestionCard({ question: q, onAnswered }: { question: Question; onAnswe
   const send = () => {
     setBusy(true);
     setError(null);
-    answer(fetch, q.id, text)
+    answer(apiFetch, q.id, text)
       // The workflow records the answer once the runner took it.
       .then(() => setTimeout(onAnswered, 1500))
       .catch((e: Error) => { setError(e.message); setBusy(false); });
@@ -74,7 +75,7 @@ function ApprovalCard({ approval: a, onDecided }: { approval: Approval; onDecide
   const send = (d: Decision) => {
     setBusy(true);
     setError(null);
-    decide(fetch, a.step_run_id, d, comment)
+    decide(apiFetch, a.step_run_id, d, comment)
       // The workflow records the decision right after the signal.
       .then(() => setTimeout(onDecided, 1500))
       .catch((e: Error) => { setError(e.message); setBusy(false); });

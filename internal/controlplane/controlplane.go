@@ -27,7 +27,10 @@ type Config struct {
 	DatabaseURL string
 	// GitProxyKey signs git proxy tokens (D21); at least 32 bytes.
 	GitProxyKey []byte
-	Repos       []RepoConfig
+	// APIToken is the bearer token the API's write endpoints require (D58); at
+	// least api.MinTokenLen bytes.
+	APIToken string
+	Repos    []RepoConfig
 	// GitHubToken authenticates git traffic and the GitHub API (D26). Empty
 	// works for public repos, read-only, and disables intake.
 	GitHubToken string
@@ -62,6 +65,9 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	signer, err := gitproxy.NewSigner(cfg.GitProxyKey)
 	if err != nil {
 		return err
+	}
+	if len(cfg.APIToken) < api.MinTokenLen {
+		return fmt.Errorf("API token must be at least %d bytes", api.MinTokenLen)
 	}
 	var authorize func(*http.Request)
 	if cfg.GitHubToken != "" {
@@ -104,7 +110,7 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	hub := api.NewHub(cfg.DatabaseURL, log.With("component", "events"))
 	go hub.Run(ctx)
 	mux := http.NewServeMux()
-	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler}).Register(mux)
+	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Token: cfg.APIToken}).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {

@@ -98,6 +98,10 @@ description = "Install web UI dependencies (bun.lock)"
 dir = "web"
 run = "bun install --frozen-lockfile"
 
+[tasks."api-token"]
+description = "Print the control plane's API token (D58) from the cluster, for the web UI's token bar"
+run = "kubectl -n ${FRANKIE_NAMESPACE:-frankie} get secret frankie-controlplane -o jsonpath='{.data.api-token}' | base64 -d; echo"
+
 [tasks."web:dev"]
 description = "Run the web UI with hot reload, proxying /api to CONTROLPLANE_URL (default localhost:8080)"
 dir = "web"

@@ -6,6 +6,7 @@
 //
 //	FRANKIE_DATABASE_URL        Postgres URL (required)
 //	FRANKIE_GITPROXY_KEY        git proxy token signing key, >= 32 bytes (required)
+//	FRANKIE_API_TOKEN           bearer token for the API's write endpoints, >= 32 bytes (required, D58)
 //	FRANKIE_GITHUB_TOKEN        fine-grained PAT for the project repos (D26)
 //	FRANKIE_GATEWAY_MASTER_KEY  LLM gateway admin key
 package main
@@ -43,6 +44,7 @@ func run() error {
 	cfg := controlplane.Config{
 		DatabaseURL:      os.Getenv("FRANKIE_DATABASE_URL"),
 		GitProxyKey:      []byte(os.Getenv("FRANKIE_GITPROXY_KEY")),
+		APIToken:         os.Getenv("FRANKIE_API_TOKEN"),
 		GitHubToken:      os.Getenv("FRANKIE_GITHUB_TOKEN"),
 		GatewayMasterKey: os.Getenv("FRANKIE_GATEWAY_MASTER_KEY"),
 	}

@@ -155,7 +155,7 @@ The interpreter walks the top-level steps in order:
 - **Action**: `change-request.open` opens (or finds) the change request for the last pushed commit.
 - `FinishRun` ends the Run and the issue, without a StepRunID.
 
-Decisions come from the approvals inbox in the web UI (`#/approvals`; it also lists the agents' ask-human questions, docs/spec/04 and D55), through the API: `GET /api/approvals` lists pending approvals, and `POST /api/gates/{step-run-id}/decision` with `{"decision": "approve" | "reject", "comment", "by"}` checks that the approval is pending and signals the run's workflow (202). The workflow is the only writer of approvals; the API only reads them. The endpoint accepts JSON only, so a cross-site form cannot post a decision; who decided is what the client says until authentication exists (open question 7).
+Decisions come from the approvals inbox in the web UI (`#/approvals`; it also lists the agents' ask-human questions, docs/spec/04 and D55), through the API: `GET /api/approvals` lists pending approvals, and `POST /api/gates/{step-run-id}/decision` with `{"decision": "approve" | "reject", "comment", "by"}` checks that the approval is pending and signals the run's workflow (202). The workflow is the only writer of approvals; the API only reads them. The endpoint accepts JSON only, so a cross-site form cannot post a decision, and like every write it needs the API token (D58); who decided is still what the client says (open question 7).
 
 Replay fixtures are recorded from `Interpret` with stub Activities on a local Temporal dev server by `internal/workflow/record_test.go` (build tag `record`).
 

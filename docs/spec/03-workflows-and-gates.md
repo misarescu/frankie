@@ -64,7 +64,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 
 - `role` is a role name, optionally pinned as `name@version`.
 - `model` is a model ref `<provider>/<model id>` (the id may contain slashes, as OpenRouter's `openrouter/openai/gpt-5.6-terra`); empty means the role's default model, then the platform's. A harness may use a provider only if it speaks the API that provider serves (D48): Claude Code reaches the `anthropic` provider only; opencode and pi reach every provider.
-- `inputs` are `spec`, `acceptance_criteria`, `diff` and `feedback` (the findings of the gate that looped back). Until the native issue store (M5) separates them, `spec` and `acceptance_criteria` both come from the issue body.
+- `inputs` are `spec`, `acceptance_criteria`, `diff` and `feedback` (the findings of the gate that looped back). Until the native issue store (M5) separates them, `spec` and `acceptance_criteria` both come from the issue body. Every agent step, whatever its inputs, also gets the issue's answered ask-human questions (D56).
 - A `goto` to a branch of an earlier parallel group re-runs only that branch, then continues with the step after the group.
 
 ### Gates

@@ -60,10 +60,15 @@ func Prompt(in IssueRunInput, branch string, continuing bool) string {
 	return b.String()
 }
 
+// maxAnswers bounds how many answered questions a step prompt repeats.
+const maxAnswers = 20
+
 // StepPrompt is the task given to an agent step of a workflow definition. The
 // role's system prompt says how to work; this says what to work on, limited to
-// the step's inputs (docs/spec/03).
-func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep) string {
+// the step's inputs (docs/spec/03). answers are the issue's answered
+// ask-human questions, oldest first: they clarify the issue, so every step
+// gets them whatever its inputs (D56).
+func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, answers []domain.Question) string {
 	has := func(input string) bool { return slices.Contains(s.Inputs, input) }
 	var b strings.Builder
 	fmt.Fprintf(&b, "Issue %s: %s\n", in.IssueKey, in.Title)
@@ -90,6 +95,7 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep) s
 			fmt.Fprintf(&b, "- %s\n", c)
 		}
 	}
+	writeAnswers(&b, answers)
 	if has("feedback") && strings.TrimSpace(s.Feedback) != "" {
 		b.WriteString("\nYour previous attempt was sent back. Address every point below:\n\n")
 		b.WriteString(strings.TrimRight(s.Feedback, "\n"))
@@ -101,6 +107,23 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep) s
 		b.WriteString("\nWhen you are done, summarize what you did and how you verified it.")
 	}
 	return b.String()
+}
+
+// writeAnswers adds what people answered about the issue, the latest
+// maxAnswers of it, as part of the issue.
+func writeAnswers(b *strings.Builder, answers []domain.Question) {
+	if len(answers) == 0 {
+		return
+	}
+	if len(answers) > maxAnswers {
+		answers = answers[len(answers)-maxAnswers:]
+	}
+	b.WriteString("\nPeople answered these questions about this issue while agents worked on it. " +
+		"The answers are part of the issue and were decided by a person: follow them, do not ask them again, " +
+		"and do not treat a choice they settle as an unapproved decision.\n")
+	for _, q := range answers {
+		fmt.Fprintf(b, "\nQ: %s\nA: %s\n", strings.TrimSpace(q.Text), strings.TrimSpace(q.Answer))
+	}
 }
 
 // PRBody describes the change for reviewers.

@@ -181,3 +181,27 @@ func runningAgentStep(t *testing.T, a *Activities, run StartRunResult) string {
 	}
 	return stepRunID
 }
+
+// D56: a step's prompt gets the questions people answered for its issue.
+func TestIssueAnswersReadsTheIssuesAnswers(t *testing.T) {
+	st, in := readyIssue(t)
+	a := &Activities{Store: st, Log: quietLog()}
+	run := startedRun(t, a, in)
+	step := uuid.MustParse(runningAgentStep(t, a, run))
+	if err := a.openQuestion(t.Context(), step, []byte(`{"question_id":"q1","question":"Which field name?"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.issueAnswers(t.Context(), in.IssueID); err != nil || len(got) != 0 {
+		t.Fatalf("before the answer: %+v, %v", got, err)
+	}
+	if _, err := st.AnswerQuestion(t.Context(), step, "q1", "book_count", "ana"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.issueAnswers(t.Context(), in.IssueID)
+	if err != nil || len(got) != 1 || got[0].Text != "Which field name?" || got[0].Answer != "book_count" {
+		t.Errorf("answers = %+v, %v", got, err)
+	}
+	if _, err := a.issueAnswers(t.Context(), "not-a-uuid"); err == nil {
+		t.Error("a bad issue id was accepted")
+	}
+}

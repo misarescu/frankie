@@ -124,3 +124,52 @@ func TestOpenQuestionValidates(t *testing.T) {
 		t.Errorf("unknown step run: err = %v, want ErrNotFound", err)
 	}
 }
+
+// D56: an issue's answered questions, across its runs and oldest answer
+// first, are what later steps get; pending and expired questions, and other
+// issues' answers, are not.
+func TestListAnsweredQuestions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	run, is, first := runningAgentStep(t, s)
+	// The issue runs again once its first run failed.
+	if _, err := s.TransitionRun(ctx, run.ID, run.Status, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	again := mustRun(t, s, is.ID)
+	second, err := s.CreateStepRun(ctx, NewStepRun{RunID: again.ID, StepID: "review", Attempt: 1, Kind: domain.StepAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, other := runningAgentStep(t, s)
+	ask := func(step domain.StepRun, id, text string) {
+		t.Helper()
+		if _, err := s.OpenQuestion(ctx, NewQuestion{StepRunID: step.ID, QuestionID: id, Question: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask(first, "q1", "Which field name?")
+	ask(first, "q2", "Never answered?")
+	ask(first, "q3", "Expired?")
+	ask(second, "q4", "Which status code?")
+	ask(other, "q5", "Another issue?")
+	for _, a := range []struct {
+		step   domain.StepRun
+		id, to string
+	}{{second, "q4", "200"}, {first, "q1", "book_count"}, {other, "q5", "x"}} {
+		if _, err := s.AnswerQuestion(ctx, a.step.ID, a.id, a.to, "ana"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.ExpireQuestion(ctx, first.ID, "q3"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListAnsweredQuestions(ctx, is.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].QuestionID != "q4" || got[0].Answer != "200" || got[1].QuestionID != "q1" || got[1].Answer != "book_count" {
+		t.Errorf("answered = %+v", got)
+	}
+}

@@ -107,7 +107,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		}
 		prompt := Prompt(in, run.Branch, start.Continuing)
 		if run.Step != nil {
-			prompt = StepPrompt(in, run.Branch, start.Continuing, *run.Step)
+			answers, err := a.issueAnswers(ctx, in.IssueID)
+			if err != nil {
+				return SessionResult{}, err
+			}
+			prompt = StepPrompt(in, run.Branch, start.Continuing, *run.Step, answers)
 		}
 		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: prompt}); err != nil && !isPrecondition(err, "already prompted") {
 			return SessionResult{}, fmt.Errorf("runner prompt: %w", err)
@@ -315,4 +319,14 @@ func (a *Activities) openQuestion(ctx context.Context, stepRunID uuid.UUID, payl
 	}
 	_, err := a.Store.OpenQuestion(ctx, store.NewQuestion{StepRunID: stepRunID, QuestionID: q.QuestionID, Question: q.Question})
 	return err
+}
+
+// issueAnswers are the ask-human questions people answered for the issue,
+// in any of its runs, for the step's prompt (D56).
+func (a *Activities) issueAnswers(ctx context.Context, issueID string) ([]domain.Question, error) {
+	id, err := uuid.Parse(issueID)
+	if err != nil {
+		return nil, temporal.NewNonRetryableApplicationError("bad issue id", "input", err)
+	}
+	return a.Store.ListAnsweredQuestions(ctx, id)
 }

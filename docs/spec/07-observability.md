@@ -43,7 +43,8 @@ All interventions are recorded as events with the acting user.
 
 - Project board / issue list with DAG view and status; start one/many.
   - M5 API (D59): `GET /api/projects`, `GET /api/issues?project=<name>` (the whole project with parents, dependency keys, cost and latest run) and `GET /api/issues/{key}` (the issue page: spec, relations, runs, usage, change requests).
-- Issue detail: spec editor, acceptance criteria, run history, live view, cost.
+  - M5 UI (`#/issues`): the project's issues as their hierarchy with status, what each waits for, cost and latest run; finished issues hidden unless asked for; the dependency graph drawn in layers (an issue to the right of what it waits for); selected issues start together and the scheduler's plan (starting, waiting with why, overlaps) is shown.
+- Issue detail: spec editor, acceptance criteria, run history, live view, cost. M5 (`#/issues/<key>`): spec and acceptance criteria, a refined spec waiting for approval with approve and reject, relations, runs and cost, change requests, file hints, changed paths and overlaps, and start and retry; editing the spec in the page is not built yet.
 - Approvals inbox: pending human gates (spec approval, protected-path changes, prod promotion, flag rollout steps). M5 (D64, D66): agents' questions, then human gates, then refined specs waiting for approval with the refiner's summary, the original text and a link to the refinement's transcript (`GET /api/specs`, decided with `POST /api/issues/{key}/spec`).
 - Merge queue view per repo.
 - Release view: stage progression, verification results, rollback, linked auto-bugs.

@@ -32,7 +32,7 @@ export function ApprovalsPage() {
 
   return (
     <>
-      <h1><a href="#/">Runs</a> / Approvals</h1>
+      <h1>Approvals <span className="type">· <a href="#/">Runs</a> · <a href="#/issues">Issues</a></span></h1>
       {error && <p className="status">Could not load approvals: {error}</p>}
       {questions?.map((q) => <QuestionCard key={q.id} question={q} onAnswered={load} />)}
       {approvals?.length === 0 && questions?.length === 0 && specs?.length === 0 && <p className="status">Nothing waits for an answer or a decision.</p>}

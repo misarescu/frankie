@@ -64,9 +64,10 @@ func (s IssueStatus) Valid() bool {
 // failed and canceled are reachable from every state before merged; failed -> ready re-arms
 // an issue for a new Run. awaiting_human -> merged records a change request merged on the
 // provider by a person (D61), until the merge queue (M6) merges them itself.
+// refining -> draft is a rejected or failed refinement (D66).
 var issueTransitions = map[IssueStatus][]IssueStatus{
 	IssueDraft:         {IssueRefining, IssueReady, IssueFailed, IssueCanceled},
-	IssueRefining:      {IssueReady, IssueFailed, IssueCanceled},
+	IssueRefining:      {IssueReady, IssueDraft, IssueFailed, IssueCanceled},
 	IssueReady:         {IssueRunning, IssueFailed, IssueCanceled},
 	IssueRunning:       {IssueAwaitingHuman, IssueQueued, IssueFailed, IssueCanceled},
 	IssueAwaitingHuman: {IssueRunning, IssueMerged, IssueFailed, IssueCanceled},
@@ -117,8 +118,11 @@ type Issue struct {
 	SpecApprovedBy string
 	SpecRejectedAt *time.Time
 	SpecFeedback   string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// SpecProposal is the refiner's result waiting for approval while the issue
+	// is refining (D66); approving applies it.
+	SpecProposal *RefinedSpec
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

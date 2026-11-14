@@ -224,6 +224,7 @@ func issueFromRow(r db.Issue) domain.Issue {
 		SpecApprovedBy:     deref(r.SpecApprovedBy),
 		SpecRejectedAt:     r.SpecRejectedAt,
 		SpecFeedback:       r.SpecFeedback,
+		SpecProposal:       proposalFromRow(r.SpecProposal),
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

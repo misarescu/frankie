@@ -52,6 +52,8 @@ func TestSchedulingState(t *testing.T) {
 	running := mustIssue(t, s, p.ID, domain.IssueRunning)
 	scheduled := mustIssue(t, s, p.ID, domain.IssueReady)
 	idle := mustIssue(t, s, p.ID, domain.IssueReady) // ready, never scheduled
+	// Scheduled, and its run already came and went (a refinement before approval, D66).
+	done := mustIssue(t, s, p.ID, domain.IssueReady)
 	if err := s.AddIssueDependency(ctx, b.ID, a.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +62,13 @@ func TestSchedulingState(t *testing.T) {
 	}
 	mustRun(t, s, running.ID) // pending: an active run
 	if err := s.MarkIssueScheduled(ctx, scheduled.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkIssueScheduled(ctx, done.ID); err != nil {
+		t.Fatal(err)
+	}
+	doneRun := mustRun(t, s, done.ID)
+	if _, err := s.TransitionRun(ctx, doneRun.ID, domain.ExecPending, domain.ExecFailed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,6 +85,9 @@ func TestSchedulingState(t *testing.T) {
 	}
 	if by[a.ID].ParentID == nil || *by[a.ID].ParentID != epic.ID || by[a.ID].Type != domain.IssueTask || by[a.ID].Key != a.Key {
 		t.Errorf("a = %+v", by[a.ID])
+	}
+	if by[done.ID].Busy {
+		t.Error("an issue whose scheduled run already ended still holds a slot")
 	}
 	if !by[running.ID].Busy || !by[scheduled.ID].Busy || by[a.ID].Busy || by[idle.ID].Busy {
 		t.Errorf("busy: running %v, scheduled %v, a %v, idle %v", by[running.ID].Busy, by[scheduled.ID].Busy, by[a.ID].Busy, by[idle.ID].Busy)

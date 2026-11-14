@@ -32,6 +32,9 @@ type IssueRunInput struct {
 	SourceNumber       int
 	Repo               string // factory repo, also the GitHub owner/name in M1
 	BaseBranch         string
+	// SpecFeedback is why a person sent the issue's last refined spec back, or
+	// why the last refinement failed; only refinement passes it (D66).
+	SpecFeedback string `json:",omitempty"`
 }
 
 // StartRunResult identifies the run and the agent step being executed: the

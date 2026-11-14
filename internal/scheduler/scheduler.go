@@ -17,9 +17,11 @@ import (
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
-// Starter starts an issue's run; starting one that is already running is a no-op.
+// Starter starts an issue's run, or its refinement (D66); starting one that is
+// already under way is a no-op.
 type Starter interface {
 	StartIssueRun(ctx context.Context, in activities.IssueRunInput) error
+	StartRefinement(ctx context.Context, in activities.IssueRunInput) error
 }
 
 // Project is where a project's runs work: its repo and base branch.
@@ -78,8 +80,13 @@ func (s *Scheduler) Pass(ctx context.Context) error {
 		if notReady[c.ID] {
 			continue
 		}
-		if err := s.start(ctx, c.ID); err != nil {
+		if err := s.start(ctx, c.ID, false); err != nil {
 			errs = append(errs, fmt.Errorf("start %s: %w", c.Key, err))
+		}
+	}
+	for _, c := range plan.Refine {
+		if err := s.start(ctx, c.ID, true); err != nil {
+			errs = append(errs, fmt.Errorf("refine %s: %w", c.Key, err))
 		}
 	}
 	return errors.Join(errs...)
@@ -108,7 +115,8 @@ func (s *Scheduler) warnOverlaps(ctx context.Context, starting []domain.SchedIss
 	}
 }
 
-func (s *Scheduler) start(ctx context.Context, id uuid.UUID) error {
+// start starts the issue's run, or its refinement.
+func (s *Scheduler) start(ctx context.Context, id uuid.UUID, refine bool) error {
 	is, err := s.Store.GetIssue(ctx, id)
 	if err != nil {
 		return err
@@ -117,17 +125,22 @@ func (s *Scheduler) start(ctx context.Context, id uuid.UUID) error {
 	if !ok {
 		return errors.New("its project is not configured on this deployment")
 	}
-	if err := s.Starter.StartIssueRun(ctx, activities.IssueRunInput{
+	in := activities.IssueRunInput{
 		IssueID: is.ID.String(), IssueKey: is.Key, Title: is.Title, Spec: is.Spec,
 		AcceptanceCriteria: is.AcceptanceCriteria, SourceURL: is.SourceRef,
 		Repo: p.Repo, BaseBranch: p.BaseBranch,
-	}); err != nil {
+	}
+	startFn := s.Starter.StartIssueRun
+	if refine {
+		in.SpecFeedback, startFn = is.SpecFeedback, s.Starter.StartRefinement
+	}
+	if err := startFn(ctx, in); err != nil {
 		return err
 	}
 	// Recorded only once the run is on its way, so a failed start holds no slot.
 	if err := s.Store.MarkIssueScheduled(ctx, is.ID); err != nil {
 		return err
 	}
-	s.Log.Info("issue started", "issue", is.Key, "requested_by", is.StartRequestedBy)
+	s.Log.Info("issue started", "issue", is.Key, "refinement", refine, "requested_by", is.StartRequestedBy)
 	return nil
 }

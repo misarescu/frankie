@@ -19,6 +19,12 @@ import (
 // and marks the issue running. Steps get their StepRuns as they execute
 // (StartStep). Idempotent per Temporal execution, like StartRun.
 func (a *Activities) StartWorkflowRun(ctx context.Context, in IssueRunInput, snap snapshot.Snapshot) (StartRunResult, error) {
+	return a.startSnapshotRun(ctx, in, snap, domain.IssueReady, domain.IssueRunning)
+}
+
+// startSnapshotRun creates the run of this Temporal execution with its snapshot,
+// once, and moves the issue from one status to the next.
+func (a *Activities) startSnapshotRun(ctx context.Context, in IssueRunInput, snap snapshot.Snapshot, from, to domain.IssueStatus) (StartRunResult, error) {
 	issueID, err := uuid.Parse(in.IssueID)
 	if err != nil {
 		return StartRunResult{}, temporal.NewNonRetryableApplicationError("bad issue id", "input", err)
@@ -36,7 +42,7 @@ func (a *Activities) StartWorkflowRun(ctx context.Context, in IssueRunInput, sna
 	if err != nil {
 		return StartRunResult{}, fmt.Errorf("start run: %w", err)
 	}
-	if _, err := a.Store.TransitionIssue(ctx, issueID, domain.IssueReady, domain.IssueRunning); err != nil {
+	if _, err := a.Store.TransitionIssue(ctx, issueID, from, to); err != nil {
 		return StartRunResult{}, err
 	}
 	if _, err := a.Store.TransitionRun(ctx, run.ID, domain.ExecPending, domain.ExecRunning); err != nil {

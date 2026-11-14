@@ -126,15 +126,21 @@ function SpecCard({ spec: s, onDecided }: { spec: Spec; onDecided: () => void })
       <p className="status">
         {s.project}
         {s.source_ref && <> · <a href={s.source_ref} target="_blank" rel="noreferrer">source</a></>}
+        {s.run_id && <> · <a href={`#/runs/${s.run_id}`}>refinement</a></>}
         {s.requested_by && <> · started by {s.requested_by}</>}
         {" "}· runs once approved and its dependencies are merged
       </p>
+      {s.summary && <p className="question">{s.summary}</p>}
       <pre>{s.spec || "(no description)"}</pre>
       {s.acceptance_criteria.length > 0 && (
         <ul>{s.acceptance_criteria.map((c, i) => <li key={i}>{c}</li>)}</ul>
       )}
       {s.file_hints.length > 0 && <p className="type">touches {s.file_hints.join(", ")}</p>}
-      <textarea placeholder="Comment (required to reject: what should change)" value={comment} maxLength={4000}
+      <details>
+        <summary className="type">original issue</summary>
+        <pre>{s.original_spec || "(no description)"}</pre>
+      </details>
+      <textarea placeholder="Comment (required to reject: what the refiner should change)" value={comment} maxLength={4000}
         onChange={(e) => setComment(e.target.value)} disabled={busy} />
       <div className="actions">
         <button onClick={() => send("approve")} disabled={busy}>Approve spec</button>

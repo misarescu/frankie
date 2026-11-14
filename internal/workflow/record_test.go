@@ -25,6 +25,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
@@ -92,6 +93,10 @@ func (s *stubActivities) LaunchAgentPod(_ context.Context, _ activities.IssueRun
 }
 
 func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+	if run.Step.Contract == config.ContractRefinedSpec { // the refiner reads the base branch
+		return activities.SessionResult{Status: "succeeded", Branch: run.Branch,
+			Result: `{"spec":"Add a search box above the book list.","acceptance_criteria":["typing filters the list by title"]}`}, nil
+	}
 	if run.Step.Contract != "" { // a reviewer reads the head and pushes nothing
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("%040d", s.pushes),
 			Result: `{"verdict":"fail","summary":"Missing test.","findings":[{"severity":"major","file":"internal/server/version.go","line":3,"message":"add a handler test"}]}`}, nil
@@ -136,6 +141,53 @@ func (s *stubActivities) OpenChangeRequest(context.Context, activities.IssueRunI
 }
 
 func (s *stubActivities) FinishRun(context.Context, activities.FinishInput) error { return nil }
+
+func (s *stubActivities) StartRefinement(context.Context, activities.IssueRunInput, snapshot.Snapshot) (activities.StartRunResult, error) {
+	return activities.StartRunResult{RunID: testRun.RunID, Branch: testRun.Branch}, nil
+}
+
+func (s *stubActivities) FinishRefinement(context.Context, activities.RefinementOutcome) (string, error) {
+	return "", nil
+}
+
+// TestRecordRefineHistories records Refine (D66), like TestRecordInterpretHistories:
+//
+//	FRANKIE_RECORD_TEMPORAL=localhost:7266 mise exec -- go test -tags record ./internal/workflow -run TestRecordRefineHistories
+func TestRecordRefineHistories(t *testing.T) {
+	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
+	if addr == "" {
+		t.Skip("FRANKIE_RECORD_TEMPORAL is not set")
+	}
+	c, err := client.Dial(client.Options{HostPort: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	// The refiner returns a refined spec, which waits for approval.
+	const file = "refine_proposal_recorded.json"
+	if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != file {
+		t.Skip("not selected")
+	}
+	queue := fmt.Sprintf("record-refine-%d", time.Now().UnixNano())
+	w := worker.New(c, queue, worker.Options{})
+	w.RegisterWorkflow(Refine)
+	w.RegisterActivity(&stubActivities{opened: make(chan string, 1)})
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+	run, err := c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: "refine-gc-1-" + queue, TaskQueue: queue},
+		Refine, RefineInput{Issue: testInput, Snapshot: refineSnapshot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out RefineResult
+	if err := run.Get(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("result: %+v", out)
+	writeHistory(t, c, run, file)
+}
 
 func TestRecordInterpretHistories(t *testing.T) {
 	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
@@ -234,23 +286,28 @@ func TestRecordInterpretHistories(t *testing.T) {
 			}
 			close(stub.opened)
 			t.Logf("result: %+v", out)
-
-			var events []*historypb.HistoryEvent
-			it := c.GetWorkflowHistory(t.Context(), run.GetID(), run.GetRunID(), false, 0)
-			for it.HasNext() {
-				e, err := it.Next()
-				if err != nil {
-					t.Fatal(err)
-				}
-				events = append(events, e)
-			}
-			raw, err := protojson.MarshalOptions{Indent: "  "}.Marshal(&historypb.History{Events: events})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join("testdata", sc.file), append(raw, '\n'), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writeHistory(t, c, run, sc.file)
 		})
+	}
+}
+
+// writeHistory saves a finished workflow's history to testdata/ for the replayer.
+func writeHistory(t *testing.T, c client.Client, run client.WorkflowRun, file string) {
+	t.Helper()
+	var events []*historypb.HistoryEvent
+	it := c.GetWorkflowHistory(t.Context(), run.GetID(), run.GetRunID(), false, 0)
+	for it.HasNext() {
+		e, err := it.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, e)
+	}
+	raw, err := protojson.MarshalOptions{Indent: "  "}.Marshal(&historypb.History{Events: events})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("testdata", file), append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

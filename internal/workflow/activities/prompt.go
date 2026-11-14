@@ -96,6 +96,11 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, a
 		}
 	}
 	writeAnswers(&b, answers)
+	if f := strings.TrimSpace(in.SpecFeedback); f != "" {
+		b.WriteString("\nAn earlier refinement of this issue was sent back. Address this:\n\n")
+		b.WriteString(f)
+		b.WriteString("\n")
+	}
 	if has("feedback") && strings.TrimSpace(s.Feedback) != "" {
 		b.WriteString("\nYour previous attempt was sent back. Address every point below:\n\n")
 		b.WriteString(strings.TrimRight(s.Feedback, "\n"))

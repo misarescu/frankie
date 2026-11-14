@@ -102,17 +102,21 @@ RETURNING *;
 UPDATE issues SET scheduled_at = now(), updated_at = now() WHERE id = @id;
 
 -- Every issue as the scheduler sees it (D62). busy: an active run, or started by
--- the scheduler in the last five minutes and still waiting for its run.
+-- the scheduler in the last five minutes and still waiting for its run: no run
+-- was created around or after that start (the mark is written once the start
+-- returns, so its run may be a moment older).
 -- needs_approval (D64): a label decides, else the project's specApproval.
 -- name: ListSchedIssues :many
 SELECT i.id, i.key, i.type, i.parent_id, i.status, i.priority, i.number,
        (i.start_requested_at IS NOT NULL)::boolean AS requested,
        (EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id AND r.status IN ('pending', 'running'))
-        OR (i.status = 'ready' AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)))::boolean AS busy,
+        OR (i.status IN ('ready', 'draft') AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)
+            AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id AND r.created_at > i.scheduled_at - interval '1 minute')))::boolean AS busy,
        (CASE WHEN 'no-spec-approval' = ANY (i.labels) THEN false
              WHEN 'needs-spec-approval' = ANY (i.labels) THEN true
              ELSE p.spec_approval END)::boolean AS needs_approval,
-       (i.spec_rejected_at IS NOT NULL)::boolean AS spec_rejected
+       (i.spec_rejected_at IS NOT NULL)::boolean AS spec_rejected,
+       (i.spec_proposal IS NOT NULL)::boolean AS has_proposal
 FROM issues i JOIN projects p ON p.id = i.project_id;
 
 -- name: ListAllDependencies :many
@@ -135,6 +139,20 @@ RETURNING *;
 
 -- name: RejectSpec :one
 UPDATE issues
-SET spec_rejected_at = now(), spec_feedback = @feedback, updated_at = now()
+SET spec_rejected_at = now(), spec_feedback = @feedback, spec_proposal = NULL, updated_at = now()
 WHERE id = @id AND status = 'draft'
+RETURNING *;
+
+-- The refiner's result for a refining issue (D66).
+-- name: SetSpecProposal :one
+UPDATE issues SET spec_proposal = @spec_proposal, updated_at = now()
+WHERE id = @id AND status = 'refining'
+RETURNING *;
+
+-- Approving a refined spec makes it the issue's spec (D66).
+-- name: ApplySpecProposal :one
+UPDATE issues
+SET spec = @spec, acceptance_criteria = @acceptance_criteria, file_hints = @file_hints,
+    spec_proposal = NULL, updated_at = now()
+WHERE id = @id
 RETURNING *;

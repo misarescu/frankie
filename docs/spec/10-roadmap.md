@@ -62,6 +62,7 @@ Agent steps and gates start every pod with empty dependency and build caches, so
 - Web terminal take-over moves to after open question 7 (authentication): a shell into an agent pod through an unauthenticated API is a larger risk than deciding a gate.
 - Second provider on the concrete profile: OpenRouter, next to Anthropic.
 - **Done when:** one workflow mixes all three harnesses and two providers, and a steer message changes the behavior of a running session in each.
+- **Done (2026-11-14):** Goodreads-Clone's gc-6 ran `m4-mix` on the concrete profile: implement on Claude Code (`anthropic/claude-sonnet-5-5`), document on opencode (`openrouter/openai/gpt-5.6-luna`), lint and test, review on pi (`openrouter/openai/gpt-5.6-terra`), one review loop back, then the change request (Goodreads-Clone#20); 39 minutes including a toolchain rebuild, $0.47. A steer changed each session's output: Claude Code added a `Cache-Control: no-store` header, opencode a given CHANGELOG line, pi a given opening to its verdict's summary. Claude Code and opencode asked through the ask-human tool and used the answers from the inbox. The run found two gaps, fixed after it: answers did not reach later steps, so the reviewer failed a choice a person had made (D56, frankie#57), and input token totals left out cached input (frankie#56).
 
 ## M5 - Issues and board
 

@@ -216,6 +216,25 @@ func (s *Store) SetStepRunCommit(ctx context.Context, id uuid.UUID, sha string) 
 	return stepRunFromRow(row), nil
 }
 
+// AddStepRunUsage adds a session's model usage to its StepRun; a retried
+// session's attempts each add their own.
+func (s *Store) AddStepRunUsage(ctx context.Context, id uuid.UUID, u domain.Usage) (domain.StepRun, error) {
+	row, err := s.q.AddStepRunUsage(ctx, db.AddStepRunUsageParams{ID: id, CostUsd: u.CostUSD, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens})
+	if err != nil {
+		return domain.StepRun{}, mapErr("add step run usage", err)
+	}
+	return stepRunFromRow(row), nil
+}
+
+// IssueSpend is what all runs of an issue have spent on models so far.
+func (s *Store) IssueSpend(ctx context.Context, issueID uuid.UUID) (float64, error) {
+	spent, err := s.q.IssueSpend(ctx, issueID)
+	if err != nil {
+		return 0, mapErr("issue spend", err)
+	}
+	return spent, nil
+}
+
 func runFromRow(r db.Run) (domain.Run, error) {
 	loops := map[string]int{}
 	if err := json.Unmarshal(r.LoopCounts, &loops); err != nil {
@@ -247,6 +266,7 @@ func stepRunFromRow(r db.StepRun) domain.StepRun {
 		Status:     domain.ExecStatus(r.Status),
 		PodName:    deref(r.PodName),
 		CommitSHA:  deref(r.CommitSha),
+		Usage:      domain.Usage{CostUSD: r.CostUsd, InputTokens: r.InputTokens, OutputTokens: r.OutputTokens},
 		StartedAt:  r.StartedAt,
 		FinishedAt: r.FinishedAt,
 		CreatedAt:  r.CreatedAt,
@@ -263,6 +283,8 @@ type RunSummary struct {
 	CreatedAt  time.Time
 	StartedAt  *time.Time
 	FinishedAt *time.Time
+	// CostUSD is what the run's sessions spent on models (D53).
+	CostUSD float64
 }
 
 // ListRecentRuns returns the newest runs first.
@@ -274,7 +296,7 @@ func (s *Store) ListRecentRuns(ctx context.Context, limit int) ([]RunSummary, er
 	out := make([]RunSummary, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, RunSummary{ID: r.ID, Status: domain.ExecStatus(r.Status), IssueKey: r.IssueKey, IssueTitle: r.IssueTitle,
-			CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt})
+			CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd})
 	}
 	return out, nil
 }

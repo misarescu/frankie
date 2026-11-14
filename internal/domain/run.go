@@ -86,16 +86,26 @@ func (k StepKind) Valid() bool {
 
 // StepRun is one attempt at one workflow step within a Run.
 type StepRun struct {
-	ID         uuid.UUID
-	RunID      uuid.UUID
-	StepID     string
-	Attempt    int
-	Kind       StepKind
-	Status     ExecStatus
-	PodName    string
-	CommitSHA  string
+	ID        uuid.UUID
+	RunID     uuid.UUID
+	StepID    string
+	Attempt   int
+	Kind      StepKind
+	Status    ExecStatus
+	PodName   string
+	CommitSHA string
+	// Usage is an agent session's model usage (D53).
+	Usage      Usage
 	StartedAt  *time.Time
 	FinishedAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+// Usage is model usage: cost as the LLM gateway recorded it, tokens as the
+// harness reported them (D53).
+type Usage struct {
+	CostUSD      float64
+	InputTokens  int64
+	OutputTokens int64
 }

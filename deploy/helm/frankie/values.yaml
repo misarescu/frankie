@@ -96,7 +96,10 @@ controlPlane:
   agent:
     # Model ref of steps whose workflow and role name none; a provider must serve it.
     model: anthropic/claude-sonnet-5-5
+    # Model spend caps in USD (D53): per agent session, and per issue across
+    # all its runs unless the project sets budgets.issueUSD.
     budgetUSD: 2
+    issueBudgetUSD: 20
     sessionTimeout: 90m
     idleTimeout: 20m
     podDeadline: 2h
@@ -130,10 +133,16 @@ llmGateway:
   # unique across providers. secret: a Secret with key "api-key" holding the
   # provider's key; optional until created, never mounted in agent pods.
   # Optional per provider: apiBase (base URL), rpm and tpm (limits per model).
+  # A model is its id, or {id, inputUSDPerMTok, outputUSDPerMTok} giving the
+  # prices LiteLLM needs for models its own table lacks: without a price a
+  # model's spend is zero and budgets never apply to it (D53).
   providers:
     - name: anthropic
       secret: frankie-anthropic
       models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
+  # How often LiteLLM writes spend to its database; the control plane reads
+  # each session's spend from there when the session ends (D53).
+  spendWriteSeconds: 2
   # CPU is capped: an unbounded gateway once took all 4 cores of the concrete host.
   resources:
     requests: { cpu: 100m, memory: 384Mi }

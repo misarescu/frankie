@@ -33,7 +33,20 @@ type Project struct {
 	// image (M3.1, docs/spec/05), so steps do not download and compile them
 	// on every run.
 	Dependencies *Dependencies `json:"dependencies,omitempty"`
+	// Budgets cap model spend (D53).
+	Budgets Budgets `json:"budgets,omitempty"`
 }
+
+// Budgets cap what a project's work may spend on models, in USD, enforced
+// by the LLM gateway through each session's virtual key (D53). Zero means
+// the platform's default.
+type Budgets struct {
+	// IssueUSD caps all runs of one issue together.
+	IssueUSD float64 `json:"issueUSD,omitempty"`
+}
+
+// MaxIssueBudgetUSD bounds a project's issue budget.
+const MaxIssueBudgetUSD = 1000
 
 // Dependencies declares how to warm a repo's dependencies, for any ecosystem:
 // which files the warm-up reads, and the command that downloads, and where it
@@ -162,6 +175,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if p.Dependencies != nil {
 		errs = append(errs, p.Dependencies.validate()...)
+	}
+	if b := p.Budgets.IssueUSD; b < 0 || b > MaxIssueBudgetUSD {
+		errs = append(errs, fmt.Errorf("budgets.issueUSD: %v must be between 0 (the platform's default) and %d", b, MaxIssueBudgetUSD))
 	}
 	seen := map[string]bool{}
 	for i := range p.Services {

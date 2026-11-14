@@ -30,14 +30,16 @@ data:
     model_list:
     {{- $served := dict }}
     {{- range $p := .Values.llmGateway.providers }}
-    {{- range $p.models }}
-    {{- if hasKey $served . }}
-    {{- fail (printf "llmGateway.providers: model %q is served by both %s and %s; model ids must be unique" . (get $served .) $p.name) }}
+    {{- range $m := $p.models }}
+    {{- $id := $m }}
+    {{- if kindIs "map" $m }}{{ $id = required "llmGateway.providers[].models[].id is required" $m.id }}{{ end }}
+    {{- if hasKey $served $id }}
+    {{- fail (printf "llmGateway.providers: model %q is served by both %s and %s; model ids must be unique" $id (get $served $id) $p.name) }}
     {{- end }}
-    {{- $_ := set $served . $p.name }}
-      - model_name: {{ . | quote }}
+    {{- $_ := set $served $id $p.name }}
+      - model_name: {{ $id | quote }}
         litellm_params:
-          model: {{ printf "%s/%s" $p.name . | quote }}
+          model: {{ printf "%s/%s" $p.name $id | quote }}
           api_key: os.environ/{{ include "frankie.providerKeyEnv" $p.name }}
           {{- with $p.apiBase }}
           api_base: {{ . | quote }}
@@ -48,11 +50,21 @@ data:
           {{- with $p.tpm }}
           tpm: {{ . }}
           {{- end }}
+        {{- if kindIs "map" $m }}
+        # Prices for a model LiteLLM's own table does not know; without them
+        # its spend is zero and budgets never apply (D53).
+        model_info:
+          input_cost_per_token: {{ divf (required "llmGateway.providers[].models[].inputUSDPerMTok is required" $m.inputUSDPerMTok) 1000000 }}
+          output_cost_per_token: {{ divf (required "llmGateway.providers[].models[].outputUSDPerMTok is required" $m.outputUSDPerMTok) 1000000 }}
+        {{- end }}
     {{- end }}
     {{- end }}
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
       database_url: os.environ/DATABASE_URL
+      # Spend reaches the database within seconds, for the control plane's
+      # per-step cost records (D53).
+      proxy_batch_write_at: {{ .Values.llmGateway.spendWriteSeconds }}
     litellm_settings:
       drop_params: true
       telemetry: false

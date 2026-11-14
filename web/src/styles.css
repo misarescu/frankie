@@ -12,3 +12,4 @@ textarea { width: 100%; box-sizing: border-box; min-height: 56px; font: inherit;
 .actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 button.reject { background: transparent; color: var(--fg); border-color: var(--line); } button:disabled { opacity: .5; cursor: default; }
+table.steps { margin-bottom: 16px; } table.steps tr:last-child td { font-weight: 600; }

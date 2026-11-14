@@ -60,6 +60,8 @@ Allowed transitions (enforced in `internal/domain`; anything not listed is rejec
 ### Run / StepRun / AgentSession
 Run and StepRun share one status machine: `pending -> running -> succeeded | failed | canceled`, plus `pending -> failed | canceled`. Entering `running` stamps `started_at`; a terminal status stamps `finished_at`. An issue has at most one active (`pending` or `running`) Run, enforced by a partial unique index.
 
+An agent StepRun records its sessions' model usage (D53): `cost_usd` (the LLM gateway's spend for the session's virtual key), `input_tokens` and `output_tokens` (the harness's session totals); a retried session's attempts each add theirs. A Run's and an Issue's usage are the sums of their StepRuns'.
+
 Every status change (Issue, Run, StepRun) is a compare-and-set on the expected current status and writes a `state_change` Event in the same transaction (FR-WF-7). Repeating a transition that already happened is a no-op success, so retried Activities stay idempotent.
 
 - `Run`: `id, issue_id, workflow_snapshot (jsonb), workflow_version, temporal_workflow_id, status, loop_counts, cost, tokens, started_at, finished_at`.

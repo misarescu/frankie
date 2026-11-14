@@ -33,6 +33,12 @@ import (
 type sessionProgress struct {
 	Started bool
 	LastSeq int64
+	// KeyAlias names the session's virtual key, and KeyBudget is its cap; a
+	// retried attempt reads the key's spend by its alias (D53). The key
+	// itself never goes into heartbeat details.
+	KeyAlias  string      `json:",omitempty"`
+	KeyBudget float64     `json:",omitempty"`
+	Tokens    tokenTotals `json:",omitempty"`
 }
 
 // RunAgentSession starts the harness through the runner, persists every event,
@@ -60,15 +66,23 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 
 	var vkey string
 	if !progress.Started {
-		// Credentials go to the runner over gRPC, never into the pod spec or the
-		// workflow history.
-		// Aliases are unique in the gateway; each attempt mints its own key.
-		vkey, err = a.Gateway.CreateKey(ctx, gateway.KeyRequest{RunID: run.RunID,
-			Alias:  fmt.Sprintf("run-%s-attempt-%d", run.RunID, activity.GetInfo(ctx).Attempt),
-			Models: []string{set.model}, MaxBudgetUSD: set.budget, TTL: set.timeout + 10*time.Minute})
+		keyBudget, exhausted, err := a.sessionBudget(ctx, in, run, set)
 		if err != nil {
 			return SessionResult{}, err
 		}
+		if exhausted != "" {
+			return SessionResult{Status: "failed", Reason: exhausted}, nil
+		}
+		// Credentials go to the runner over gRPC, never into the pod spec or the
+		// workflow history.
+		// Aliases are unique in the gateway; each attempt mints its own key.
+		alias := fmt.Sprintf("run-%s-step-%s-attempt-%d", run.RunID, run.StepRunID, activity.GetInfo(ctx).Attempt)
+		vkey, err = a.Gateway.CreateKey(ctx, gateway.KeyRequest{RunID: run.RunID, Alias: alias,
+			Models: []string{set.model}, MaxBudgetUSD: keyBudget, TTL: set.timeout + 10*time.Minute})
+		if err != nil {
+			return SessionResult{}, err
+		}
+		progress.KeyAlias, progress.KeyBudget = alias, keyBudget
 		started := false
 		defer func() {
 			if !started { // the session never got the key; do not leave it valid
@@ -125,6 +139,9 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			return SessionResult{}, err
 		}
 		progress.LastSeq = e.GetSeq()
+		if typ == domain.EventTokenUsage {
+			progress.Tokens.observe(e.GetPayload())
+		}
 		beat.set(progress)
 		if typ != domain.EventDone {
 			continue
@@ -137,6 +154,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err := json.Unmarshal(e.GetPayload(), &done); err != nil {
 			return SessionResult{}, temporal.NewNonRetryableApplicationError("bad done payload", "runner", err)
 		}
+		// Read the key's spend before revoking it: the gateway forgets a deleted key.
+		var spend float64
+		if progress.KeyAlias != "" {
+			spend = a.recordUsage(ctx, stepID, progress.KeyAlias, progress.Tokens)
+		}
 		if vkey != "" {
 			if err := a.Gateway.DeleteKey(ctx, vkey); err != nil {
 				a.Log.Warn("delete virtual key", "run", run.RunID, "error", err)
@@ -145,7 +167,8 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if _, err := a.Store.SetStepRunCommit(ctx, stepID, done.CommitSHA); err != nil && done.CommitSHA != "" {
 			return SessionResult{}, err
 		}
-		return SessionResult{Status: done.Status, Reason: done.Reason, Result: done.Result, Branch: done.Branch, CommitSHA: done.CommitSHA, Pushed: done.Pushed}, nil
+		reason := cmp.Or(budgetReason(done.Status, spend, progress.KeyBudget), done.Reason)
+		return SessionResult{Status: done.Status, Reason: reason, Result: done.Result, Branch: done.Branch, CommitSHA: done.CommitSHA, Pushed: done.Pushed}, nil
 	}
 }
 

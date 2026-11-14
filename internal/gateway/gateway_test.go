@@ -107,3 +107,40 @@ func TestDeleteKeyIsIdempotent(t *testing.T) {
 		t.Errorf("deleting an unknown key: %v", err)
 	}
 }
+
+// D53: a session's cost is its key's spend as the gateway records it,
+// found by the key's alias.
+func TestKeySpend(t *testing.T) {
+	var query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/key/list" || r.Header.Get("Authorization") != "Bearer sk-master" ||
+			r.URL.Query().Get("return_full_object") != "true" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		query = r.URL.Query().Get("key_alias")
+		if query == "run-gone" {
+			_, _ = w.Write([]byte(`{"keys":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"keys":[{"key_alias":"` + query + `","spend":0.00044,"max_budget":2}],"total_count":1}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(srv.URL, "sk-master")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spend, err := c.KeySpend(t.Context(), "run-1-attempt-1&x")
+	if err != nil || spend != 0.00044 || query != "run-1-attempt-1&x" {
+		t.Fatalf("spend = %v, err = %v, alias sent as %q", spend, err, query)
+	}
+	if _, err := c.KeySpend(t.Context(), "run-gone"); !errors.Is(err, ErrNoSuchKey) {
+		t.Errorf("unknown alias: %v", err)
+	}
+	failing, _, _ := fakeLiteLLM(t, http.StatusInternalServerError, `{"error":"db down"}`)
+	c, _ = New(failing.URL, "sk-master")
+	var se *StatusError
+	if _, err := c.KeySpend(t.Context(), "run-1"); !errors.As(err, &se) || se.Code != http.StatusInternalServerError {
+		t.Errorf("gateway error: %v", err)
+	}
+}

@@ -105,18 +105,21 @@ type Run struct {
 }
 
 type StepRun struct {
-	ID         uuid.UUID
-	RunID      uuid.UUID
-	StepID     string
-	Attempt    int32
-	Kind       string
-	Status     string
-	PodName    *string
-	CommitSha  *string
-	StartedAt  *time.Time
-	FinishedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID           uuid.UUID
+	RunID        uuid.UUID
+	StepID       string
+	Attempt      int32
+	Kind         string
+	Status       string
+	PodName      *string
+	CommitSha    *string
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CostUsd      float64
+	InputTokens  int64
+	OutputTokens int64
 }
 
 type ToolchainImage struct {

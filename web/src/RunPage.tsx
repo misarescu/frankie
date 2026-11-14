@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { eventTypes, isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
-import { abort, runningAgentStep, steer, type Step } from "./steps";
+import { abort, runningAgentStep, steer, totals, usd, type Step } from "./steps";
 
 // Live transcript: the control plane's SSE stream replays stored events, then
 // follows live ones; EventSource resumes with Last-Event-ID after a drop.
@@ -54,6 +54,7 @@ export function RunPage({ runID }: { runID: string }) {
     <>
       <h1><a href="#/">Runs</a> / {runID}</h1>
       <div className="status">{status}</div>
+      {steps.length > 0 && <StepsTable steps={steps} />}
       {running && <InterventionPanel key={running.id} step={running} onSent={loadSteps} />}
       {events.map((e) => (
         <div className="ev" key={e.seq}>
@@ -95,5 +96,26 @@ function InterventionPanel({ step, onSent }: { step: Step; onSent: () => void })
         {note && <span className="status">{note}</span>}
       </div>
     </section>
+  );
+}
+
+// StepsTable lists the run's step executions with their model usage (D53).
+function StepsTable({ steps }: { steps: Step[] }) {
+  const t = totals(steps);
+  return (
+    <table className="steps">
+      <thead><tr><th>Step</th><th>Status</th><th>Cost</th><th>Tokens in / out</th></tr></thead>
+      <tbody>
+        {steps.map((s) => (
+          <tr key={s.id}>
+            <td>{s.step_id}{s.attempt > 1 && <span className="type"> · attempt {s.attempt}</span>}</td>
+            <td>{s.status}</td>
+            <td>{s.kind === "agent" ? usd(s.cost_usd) : ""}</td>
+            <td>{s.kind === "agent" ? `${s.input_tokens.toLocaleString()} / ${s.output_tokens.toLocaleString()}` : ""}</td>
+          </tr>
+        ))}
+        <tr><td>Total</td><td /><td>{usd(t.cost)}</td><td>{`${t.input.toLocaleString()} / ${t.output.toLocaleString()}`}</td></tr>
+      </tbody>
+    </table>
   );
 }

@@ -6,11 +6,23 @@ export type Step = {
   kind: string;
   status: string;
   commit_sha?: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
   started_at?: string;
   finished_at?: string;
 };
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+// usd renders a cost; spend under a cent still shows.
+export const usd = (n: number): string => (n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
+
+// totals adds up the model usage of a run's steps (D53).
+export function totals(steps: Step[]): { cost: number; input: number; output: number } {
+  return steps.reduce((t, s) => ({ cost: t.cost + s.cost_usd, input: t.input + s.input_tokens, output: t.output + s.output_tokens }),
+    { cost: 0, input: 0, output: 0 });
+}
 
 // runningAgentStep is the agent step a person can steer or abort, if any:
 // the latest running one (parallel branches run one at a time, D42).

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/runner/askhuman"
 	"github.com/misarescu/frankie/internal/runner/workspace"
 )
 
@@ -36,6 +39,7 @@ var protoEventTypes = map[domain.EventType]runnerv1.EventType{
 	domain.EventTokenUsage:       runnerv1.EventType_EVENT_TYPE_TOKEN_USAGE,
 	domain.EventError:            runnerv1.EventType_EVENT_TYPE_ERROR,
 	domain.EventDone:             runnerv1.EventType_EVENT_TYPE_DONE,
+	domain.EventQuestion:         runnerv1.EventType_EVENT_TYPE_QUESTION,
 }
 
 // Server implements RunnerService for a single session.
@@ -56,6 +60,7 @@ type Server struct {
 	session   Session
 	log       *EventLog
 	prompted  bool
+	questions *questions // nil unless the session offers ask_human
 }
 
 // NewServer returns a runner whose harness works in workdir.
@@ -125,17 +130,38 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 		AllowedTools: req.GetAllowedTools(),
 		Gateway:      gatewayConfig(req.GetGateway()),
 	}
+	ended := make(chan struct{})
+	var qs *questions
+	var stopAsk func()
+	if req.GetAskHuman() {
+		qs = newQuestions(log, ended, s.now)
+		server, stop, err := serveAskHuman(qs)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "ask-human server: %v", err)
+		}
+		cfg.MCPServers, stopAsk = append(cfg.MCPServers, server), stop
+	}
 	// The session outlives this RPC, so it must not inherit its cancellation.
 	sess, err := h.Start(context.WithoutCancel(ctx), cfg, emit)
 	if err != nil {
+		if stopAsk != nil {
+			stopAsk()
+		}
 		return nil, status.Errorf(codes.Internal, "start harness: %v", err)
 	}
+	go func() {
+		<-sess.Done()
+		close(ended)
+		if stopAsk != nil {
+			stopAsk()
+		}
+	}()
 	s.mu.Lock()
 	s.sessionID = domain.NewID().String()
-	s.session, s.log = sess, log
+	s.session, s.log, s.questions = sess, log, qs
 	id := s.sessionID
 	s.mu.Unlock()
-	go s.watch(sess, log, timeout, idle)
+	go s.watch(sess, log, qs, timeout, idle)
 	return &runnerv1.StartResponse{SessionId: id}, nil
 }
 
@@ -223,6 +249,23 @@ func sendErr(err error) error {
 	}
 }
 
+// Answer delivers a person's answer to a question the agent asked.
+func (s *Server) Answer(_ context.Context, req *runnerv1.AnswerRequest) (*runnerv1.AnswerResponse, error) {
+	if req.GetQuestionId() == "" || req.GetText() == "" {
+		return nil, status.Error(codes.InvalidArgument, "question_id and text are required")
+	}
+	s.mu.Lock()
+	qs := s.questions
+	s.mu.Unlock()
+	if qs == nil {
+		return nil, status.Error(codes.FailedPrecondition, "the session does not offer ask_human")
+	}
+	if err := qs.answer(req.GetQuestionId(), req.GetText()); err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return &runnerv1.AnswerResponse{}, nil
+}
+
 // Abort stops the session.
 func (s *Server) Abort(_ context.Context, req *runnerv1.AbortRequest) (*runnerv1.AbortResponse, error) {
 	s.mu.Lock()
@@ -257,8 +300,9 @@ func (s *Server) Events(req *runnerv1.EventsRequest, stream runnerv1.RunnerServi
 	})
 }
 
-// watch enforces the wall-clock and idle timeouts (FR-AG-3).
-func (s *Server) watch(sess Session, log *EventLog, timeout, idle time.Duration) {
+// watch enforces the wall-clock and idle timeouts (FR-AG-3). Idle time does
+// not run while an ask-human question waits for a person.
+func (s *Server) watch(sess Session, log *EventLog, qs *questions, timeout, idle time.Duration) {
 	if timeout <= 0 && idle <= 0 {
 		return
 	}
@@ -275,7 +319,17 @@ func (s *Server) watch(sess Session, log *EventLog, timeout, idle time.Duration)
 				sess.Abort(DoneTimeout, fmt.Sprintf("wall-clock timeout after %s", timeout))
 				return
 			}
-			if idle > 0 && now.Sub(log.LastActivity()) >= idle {
+			last := log.LastActivity()
+			if qs != nil {
+				waiting, resolved := qs.waiting()
+				if waiting {
+					continue
+				}
+				if resolved.After(last) {
+					last = resolved
+				}
+			}
+			if idle > 0 && now.Sub(last) >= idle {
 				sess.Abort(DoneTimeout, fmt.Sprintf("no harness output for %s", idle))
 				return
 			}
@@ -293,4 +347,21 @@ func gatewayConfig(g *runnerv1.Gateway) Gateway {
 		out.API = ModelAPIOpenAI
 	}
 	return out
+}
+
+// serveAskHuman serves the ask-human MCP endpoint on a loopback port for the
+// session's harness, and returns it as the harness sees it.
+func serveAskHuman(qs *questions) (MCPServer, func(), error) {
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		return MCPServer{}, nil, err
+	}
+	srv := &http.Server{Handler: &askhuman.Handler{Ask: qs.ask}, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(lis) }()
+	stop := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}
+	return MCPServer{Name: askhuman.ServerName, URL: "http://" + lis.Addr().String(), Tools: []string{askhuman.ToolName}}, stop, nil
 }

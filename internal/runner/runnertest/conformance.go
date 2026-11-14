@@ -1,8 +1,10 @@
 package runnertest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/runner"
+	"github.com/misarescu/frankie/internal/runner/askhuman"
 )
 
 // Adapter describes a harness adapter for the conformance suite.
@@ -31,6 +34,9 @@ type Adapter struct {
 	WriteTools []string
 	// Env adds to the pod environment, e.g. variables a harness needs to run offline.
 	Env map[string]string
+	// AskTool is the runner's ask-human tool as the harness names it for
+	// the model (askhuman.ServerName and askhuman.ToolName).
+	AskTool string
 }
 
 // Conformance timeouts.
@@ -65,6 +71,7 @@ func RunConformance(t *testing.T, a Adapter) {
 			t.Run("steer", func(t *testing.T) { conformSteer(t, a, bin, api) })
 			t.Run("abort", func(t *testing.T) { conformAbort(t, a, bin, api) })
 			t.Run("read-only shell", func(t *testing.T) { conformReadOnly(t, a, bin, api) })
+			t.Run("ask human", func(t *testing.T) { conformAskHuman(t, a, bin, api) })
 		})
 	}
 }
@@ -77,7 +84,7 @@ type session struct {
 	work  string
 }
 
-func start(t *testing.T, a Adapter, bin string, api runner.ModelAPI, f *FakeModel, tools []string) *session {
+func start(t *testing.T, a Adapter, bin string, api runner.ModelAPI, f *FakeModel, tools []string, mcp ...runner.MCPServer) *session {
 	t.Helper()
 	env := PodEnv(t)
 	for k, v := range a.Env {
@@ -86,7 +93,8 @@ func start(t *testing.T, a Adapter, bin string, api runner.ModelAPI, f *FakeMode
 	work := t.TempDir()
 	cfg := runner.SessionConfig{
 		Workdir: work, Model: testModel, SystemPrompt: "You are a Frankie conformance test agent.", Env: env, AllowedTools: tools,
-		Gateway: runner.Gateway{BaseURL: f.URL(), APIKey: testKey, API: api},
+		Gateway:    runner.Gateway{BaseURL: f.URL(), APIKey: testKey, API: api},
+		MCPServers: mcp,
 	}
 	rec := &Recorder{}
 	s, err := a.New(t, bin).Start(t.Context(), cfg, rec.Emit)
@@ -335,4 +343,45 @@ func shellCommand(input any) string {
 	}
 	_ = json.Unmarshal(b, &in)
 	return in.Command
+}
+
+// conformAskHuman: the model calls the runner's ask-human tool (served by
+// the real askhuman handler), the call waits for the person, and the answer
+// reaches the model as the tool's result. A read-only role, the strictest,
+// may ask too.
+func conformAskHuman(t *testing.T, a Adapter, bin string, api runner.ModelAPI) {
+	const answer = "Port 8080, please."
+	asked := make(chan string, 1)
+	srv := httptest.NewServer(&askhuman.Handler{Progress: 200 * time.Millisecond, Ask: func(ctx context.Context, q string) (string, error) {
+		asked <- q
+		select {
+		case <-time.After(500 * time.Millisecond): // a person takes a moment
+			return answer, nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}})
+	t.Cleanup(srv.Close)
+	f := NewFakeModel(t, a.ShellTool)
+	f.AskTool = a.AskTool
+	s := start(t, a, bin, api, f, a.ReadOnlyRole,
+		runner.MCPServer{Name: askhuman.ServerName, URL: srv.URL, Tools: []string{askhuman.ToolName}})
+	s.send(t, "Start the server")
+	d := s.wait(t)
+
+	select {
+	case q := <-asked:
+		if q != AskQuestion {
+			t.Errorf("asked %q", q)
+		}
+	default:
+		t.Fatalf("the harness never called the ask-human tool; offered %v; events %+v", f.TaskRequests()[0].Tools, s.rec.All())
+	}
+	if d.Status != runner.DoneSucceeded || !strings.Contains(d.Result, answer) {
+		t.Errorf("done = %+v; the answer did not reach the model", d)
+	}
+	calls := payloads[runner.ToolCall](s.rec.All())
+	if !slices.ContainsFunc(calls, func(c runner.ToolCall) bool { return c.Name == a.AskTool }) {
+		t.Errorf("tool calls %+v lack %s", calls, a.AskTool)
+	}
 }

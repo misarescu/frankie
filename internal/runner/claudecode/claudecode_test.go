@@ -320,3 +320,25 @@ func TestSessionEndsWhenAResultReportsNothingQueued(t *testing.T) {
 		t.Errorf("Send after the end = %v", err)
 	}
 }
+
+// D54: only the session's MCP servers reach Claude Code, never the repo's
+// .mcp.json; their tools stay allowed in a restricted role.
+func TestArgsMCP(t *testing.T) {
+	plain, err := Args(runner.SessionConfig{})
+	if err != nil || !slices.Contains(plain, "--strict-mcp-config") || slices.Contains(plain, "--mcp-config") {
+		t.Fatalf("without servers: %v, %v", plain, err)
+	}
+	cfg := runner.SessionConfig{AllowedTools: []string{"read", "bash:readonly"},
+		MCPServers: []runner.MCPServer{{Name: "frankie", URL: "http://127.0.0.1:9000", Tools: []string{"ask_human"}}}}
+	args, err := Args(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(args, "--mcp-config")
+	if i < 0 || args[i+1] != `{"mcpServers":{"frankie":{"type":"http","url":"http://127.0.0.1:9000"}}}` || !slices.Contains(args, "--strict-mcp-config") {
+		t.Errorf("args = %v", args)
+	}
+	if !strings.Contains(strings.Join(args, " "), "mcp__frankie__ask_human") {
+		t.Errorf("the ask tool is not allowed in a restricted role: %v", args)
+	}
+}

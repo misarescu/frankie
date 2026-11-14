@@ -17,6 +17,8 @@ import (
 
 // Script of the fake model.
 const (
+	// AskQuestion is what the fake model asks with the ask-human tool.
+	AskQuestion = "Which port should the server listen on?"
 	// FirstAnswer is the text of the first answer, which also calls the shell tool.
 	FirstAnswer = "Writing the file."
 	// ShellCommand is what that tool call runs.
@@ -37,6 +39,9 @@ const (
 type FakeModel struct {
 	srv       *httptest.Server
 	shellTool string
+	// AskTool, when set, is the tool the first answer calls instead of the
+	// shell, with AskQuestion as its question (the ask-human tool).
+	AskTool string
 	// Hold, when set before the first request, blocks the first scripted
 	// answer until it is closed, so a test can act while the agent loop is
 	// mid-turn.
@@ -58,6 +63,8 @@ type Request struct {
 	Users []string
 	// ToolResult is whether the history held a tool result.
 	ToolResult bool
+	// ToolResults are the texts of the tool results in the history.
+	ToolResults []string
 }
 
 // NewFakeModel serves the fake until the test ends; shellTool is the name of
@@ -130,9 +137,15 @@ func (f *FakeModel) serve(w http.ResponseWriter, r *http.Request) {
 		<-f.Hold
 	}
 
-	a := answer{text: FirstAnswer, toolCall: !req.ToolResult, shellTool: f.shellTool}
+	a := answer{text: FirstAnswer, toolCall: !req.ToolResult, tool: f.shellTool, args: shellArguments()}
+	if f.AskTool != "" {
+		a.tool, a.args = f.AskTool, askArguments()
+	}
 	if req.ToolResult {
 		a.text = FinalPrefix + strings.Join(req.Users, " | ")
+		if len(req.ToolResults) > 0 {
+			a.text += " | tool: " + strings.Join(req.ToolResults, " | ")
+		}
 	}
 	if len(req.Tools) == 0 {
 		a.toolCall = false
@@ -171,6 +184,7 @@ func decodeOpenAI(r *http.Request) (Request, bool, error) {
 			req.Users = append(req.Users, contentText(m.Content))
 		case "tool":
 			req.ToolResult = true
+			req.ToolResults = append(req.ToolResults, contentText(m.Content))
 		}
 	}
 	return req, body.Stream, nil
@@ -202,8 +216,9 @@ func decodeAnthropic(r *http.Request) (Request, bool, error) {
 			continue
 		}
 		var blocks []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type    string          `json:"type"`
+			Text    string          `json:"text"`
+			Content json.RawMessage `json:"content"`
 		}
 		if json.Unmarshal(m.Content, &blocks) != nil {
 			req.Users = append(req.Users, contentText(m.Content))
@@ -214,6 +229,7 @@ func decodeAnthropic(r *http.Request) (Request, bool, error) {
 			switch b.Type {
 			case "tool_result":
 				req.ToolResult = true
+				req.ToolResults = append(req.ToolResults, contentText(b.Content))
 			case "text":
 				texts = append(texts, b.Text)
 			}
@@ -227,13 +243,19 @@ func decodeAnthropic(r *http.Request) (Request, bool, error) {
 
 // answer is one scripted model answer.
 type answer struct {
-	text      string
-	toolCall  bool
-	shellTool string
+	text     string
+	toolCall bool
+	tool     string // the tool the answer calls
+	args     string // its arguments, JSON
 }
 
-func (a answer) arguments() string {
+func shellArguments() string {
 	b, _ := json.Marshal(map[string]string{"command": ShellCommand, "description": "Write hello.txt"})
+	return string(b)
+}
+
+func askArguments() string {
+	b, _ := json.Marshal(map[string]string{"question": AskQuestion})
 	return string(b)
 }
 
@@ -247,7 +269,7 @@ func (a answer) openAI(w http.ResponseWriter, stream bool) {
 		msg := map[string]any{"role": "assistant", "content": a.text}
 		if a.toolCall {
 			msg["tool_calls"] = []any{map[string]any{"id": ToolCallID, "type": "function",
-				"function": map[string]any{"name": a.shellTool, "arguments": a.arguments()}}}
+				"function": map[string]any{"name": a.tool, "arguments": a.args}}}
 		}
 		writeJSON(w, map[string]any{"id": "c1", "object": "chat.completion", "model": "fake",
 			"choices": []any{map[string]any{"index": 0, "message": msg, "finish_reason": finish}}, "usage": usage})
@@ -261,7 +283,7 @@ func (a answer) openAI(w http.ResponseWriter, stream bool) {
 	send("", choice(map[string]any{"role": "assistant", "content": a.text}, nil))
 	if a.toolCall {
 		send("", choice(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": ToolCallID, "type": "function",
-			"function": map[string]any{"name": a.shellTool, "arguments": a.arguments()}}}}, nil))
+			"function": map[string]any{"name": a.tool, "arguments": a.args}}}}, nil))
 	}
 	send("", choice(map[string]any{}, finish))
 	send("", map[string]any{"id": "c1", "object": "chat.completion.chunk", "choices": []any{}, "usage": usage})
@@ -274,8 +296,8 @@ func (a answer) anthropic(w http.ResponseWriter, stream bool) {
 	if a.toolCall {
 		stop = "tool_use"
 		var input map[string]string
-		_ = json.Unmarshal([]byte(a.arguments()), &input)
-		content = append(content, map[string]any{"type": "tool_use", "id": ToolCallID, "name": a.shellTool, "input": input})
+		_ = json.Unmarshal([]byte(a.args), &input)
+		content = append(content, map[string]any{"type": "tool_use", "id": ToolCallID, "name": a.tool, "input": input})
 	}
 	if !stream {
 		writeJSON(w, map[string]any{"id": "msg_1", "type": "message", "role": "assistant", "model": "fake", "content": content,
@@ -291,9 +313,9 @@ func (a answer) anthropic(w http.ResponseWriter, stream bool) {
 	send("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 	if a.toolCall {
 		send("content_block_start", map[string]any{"type": "content_block_start", "index": 1,
-			"content_block": map[string]any{"type": "tool_use", "id": ToolCallID, "name": a.shellTool, "input": map[string]any{}}})
+			"content_block": map[string]any{"type": "tool_use", "id": ToolCallID, "name": a.tool, "input": map[string]any{}}})
 		send("content_block_delta", map[string]any{"type": "content_block_delta", "index": 1,
-			"delta": map[string]any{"type": "input_json_delta", "partial_json": a.arguments()}})
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": a.args}})
 		send("content_block_stop", map[string]any{"type": "content_block_stop", "index": 1})
 	}
 	send("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop, "stop_sequence": nil},

@@ -23,6 +23,7 @@ const (
 	RunnerService_Prompt_FullMethodName = "/frankie.runner.v1.RunnerService/Prompt"
 	RunnerService_Steer_FullMethodName  = "/frankie.runner.v1.RunnerService/Steer"
 	RunnerService_Abort_FullMethodName  = "/frankie.runner.v1.RunnerService/Abort"
+	RunnerService_Answer_FullMethodName = "/frankie.runner.v1.RunnerService/Answer"
 	RunnerService_Events_FullMethodName = "/frankie.runner.v1.RunnerService/Events"
 )
 
@@ -46,6 +47,9 @@ type RunnerServiceClient interface {
 	Steer(ctx context.Context, in *SteerRequest, opts ...grpc.CallOption) (*SteerResponse, error)
 	// Abort stops the session; the stream ends with done status "aborted".
 	Abort(ctx context.Context, in *AbortRequest, opts ...grpc.CallOption) (*AbortResponse, error)
+	// Answer answers a question the agent asked with the ask-human tool
+	// (EVENT_TYPE_QUESTION); the agent's tool call returns the text.
+	Answer(ctx context.Context, in *AnswerRequest, opts ...grpc.CallOption) (*AnswerResponse, error)
 	// Events replays the session's events after after_seq, then follows live
 	// events until done. Reconnect with the last seen seq to resume.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventsResponse], error)
@@ -99,6 +103,16 @@ func (c *runnerServiceClient) Abort(ctx context.Context, in *AbortRequest, opts 
 	return out, nil
 }
 
+func (c *runnerServiceClient) Answer(ctx context.Context, in *AnswerRequest, opts ...grpc.CallOption) (*AnswerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AnswerResponse)
+	err := c.cc.Invoke(ctx, RunnerService_Answer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runnerServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RunnerService_ServiceDesc.Streams[0], RunnerService_Events_FullMethodName, cOpts...)
@@ -138,6 +152,9 @@ type RunnerServiceServer interface {
 	Steer(context.Context, *SteerRequest) (*SteerResponse, error)
 	// Abort stops the session; the stream ends with done status "aborted".
 	Abort(context.Context, *AbortRequest) (*AbortResponse, error)
+	// Answer answers a question the agent asked with the ask-human tool
+	// (EVENT_TYPE_QUESTION); the agent's tool call returns the text.
+	Answer(context.Context, *AnswerRequest) (*AnswerResponse, error)
 	// Events replays the session's events after after_seq, then follows live
 	// events until done. Reconnect with the last seen seq to resume.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventsResponse]) error
@@ -162,6 +179,9 @@ func (UnimplementedRunnerServiceServer) Steer(context.Context, *SteerRequest) (*
 }
 func (UnimplementedRunnerServiceServer) Abort(context.Context, *AbortRequest) (*AbortResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Abort not implemented")
+}
+func (UnimplementedRunnerServiceServer) Answer(context.Context, *AnswerRequest) (*AnswerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Answer not implemented")
 }
 func (UnimplementedRunnerServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventsResponse]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -259,6 +279,24 @@ func _RunnerService_Abort_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunnerService_Answer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AnswerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerServiceServer).Answer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunnerService_Answer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerServiceServer).Answer(ctx, req.(*AnswerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RunnerService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -292,6 +330,10 @@ var RunnerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Abort",
 			Handler:    _RunnerService_Abort_Handler,
+		},
+		{
+			MethodName: "Answer",
+			Handler:    _RunnerService_Answer_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

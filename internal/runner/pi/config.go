@@ -65,10 +65,25 @@ func Args(cfg runner.SessionConfig, promptFile, extensionFile string) ([]string,
 	args := []string{
 		"--mode", "rpc", "--no-session",
 		"--provider", providerID, "--model", cfg.Model,
-		"--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp",
+		"--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
 		"--no-approve", "--offline",
 	}
+	if len(cfg.MCPServers) == 0 {
+		args = append(args, "--no-mcp")
+	} else {
+		// MCP support is a built-in extension, which --no-extensions turns
+		// off; load only it. It reads the session's servers from the agent
+		// directory's mcp.json (MCP), and no other.
+		args = append(args, "--extension", "builtin:mcp")
+	}
 	if len(list) > 0 {
+		// An allowlist also drops MCP tools unless it names them (pi 1.5.2,
+		// despite its docs): name the session's own.
+		for _, m := range cfg.MCPServers {
+			for _, t := range m.Tools {
+				list = append(list, "mcp__"+m.Name+"__"+t)
+			}
+		}
 		args = append(args, "--tools", strings.Join(list, ","))
 	}
 	if extensionFile != "" {
@@ -98,4 +113,15 @@ func environment(cfg runner.SessionConfig, agentDir string) (map[string]string, 
 		"PI_SKIP_VERSION_CHECK": "1",
 		"PI_TELEMETRY":          "0",
 	}, nil
+}
+
+// MCP is pi's mcp.json for a session's MCP servers: each declared to the
+// model directly (not behind codemode or tool search), with requests allowed
+// to wait as long as a session may.
+func MCP(cfg runner.SessionConfig) ([]byte, error) {
+	servers := map[string]any{}
+	for _, m := range cfg.MCPServers {
+		servers[m.Name] = map[string]any{"url": m.URL, "exposure": "direct", "timeout": int64(runner.MCPToolTimeout.Seconds())}
+	}
+	return json.Marshal(map[string]any{"mcpServers": servers})
 }

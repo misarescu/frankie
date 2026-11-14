@@ -15,6 +15,7 @@ func TestConformance(t *testing.T) {
 			return &Harness{Binary: bin, TempDir: t.TempDir(), KillGrace: 2 * time.Second}
 		},
 		ShellTool:    shellTool,
+		AskTool:      "frankie_ask_human",
 		APIs:         []runner.ModelAPI{runner.ModelAPIOpenAI, runner.ModelAPIAnthropic},
 		ReadOnlyRole: []string{"read", "grep", "bash:readonly"},
 		WriteTools:   []string{"edit", "write", "webfetch", "question"},

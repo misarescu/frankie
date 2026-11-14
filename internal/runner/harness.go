@@ -7,6 +7,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/misarescu/frankie/internal/domain"
 )
@@ -38,7 +39,21 @@ type SessionConfig struct {
 	// Gateway is the LLM gateway and virtual key (StartRequest.gateway); zero
 	// when the control plane passed them in Env instead.
 	Gateway Gateway
+	// MCPServers are HTTP MCP servers the harness connects to, such as the
+	// runner's ask-human server; the only ones it may use.
+	MCPServers []MCPServer
 }
+
+// MCPServer is an HTTP MCP server for a session's harness.
+type MCPServer struct {
+	Name  string
+	URL   string
+	Tools []string // tool names, for harnesses that allow tools by name
+}
+
+// MCPToolTimeout bounds one MCP tool call in every harness: an ask-human
+// question can wait as long as the session lasts, which the runner bounds.
+const MCPToolTimeout = 24 * time.Hour
 
 // ReadOnlyCommands are the shell commands the bash:readonly tool allows, for
 // every harness: they inspect the workspace and its history without changing
@@ -120,6 +135,10 @@ type (
 	Error struct {
 		Message string `json:"message"`
 		Detail  string `json:"detail,omitempty"`
+	}
+	Question struct {
+		QuestionID string `json:"question_id"`
+		Question   string `json:"question"`
 	}
 	Done struct {
 		Status           DoneStatus `json:"status"`

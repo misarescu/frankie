@@ -96,3 +96,44 @@ func TestEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// D54: pi loads only its built-in MCP support, reads only the session's
+// servers from its agent directory, and names their tools in an allowlist.
+func TestMCPConfig(t *testing.T) {
+	cfg := runner.SessionConfig{Model: "m", AllowedTools: []string{"read"},
+		MCPServers: []runner.MCPServer{{Name: "frankie", URL: "http://127.0.0.1:9000", Tools: []string{"ask_human"}}}}
+	raw, err := MCP(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		MCPServers map[string]struct {
+			URL      string `json:"url"`
+			Exposure string `json:"exposure"`
+			Timeout  int64  `json:"timeout"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if s := m.MCPServers["frankie"]; s.URL != "http://127.0.0.1:9000" || s.Exposure != "direct" || s.Timeout != int64(runner.MCPToolTimeout.Seconds()) {
+		t.Errorf("mcp.json = %s", raw)
+	}
+	args, err := Args(cfg, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := " " + strings.Join(args, " ") + " "
+	for _, want := range []string{" --extension builtin:mcp ", " --tools read,mcp__frankie__ask_human ", " --no-extensions "} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %q lack %q", joined, want)
+		}
+	}
+	if strings.Contains(joined, "--no-mcp") {
+		t.Errorf("args %q disable MCP", joined)
+	}
+	plain, _ := Args(runner.SessionConfig{Model: "m"}, "", "")
+	if !slices.Contains(plain, "--no-mcp") || slices.Contains(plain, "builtin:mcp") {
+		t.Errorf("without servers: %v", plain)
+	}
+}

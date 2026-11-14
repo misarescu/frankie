@@ -247,6 +247,7 @@ var domainEventTypes = map[runnerv1.EventType]domain.EventType{
 	runnerv1.EventType_EVENT_TYPE_TOKEN_USAGE:       domain.EventTokenUsage,
 	runnerv1.EventType_EVENT_TYPE_ERROR:             domain.EventError,
 	runnerv1.EventType_EVENT_TYPE_DONE:              domain.EventDone,
+	runnerv1.EventType_EVENT_TYPE_QUESTION:          domain.EventQuestion,
 }
 
 func domainEventType(t runnerv1.EventType) domain.EventType {

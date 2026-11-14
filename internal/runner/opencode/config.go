@@ -49,6 +49,16 @@ func Config(cfg runner.SessionConfig, promptFile string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	servers := map[string]any{}
+	for _, m := range cfg.MCPServers {
+		servers[m.Name] = map[string]any{"type": "remote", "url": m.URL,
+			"timeout": map[string]int64{"execution": runner.MCPToolTimeout.Milliseconds()}}
+		for _, t := range m.Tools {
+			// opencode names an MCP tool <server>_<tool>; the session's own
+			// servers are always allowed, whatever the role's tools.
+			rules = append(rules, rule{m.Name + "_" + t, "*", "allow"})
+		}
+	}
 	agent := map[string]any{"permissions": rules}
 	if cfg.MaxTurns > 0 {
 		agent["steps"] = cfg.MaxTurns
@@ -71,6 +81,9 @@ func Config(cfg runner.SessionConfig, promptFile string) ([]byte, error) {
 	}
 	if promptFile != "" {
 		c["instructions"] = []string{promptFile}
+	}
+	if len(servers) > 0 {
+		c["mcp"] = map[string]any{"servers": servers}
 	}
 	return json.Marshal(c)
 }

@@ -12,6 +12,7 @@ test("summarizes each event type", () => {
   expect(summary(ev("error", { message: "run failed", detail: "no changes" }))).toBe("run failed: no changes");
   expect(summary(ev("file_diff", { path: "a.go", diff: "+x" }))).toBe("a.go\n+x");
   expect(summary(ev("intervention", { action: "steer", by: "ana", text: "use the helper", delivered: true }))).toBe("ana steered: use the helper");
+  expect(summary(ev("question", { question_id: "q1", question: "Which port?" }))).toBe("asked: Which port?");
   expect(summary(ev("intervention", { action: "abort", by: "ana", text: "wrong", delivered: false }))).toBe("ana aborted: wrong (the session had already ended)");
 });
 

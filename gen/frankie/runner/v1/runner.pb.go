@@ -162,6 +162,9 @@ const (
 	// session changed anything, and commit_sha is the pushed head (or the base
 	// commit when nothing changed). A failed push turns the status into failed.
 	EventType_EVENT_TYPE_DONE EventType = 8
+	// The agent asked a person (ask-human tool) and waits for Answer.
+	// payload: {"question_id": string, "question": string}
+	EventType_EVENT_TYPE_QUESTION EventType = 9
 )
 
 // Enum value maps for EventType.
@@ -176,6 +179,7 @@ var (
 		6: "EVENT_TYPE_TOKEN_USAGE",
 		7: "EVENT_TYPE_ERROR",
 		8: "EVENT_TYPE_DONE",
+		9: "EVENT_TYPE_QUESTION",
 	}
 	EventType_value = map[string]int32{
 		"EVENT_TYPE_UNSPECIFIED":       0,
@@ -187,6 +191,7 @@ var (
 		"EVENT_TYPE_TOKEN_USAGE":       6,
 		"EVENT_TYPE_ERROR":             7,
 		"EVENT_TYPE_DONE":              8,
+		"EVENT_TYPE_QUESTION":          9,
 	}
 )
 
@@ -310,7 +315,11 @@ type StartRequest struct {
 	AllowedTools []string `protobuf:"bytes,10,rep,name=allowed_tools,json=allowedTools,proto3" json:"allowed_tools,omitempty"`
 	// The LLM gateway and virtual key. Adapters prefer it over harness-specific
 	// variables in env, which older control planes set instead.
-	Gateway       *Gateway `protobuf:"bytes,11,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	Gateway *Gateway `protobuf:"bytes,11,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	// Offer the agent the ask-human tool: an MCP server in the runner whose
+	// ask_human call emits EVENT_TYPE_QUESTION and waits for Answer. While a
+	// question waits, the idle timeout does not run; the wall-clock one does.
+	AskHuman      bool `protobuf:"varint,12,opt,name=ask_human,json=askHuman,proto3" json:"ask_human,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -420,6 +429,13 @@ func (x *StartRequest) GetGateway() *Gateway {
 		return x.Gateway
 	}
 	return nil
+}
+
+func (x *StartRequest) GetAskHuman() bool {
+	if x != nil {
+		return x.AskHuman
+	}
+	return false
 }
 
 // Workspace is the step's git checkout (FR-SB-6). Start clones base_ref through
@@ -751,6 +767,95 @@ func (*SteerResponse) Descriptor() ([]byte, []int) {
 	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{7}
 }
 
+type AnswerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The question_id of an EVENT_TYPE_QUESTION.
+	QuestionId    string `protobuf:"bytes,1,opt,name=question_id,json=questionId,proto3" json:"question_id,omitempty"`
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerRequest) Reset() {
+	*x = AnswerRequest{}
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerRequest) ProtoMessage() {}
+
+func (x *AnswerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerRequest.ProtoReflect.Descriptor instead.
+func (*AnswerRequest) Descriptor() ([]byte, []int) {
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AnswerRequest) GetQuestionId() string {
+	if x != nil {
+		return x.QuestionId
+	}
+	return ""
+}
+
+func (x *AnswerRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type AnswerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerResponse) Reset() {
+	*x = AnswerResponse{}
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerResponse) ProtoMessage() {}
+
+func (x *AnswerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerResponse.ProtoReflect.Descriptor instead.
+func (*AnswerResponse) Descriptor() ([]byte, []int) {
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{9}
+}
+
 type AbortRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -760,7 +865,7 @@ type AbortRequest struct {
 
 func (x *AbortRequest) Reset() {
 	*x = AbortRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -772,7 +877,7 @@ func (x *AbortRequest) String() string {
 func (*AbortRequest) ProtoMessage() {}
 
 func (x *AbortRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[8]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -785,7 +890,7 @@ func (x *AbortRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbortRequest.ProtoReflect.Descriptor instead.
 func (*AbortRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{8}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AbortRequest) GetReason() string {
@@ -803,7 +908,7 @@ type AbortResponse struct {
 
 func (x *AbortResponse) Reset() {
 	*x = AbortResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -815,7 +920,7 @@ func (x *AbortResponse) String() string {
 func (*AbortResponse) ProtoMessage() {}
 
 func (x *AbortResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[9]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -828,7 +933,7 @@ func (x *AbortResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbortResponse.ProtoReflect.Descriptor instead.
 func (*AbortResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{9}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{11}
 }
 
 type EventsRequest struct {
@@ -841,7 +946,7 @@ type EventsRequest struct {
 
 func (x *EventsRequest) Reset() {
 	*x = EventsRequest{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -853,7 +958,7 @@ func (x *EventsRequest) String() string {
 func (*EventsRequest) ProtoMessage() {}
 
 func (x *EventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[10]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -866,7 +971,7 @@ func (x *EventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsRequest.ProtoReflect.Descriptor instead.
 func (*EventsRequest) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{10}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *EventsRequest) GetAfterSeq() int64 {
@@ -885,7 +990,7 @@ type EventsResponse struct {
 
 func (x *EventsResponse) Reset() {
 	*x = EventsResponse{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -897,7 +1002,7 @@ func (x *EventsResponse) String() string {
 func (*EventsResponse) ProtoMessage() {}
 
 func (x *EventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[11]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -910,7 +1015,7 @@ func (x *EventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsResponse.ProtoReflect.Descriptor instead.
 func (*EventsResponse) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{11}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EventsResponse) GetEvent() *Event {
@@ -934,7 +1039,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[12]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -946,7 +1051,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_frankie_runner_v1_runner_proto_msgTypes[12]
+	mi := &file_frankie_runner_v1_runner_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -959,7 +1064,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{12}
+	return file_frankie_runner_v1_runner_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Event) GetSeq() int64 {
@@ -998,7 +1103,7 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\aGateway\x12\x19\n" +
 	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12\x17\n" +
 	"\aapi_key\x18\x02 \x01(\tR\x06apiKey\x12-\n" +
-	"\x03api\x18\x03 \x01(\x0e2\x1b.frankie.runner.v1.ModelAPIR\x03api\"\xba\x04\n" +
+	"\x03api\x18\x03 \x01(\x0e2\x1b.frankie.runner.v1.ModelAPIR\x03api\"\xd7\x04\n" +
 	"\fStartRequest\x12\x1e\n" +
 	"\vstep_run_id\x18\x01 \x01(\tR\tstepRunId\x124\n" +
 	"\aharness\x18\x02 \x01(\x0e2\x1a.frankie.runner.v1.HarnessR\aharness\x12\x14\n" +
@@ -1011,7 +1116,8 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\tworkspace\x18\t \x01(\v2\x1c.frankie.runner.v1.WorkspaceR\tworkspace\x12#\n" +
 	"\rallowed_tools\x18\n" +
 	" \x03(\tR\fallowedTools\x124\n" +
-	"\agateway\x18\v \x01(\v2\x1a.frankie.runner.v1.GatewayR\agateway\x1a6\n" +
+	"\agateway\x18\v \x01(\v2\x1a.frankie.runner.v1.GatewayR\agateway\x12\x1b\n" +
+	"\task_human\x18\f \x01(\bR\baskHuman\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9a\x02\n" +
@@ -1035,7 +1141,12 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\x0ePromptResponse\"\"\n" +
 	"\fSteerRequest\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"\x0f\n" +
-	"\rSteerResponse\"&\n" +
+	"\rSteerResponse\"D\n" +
+	"\rAnswerRequest\x12\x1f\n" +
+	"\vquestion_id\x18\x01 \x01(\tR\n" +
+	"questionId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\x10\n" +
+	"\x0eAnswerResponse\"&\n" +
 	"\fAbortRequest\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x0f\n" +
 	"\rAbortResponse\",\n" +
@@ -1057,7 +1168,7 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\bModelAPI\x12\x19\n" +
 	"\x15MODEL_API_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13MODEL_API_ANTHROPIC\x10\x01\x12\x14\n" +
-	"\x10MODEL_API_OPENAI\x10\x02*\xff\x01\n" +
+	"\x10MODEL_API_OPENAI\x10\x02*\x98\x02\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cEVENT_TYPE_ASSISTANT_MESSAGE\x10\x01\x12\x18\n" +
@@ -1067,12 +1178,14 @@ const file_frankie_runner_v1_runner_proto_rawDesc = "" +
 	"\x19EVENT_TYPE_COMMAND_OUTPUT\x10\x05\x12\x1a\n" +
 	"\x16EVENT_TYPE_TOKEN_USAGE\x10\x06\x12\x14\n" +
 	"\x10EVENT_TYPE_ERROR\x10\a\x12\x13\n" +
-	"\x0fEVENT_TYPE_DONE\x10\b2\x93\x03\n" +
+	"\x0fEVENT_TYPE_DONE\x10\b\x12\x17\n" +
+	"\x13EVENT_TYPE_QUESTION\x10\t2\xe2\x03\n" +
 	"\rRunnerService\x12J\n" +
 	"\x05Start\x12\x1f.frankie.runner.v1.StartRequest\x1a .frankie.runner.v1.StartResponse\x12M\n" +
 	"\x06Prompt\x12 .frankie.runner.v1.PromptRequest\x1a!.frankie.runner.v1.PromptResponse\x12J\n" +
 	"\x05Steer\x12\x1f.frankie.runner.v1.SteerRequest\x1a .frankie.runner.v1.SteerResponse\x12J\n" +
-	"\x05Abort\x12\x1f.frankie.runner.v1.AbortRequest\x1a .frankie.runner.v1.AbortResponse\x12O\n" +
+	"\x05Abort\x12\x1f.frankie.runner.v1.AbortRequest\x1a .frankie.runner.v1.AbortResponse\x12M\n" +
+	"\x06Answer\x12 .frankie.runner.v1.AnswerRequest\x1a!.frankie.runner.v1.AnswerResponse\x12O\n" +
 	"\x06Events\x12 .frankie.runner.v1.EventsRequest\x1a!.frankie.runner.v1.EventsResponse0\x01B\xc7\x01\n" +
 	"\x15com.frankie.runner.v1B\vRunnerProtoP\x01Z;github.com/misarescu/frankie/gen/frankie/runner/v1;runnerv1\xa2\x02\x03FRX\xaa\x02\x11Frankie.Runner.V1\xca\x02\x11Frankie\\Runner\\V1\xe2\x02\x1dFrankie\\Runner\\V1\\GPBMetadata\xea\x02\x13Frankie::Runner::V1b\x06proto3"
 
@@ -1089,7 +1202,7 @@ func file_frankie_runner_v1_runner_proto_rawDescGZIP() []byte {
 }
 
 var file_frankie_runner_v1_runner_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_frankie_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_frankie_runner_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_frankie_runner_v1_runner_proto_goTypes = []any{
 	(Harness)(0),                  // 0: frankie.runner.v1.Harness
 	(ModelAPI)(0),                 // 1: frankie.runner.v1.ModelAPI
@@ -1102,38 +1215,42 @@ var file_frankie_runner_v1_runner_proto_goTypes = []any{
 	(*PromptResponse)(nil),        // 8: frankie.runner.v1.PromptResponse
 	(*SteerRequest)(nil),          // 9: frankie.runner.v1.SteerRequest
 	(*SteerResponse)(nil),         // 10: frankie.runner.v1.SteerResponse
-	(*AbortRequest)(nil),          // 11: frankie.runner.v1.AbortRequest
-	(*AbortResponse)(nil),         // 12: frankie.runner.v1.AbortResponse
-	(*EventsRequest)(nil),         // 13: frankie.runner.v1.EventsRequest
-	(*EventsResponse)(nil),        // 14: frankie.runner.v1.EventsResponse
-	(*Event)(nil),                 // 15: frankie.runner.v1.Event
-	nil,                           // 16: frankie.runner.v1.StartRequest.EnvEntry
-	(*durationpb.Duration)(nil),   // 17: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 18: google.protobuf.Timestamp
+	(*AnswerRequest)(nil),         // 11: frankie.runner.v1.AnswerRequest
+	(*AnswerResponse)(nil),        // 12: frankie.runner.v1.AnswerResponse
+	(*AbortRequest)(nil),          // 13: frankie.runner.v1.AbortRequest
+	(*AbortResponse)(nil),         // 14: frankie.runner.v1.AbortResponse
+	(*EventsRequest)(nil),         // 15: frankie.runner.v1.EventsRequest
+	(*EventsResponse)(nil),        // 16: frankie.runner.v1.EventsResponse
+	(*Event)(nil),                 // 17: frankie.runner.v1.Event
+	nil,                           // 18: frankie.runner.v1.StartRequest.EnvEntry
+	(*durationpb.Duration)(nil),   // 19: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
 }
 var file_frankie_runner_v1_runner_proto_depIdxs = []int32{
 	1,  // 0: frankie.runner.v1.Gateway.api:type_name -> frankie.runner.v1.ModelAPI
 	0,  // 1: frankie.runner.v1.StartRequest.harness:type_name -> frankie.runner.v1.Harness
-	16, // 2: frankie.runner.v1.StartRequest.env:type_name -> frankie.runner.v1.StartRequest.EnvEntry
-	17, // 3: frankie.runner.v1.StartRequest.timeout:type_name -> google.protobuf.Duration
-	17, // 4: frankie.runner.v1.StartRequest.idle_timeout:type_name -> google.protobuf.Duration
+	18, // 2: frankie.runner.v1.StartRequest.env:type_name -> frankie.runner.v1.StartRequest.EnvEntry
+	19, // 3: frankie.runner.v1.StartRequest.timeout:type_name -> google.protobuf.Duration
+	19, // 4: frankie.runner.v1.StartRequest.idle_timeout:type_name -> google.protobuf.Duration
 	5,  // 5: frankie.runner.v1.StartRequest.workspace:type_name -> frankie.runner.v1.Workspace
 	3,  // 6: frankie.runner.v1.StartRequest.gateway:type_name -> frankie.runner.v1.Gateway
-	15, // 7: frankie.runner.v1.EventsResponse.event:type_name -> frankie.runner.v1.Event
-	18, // 8: frankie.runner.v1.Event.time:type_name -> google.protobuf.Timestamp
+	17, // 7: frankie.runner.v1.EventsResponse.event:type_name -> frankie.runner.v1.Event
+	20, // 8: frankie.runner.v1.Event.time:type_name -> google.protobuf.Timestamp
 	2,  // 9: frankie.runner.v1.Event.type:type_name -> frankie.runner.v1.EventType
 	4,  // 10: frankie.runner.v1.RunnerService.Start:input_type -> frankie.runner.v1.StartRequest
 	7,  // 11: frankie.runner.v1.RunnerService.Prompt:input_type -> frankie.runner.v1.PromptRequest
 	9,  // 12: frankie.runner.v1.RunnerService.Steer:input_type -> frankie.runner.v1.SteerRequest
-	11, // 13: frankie.runner.v1.RunnerService.Abort:input_type -> frankie.runner.v1.AbortRequest
-	13, // 14: frankie.runner.v1.RunnerService.Events:input_type -> frankie.runner.v1.EventsRequest
-	6,  // 15: frankie.runner.v1.RunnerService.Start:output_type -> frankie.runner.v1.StartResponse
-	8,  // 16: frankie.runner.v1.RunnerService.Prompt:output_type -> frankie.runner.v1.PromptResponse
-	10, // 17: frankie.runner.v1.RunnerService.Steer:output_type -> frankie.runner.v1.SteerResponse
-	12, // 18: frankie.runner.v1.RunnerService.Abort:output_type -> frankie.runner.v1.AbortResponse
-	14, // 19: frankie.runner.v1.RunnerService.Events:output_type -> frankie.runner.v1.EventsResponse
-	15, // [15:20] is the sub-list for method output_type
-	10, // [10:15] is the sub-list for method input_type
+	13, // 13: frankie.runner.v1.RunnerService.Abort:input_type -> frankie.runner.v1.AbortRequest
+	11, // 14: frankie.runner.v1.RunnerService.Answer:input_type -> frankie.runner.v1.AnswerRequest
+	15, // 15: frankie.runner.v1.RunnerService.Events:input_type -> frankie.runner.v1.EventsRequest
+	6,  // 16: frankie.runner.v1.RunnerService.Start:output_type -> frankie.runner.v1.StartResponse
+	8,  // 17: frankie.runner.v1.RunnerService.Prompt:output_type -> frankie.runner.v1.PromptResponse
+	10, // 18: frankie.runner.v1.RunnerService.Steer:output_type -> frankie.runner.v1.SteerResponse
+	14, // 19: frankie.runner.v1.RunnerService.Abort:output_type -> frankie.runner.v1.AbortResponse
+	12, // 20: frankie.runner.v1.RunnerService.Answer:output_type -> frankie.runner.v1.AnswerResponse
+	16, // 21: frankie.runner.v1.RunnerService.Events:output_type -> frankie.runner.v1.EventsResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -1150,7 +1267,7 @@ func file_frankie_runner_v1_runner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_frankie_runner_v1_runner_proto_rawDesc), len(file_frankie_runner_v1_runner_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -60,13 +60,14 @@ func (s IssueStatus) Valid() bool {
 
 // issueTransitions is the issue state machine (docs/spec/02-domain-model.md, "Issue status").
 // failed and canceled are reachable from every state before merged; failed -> ready re-arms
-// an issue for a new Run.
+// an issue for a new Run. awaiting_human -> merged records a change request merged on the
+// provider by a person (D61), until the merge queue (M6) merges them itself.
 var issueTransitions = map[IssueStatus][]IssueStatus{
 	IssueDraft:         {IssueRefining, IssueReady, IssueFailed, IssueCanceled},
 	IssueRefining:      {IssueReady, IssueFailed, IssueCanceled},
 	IssueReady:         {IssueRunning, IssueFailed, IssueCanceled},
 	IssueRunning:       {IssueAwaitingHuman, IssueQueued, IssueFailed, IssueCanceled},
-	IssueAwaitingHuman: {IssueRunning, IssueFailed, IssueCanceled},
+	IssueAwaitingHuman: {IssueRunning, IssueMerged, IssueFailed, IssueCanceled},
 	IssueQueued:        {IssueRunning, IssueMerged, IssueFailed, IssueCanceled},
 	IssueMerged:        {IssueReleased},
 	IssueReleased:      {},
@@ -103,6 +104,16 @@ type Issue struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
+
+// ChangeRequestStatus is a change request's state on its provider.
+type ChangeRequestStatus string
+
+// Change request statuses.
+const (
+	ChangeRequestOpen   ChangeRequestStatus = "open"
+	ChangeRequestMerged ChangeRequestStatus = "merged"
+	ChangeRequestClosed ChangeRequestStatus = "closed" // closed without merging
+)
 
 // ChangeRequest is a provider-neutral pull/merge request for an issue's branch.
 type ChangeRequest struct {

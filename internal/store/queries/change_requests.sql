@@ -8,3 +8,20 @@ RETURNING *;
 
 -- name: ListChangeRequestsForIssue :many
 SELECT * FROM change_requests WHERE issue_id = @issue_id ORDER BY created_at;
+
+-- name: GetChangeRequest :one
+SELECT * FROM change_requests WHERE id = @id;
+
+-- Open change requests whose issue waits for a person: the ones that can be merged
+-- on the provider (D61).
+-- name: ListChangeRequestsAwaitingMerge :many
+SELECT * FROM change_requests
+WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awaiting_human')
+ORDER BY created_at, id;
+
+-- Compare-and-set from open to merged or closed.
+-- name: FinishChangeRequest :one
+UPDATE change_requests
+SET status = @status, updated_at = now()
+WHERE id = @id AND status = 'open'
+RETURNING *;

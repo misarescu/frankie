@@ -29,11 +29,13 @@ func TestCanTransitionIssue(t *testing.T) {
 		{IssueQueued, IssueCanceled, true},
 		// A failed issue can be re-armed for a new Run.
 		{IssueFailed, IssueReady, true},
+		// D61: a person merged the change request on the provider (until M6).
+		{IssueAwaitingHuman, IssueMerged, true},
 
 		// Spec approval cannot be skipped: no workflow before ready.
 		{IssueDraft, IssueRunning, false},
 		{IssueRefining, IssueRunning, false},
-		// Nothing reaches main without the merge queue.
+		// Nothing reaches main while a run still works on it.
 		{IssueRunning, IssueMerged, false},
 		{IssueReady, IssueQueued, false},
 		// Code on main cannot be failed or canceled.

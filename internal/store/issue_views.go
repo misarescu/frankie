@@ -17,6 +17,16 @@ type IssueSummary struct {
 	// LatestRunID is uuid.Nil when the issue has never run.
 	LatestRunID     uuid.UUID
 	LatestRunStatus domain.ExecStatus
+	// LatestChangeRequest is the issue's newest change request; Number is 0
+	// when it has none.
+	LatestChangeRequest ChangeRequestRef
+}
+
+// ChangeRequestRef names a change request on its provider.
+type ChangeRequestRef struct {
+	Number int
+	URL    string
+	Status string // open, merged or closed
 }
 
 // ListProjects returns every project by name.
@@ -42,7 +52,8 @@ func (s *Store) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([]I
 	out := make([]IssueSummary, len(rows))
 	for i, r := range rows {
 		out[i] = IssueSummary{Issue: issueFromRow(r.Issue), CostUSD: r.CostUsd,
-			LatestRunID: r.LatestRunID, LatestRunStatus: domain.ExecStatus(r.LatestRunStatus)}
+			LatestRunID: r.LatestRunID, LatestRunStatus: domain.ExecStatus(r.LatestRunStatus),
+			LatestChangeRequest: ChangeRequestRef{Number: int(r.LatestCrNumber), URL: r.LatestCrUrl, Status: r.LatestCrStatus}}
 	}
 	return out, nil
 }

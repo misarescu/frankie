@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -65,6 +67,14 @@ func TestListIssues(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// M5.1: each issue carries its newest change request.
+	for _, n := range []int{7, 8} {
+		if _, err := st.UpsertChangeRequest(t.Context(), store.NewChangeRequest{IssueID: run.IssueID, RunID: run.ID, Repo: "misarescu/Goodreads-Clone",
+			Number: n, ProviderRef: fmt.Sprintf("https://github.com/misarescu/Goodreads-Clone/pull/%d", n), Branch: fmt.Sprintf("agent/gc-1/try-%d", n), HeadSHA: "abc"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	var got []issueSummaryJSON
 	if code := getJSON(t, srv.URL+"/api/issues?project=misarescu/Goodreads-Clone", &got); code != http.StatusOK {
 		t.Fatalf("GET /api/issues = %d", code)
@@ -86,6 +96,12 @@ func TestListIssues(t *testing.T) {
 	}
 	if r := by[is["running"].Key]; r.LatestRun == nil || r.LatestRun.ID != run.ID || r.LatestRun.Status != "running" {
 		t.Errorf("running issue latest run = %+v, want %s running", r.LatestRun, run.ID)
+	}
+	if cr := by[is["running"].Key].ChangeRequest; cr == nil || cr.Number != 8 || cr.Status != "open" || !strings.HasSuffix(cr.URL, "/pull/8") {
+		t.Errorf("running issue change request = %+v, want the newest, #8 open", cr)
+	}
+	if cr := by[is["epic"].Key].ChangeRequest; cr != nil {
+		t.Errorf("epic change request = %+v, want none", cr)
 	}
 
 	for _, tt := range []struct {

@@ -859,11 +859,18 @@ SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.sta
           FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
        -- An issue without runs gets the nil UUID and an empty status.
        coalesce(lr.id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_run_id,
-       coalesce(lr.status, '')::text AS latest_run_status
+       coalesce(lr.status, '')::text AS latest_run_status,
+       -- The latest change request (M5.1); an issue without one gets number 0.
+       coalesce(lcr.number, 0)::int AS latest_cr_number,
+       coalesce(lcr.provider_ref, '')::text AS latest_cr_url,
+       coalesce(lcr.status, '')::text AS latest_cr_status
 FROM issues i
 LEFT JOIN LATERAL (
   SELECT r.id, r.status FROM runs r WHERE r.issue_id = i.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1
 ) lr ON true
+LEFT JOIN LATERAL (
+  SELECT c.number, c.provider_ref, c.status FROM change_requests c WHERE c.issue_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1
+) lcr ON true
 WHERE i.project_id = $1
 ORDER BY i.priority DESC, i.number
 `
@@ -873,6 +880,9 @@ type ListProjectIssuesRow struct {
 	CostUsd         float64
 	LatestRunID     uuid.UUID
 	LatestRunStatus string
+	LatestCrNumber  int32
+	LatestCrUrl     string
+	LatestCrStatus  string
 }
 
 // A project's issues for the board: model spend across all runs and the latest run.
@@ -919,6 +929,9 @@ func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([
 			&i.CostUsd,
 			&i.LatestRunID,
 			&i.LatestRunStatus,
+			&i.LatestCrNumber,
+			&i.LatestCrUrl,
+			&i.LatestCrStatus,
 		); err != nil {
 			return nil, err
 		}

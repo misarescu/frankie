@@ -19,6 +19,8 @@ export type IssueSummary = {
   source_ref?: string;
   cost_usd: number;
   latest_run?: { id: string; status: string };
+  // The issue's newest change request (M5.1).
+  change_request?: { number: number; url: string; status: string };
   start_requested_at?: string;
 };
 
@@ -253,6 +255,21 @@ export function tree(issues: IssueSummary[], hide: (i: IssueSummary) => boolean 
   };
   for (const r of roots) walk(r, 0);
   return out;
+}
+
+// subtree is the issues under key, as tree rows with depth counted from its
+// children (0), with the total cost of them all (M5.1).
+export function subtree(issues: IssueSummary[], key: string): { rows: TreeRow[]; cost: number } {
+  const all = tree(issues);
+  const at = all.findIndex((r) => r.issue.key === key);
+  if (at < 0) return { rows: [], cost: 0 };
+  const base = all[at]!.depth;
+  const rows: TreeRow[] = [];
+  for (const r of all.slice(at + 1)) {
+    if (r.depth <= base) break;
+    rows.push({ issue: r.issue, depth: r.depth - base - 1 });
+  }
+  return { rows, cost: rows.reduce((c, r) => c + r.issue.cost_usd, 0) };
 }
 
 export type GraphNode = { key: string; title: string; status: string; layer: number; row: number };

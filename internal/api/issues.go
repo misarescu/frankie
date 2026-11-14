@@ -30,8 +30,16 @@ type issueSummaryJSON struct {
 	SourceRef string      `json:"source_ref,omitempty"`
 	CostUSD   float64     `json:"cost_usd"`
 	LatestRun *runRefJSON `json:"latest_run,omitempty"`
+	// ChangeRequest is the issue's newest change request (M5.1).
+	ChangeRequest *crRefJSON `json:"change_request,omitempty"`
 	// StartRequestedAt is set once someone asked to start the issue itself (D62).
 	StartRequestedAt *time.Time `json:"start_requested_at,omitempty"`
+}
+
+type crRefJSON struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
 }
 
 type runRefJSON struct {
@@ -88,6 +96,9 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request) {
 		}
 		if is.LatestRunID != uuid.Nil {
 			js.LatestRun = &runRefJSON{ID: is.LatestRunID, Status: string(is.LatestRunStatus)}
+		}
+		if cr := is.LatestChangeRequest; cr.Number > 0 {
+			js.ChangeRequest = &crRefJSON{Number: cr.Number, URL: cr.URL, Status: cr.Status}
 		}
 		out[i] = js
 	}

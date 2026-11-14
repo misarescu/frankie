@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import { isFinished, retryIssue, startIssues, type IssueDetail, type IssueRef, type StartReply } from "./issues";
+import { isFinished, retryIssue, shortID, startIssues, type IssueDetail, type IssueRef, type StartReply } from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
 import { decideSpec, type SpecDecision } from "./specs";
 import { usd } from "./steps";
@@ -92,7 +92,9 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
             <tbody>
               {is.runs.map((r) => (
                 <tr key={r.id}>
-                  <td><a href={`#/runs/${r.id}`}>{new Date(r.created_at).toLocaleString()}</a></td>
+                  <td><a href={`#/runs/${r.id}`} title={r.id}>{shortID(r.id)}</a></td>
+                  <td>{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="type">{r.workflow}</td>
                   <td>{r.status}</td>
                   <td>{usd(r.cost_usd)}</td>
                 </tr>

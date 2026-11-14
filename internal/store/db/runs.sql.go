@@ -279,7 +279,7 @@ func (q *Queries) IssueUsage(ctx context.Context, issueID uuid.UUID) (IssueUsage
 }
 
 const listIssueRuns = `-- name: ListIssueRuns :many
-SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r
 WHERE r.issue_id = $1
@@ -287,12 +287,13 @@ ORDER BY r.created_at DESC, r.id DESC
 `
 
 type ListIssueRunsRow struct {
-	ID         uuid.UUID
-	Status     string
-	CreatedAt  time.Time
-	StartedAt  *time.Time
-	FinishedAt *time.Time
-	CostUsd    float64
+	ID              uuid.UUID
+	Status          string
+	CreatedAt       time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	WorkflowVersion string
+	CostUsd         float64
 }
 
 // An issue's runs, newest first, with what each spent (D53).
@@ -311,6 +312,7 @@ func (q *Queries) ListIssueRuns(ctx context.Context, issueID uuid.UUID) ([]ListI
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.WorkflowVersion,
 			&i.CostUsd,
 		); err != nil {
 			return nil, err

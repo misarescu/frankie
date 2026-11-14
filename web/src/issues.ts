@@ -50,7 +50,7 @@ export type IssueDetail = {
   children: IssueRef[];
   depends_on: IssueRef[];
   dependents: IssueRef[];
-  runs: { id: string; status: string; created_at: string; cost_usd: number }[];
+  runs: { id: string; status: string; workflow: string; created_at: string; cost_usd: number }[];
   usage: { cost_usd: number; input_tokens: number; output_tokens: number };
   change_requests: { repo: string; number: number; url: string; status: string }[];
   file_hints: string[];
@@ -81,6 +81,10 @@ export const startIssues = (fetchFn: Fetch, keys: string[]): Promise<StartReply>
 // retryIssue re-arms a failed issue and asks to start it.
 export const retryIssue = (fetchFn: Fetch, key: string): Promise<IssueRef> =>
   post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, {});
+
+// shortID shortens a run's ID for lists. IDs are UUIDv7, whose leading digits
+// are a timestamp shared by runs started close together, so it keeps the end.
+export const shortID = (id: string): string => id.slice(-8);
 
 // Finished issues: on main, released, or dropped.
 const finished = new Set(["merged", "released", "canceled"]);

@@ -26,3 +26,5 @@ table.issues td { vertical-align: top; } select { font: inherit; color: var(--fg
 .graph .node { fill: var(--bg); stroke: var(--line); } .graph .node.st-running, .graph .node.st-refining, .graph .node.st-awaiting_human, .graph .node.st-queued { stroke: var(--accent); }
 .graph .node.st-merged, .graph .node.st-released { stroke: var(--ok); } .graph .node.st-failed { stroke: var(--bad); }
 .graph .node-label { fill: var(--fg); font: 12px ui-monospace, monospace; } .graph a:hover .node { stroke-width: 2; }
+.segment { margin-top: 16px; } .segment-head { font-size: 14px; margin: 0; padding: 6px 0; border-bottom: 2px solid var(--line); position: sticky; top: 0; background: var(--bg); }
+.ev .type { font-weight: 600; } .ev-assistant_message pre { white-space: pre-wrap; }

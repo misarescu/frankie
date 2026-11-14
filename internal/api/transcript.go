@@ -28,20 +28,27 @@ func toJSON(e domain.Event) eventJSON {
 }
 
 func (s *Server) runID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	run, ok := s.run(w, r)
+	return run.ID, ok
+}
+
+// run reads the run the path names, answering 400 or 404 itself when it cannot.
+func (s *Server) run(w http.ResponseWriter, r *http.Request) (domain.Run, bool) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "invalid run id", http.StatusBadRequest)
-		return uuid.UUID{}, false
+		return domain.Run{}, false
 	}
-	if _, err := s.Store.GetRun(r.Context(), id); err != nil {
+	run, err := s.Store.GetRun(r.Context(), id)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
 		} else {
 			http.Error(w, "store error", http.StatusInternalServerError)
 		}
-		return uuid.UUID{}, false
+		return domain.Run{}, false
 	}
-	return id, true
+	return run, true
 }
 
 // listEvents replays a run's transcript after ?after=<seq> (FR-OB-2).

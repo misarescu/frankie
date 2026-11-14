@@ -81,7 +81,7 @@ RETURNING *;
 
 -- An issue's runs, newest first, with what each spent (D53).
 -- name: ListIssueRuns :many
-SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r
 WHERE r.issue_id = @issue_id

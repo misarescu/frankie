@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
 )
@@ -82,6 +85,51 @@ func TestListSteps(t *testing.T) {
 	}
 	if code := getJSON(t, srv.URL+"/api/runs/0198f2a4-0000-7000-8000-000000000000/steps", nil); code != http.StatusNotFound {
 		t.Errorf("unknown run: %d", code)
+	}
+}
+
+// M5.1: the steps API says what is behind each step, from the run's snapshot.
+func TestStepDetails(t *testing.T) {
+	w, err := config.ParseWorkflow([]byte(`
+name: mixed
+version: 1
+steps:
+  - id: implement
+    agent: { role: coder }
+  - id: document
+    agent: { role: coder, harness: opencode, model: openrouter/openai/gpt-5.6-luna }
+  - id: checks
+    gate: { type: command }
+  - id: review
+    parallel:
+      - agent: { role: code-reviewer, harness: pi, model: openrouter/openai/gpt-5.6-terra }
+    gate: { type: agent-verdict }
+  - id: open-change-request
+    action: change-request.open
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(snapshot.Snapshot{Workflow: w, Roles: map[string]config.Role{
+		"coder": {Name: "coder", DefaultModel: "anthropic/claude-sonnet-5-5"}, "code-reviewer": {Name: "code-reviewer"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stepDetails(raw)
+	want := map[string]stepDetail{
+		"implement":     {Role: "coder", Harness: "claude-code", Model: "anthropic/claude-sonnet-5-5"}, // the role's default model
+		"document":      {Role: "coder", Harness: "opencode", Model: "openrouter/openai/gpt-5.6-luna"},
+		"checks":        {Gate: "command"},
+		"review":        {Gate: "agent-verdict"},
+		"code-reviewer": {Role: "code-reviewer", Harness: "pi", Model: "openrouter/openai/gpt-5.6-terra"}, // a parallel branch
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("stepDetails = %+v\nwant %+v", got, want)
+	}
+	for _, raw := range []string{`{}`, `not json`, `{"error":"invalid workflow"}`} {
+		if got := stepDetails(json.RawMessage(raw)); len(got) != 0 {
+			t.Errorf("stepDetails(%s) = %+v, want none", raw, got)
+		}
 	}
 }
 

@@ -123,7 +123,7 @@ func TestGetIssue(t *testing.T) {
 	if running.Project != "misarescu/Goodreads-Clone" || running.Status != "running" || running.Title != "Add <b>search</b>" {
 		t.Errorf("running = %+v", running)
 	}
-	if len(running.Runs) != 1 || running.Runs[0].ID != run.ID || running.Runs[0].CostUSD != 0.4 {
+	if len(running.Runs) != 1 || running.Runs[0].ID != run.ID || running.Runs[0].CostUSD != 0.4 || running.Runs[0].Workflow != run.WorkflowVersion {
 		t.Errorf("runs = %+v", running.Runs)
 	}
 	if running.Usage != (usageJSON{CostUSD: 0.4, InputTokens: 1000, OutputTokens: 50}) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { eventTypes, isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
-import { abort, runningAgentStep, steer, totals, usd, type Step } from "./steps";
+import { eventTypes, isConnectionError, label, parseStreamEvent, segments, summary, type RunEvent } from "./events";
+import { abort, runningAgentStep, steer, stepName, totals, usd, who, type Step } from "./steps";
 import { apiFetch } from "./auth";
 
 // Live transcript: the control plane's SSE stream replays stored events, then
@@ -57,13 +57,37 @@ export function RunPage({ runID }: { runID: string }) {
       <div className="status">{status}</div>
       {steps.length > 0 && <StepsTable steps={steps} />}
       {running && <InterventionPanel key={running.id} step={running} onSent={loadSteps} />}
-      {events.map((e) => (
-        <div className="ev" key={e.seq}>
-          <span className="type">#{e.seq} {e.type}</span>
-          <pre>{summary(e)}</pre>
-        </div>
-      ))}
+      <Transcript events={events} steps={steps} />
       <div ref={bottom} />
+    </>
+  );
+}
+
+// Transcript shows the run's events in plain words, under a heading for each
+// stretch of one step's events naming the step and its role, harness and model
+// (M5.1). Events from a step the step list does not know yet still show, under
+// a plain "Step" heading, until the next refresh names it.
+function Transcript({ events, steps }: { events: RunEvent[]; steps: Step[] }) {
+  const byID = new Map(steps.map((s) => [s.id, s]));
+  return (
+    <>
+      {segments(events).map((seg) => {
+        const step = seg.stepRunID ? byID.get(seg.stepRunID) : undefined;
+        return (
+          <section className="segment" key={seg.events[0]!.seq}>
+            <h3 className="segment-head">
+              {seg.stepRunID ? (step ? stepName(step) : "Step") : "Run"}
+              {step && who(step) && <span className="type"> · {who(step)}</span>}
+            </h3>
+            {seg.events.map((e) => (
+              <div className={`ev ev-${e.type}`} key={e.seq}>
+                <span className="type" title={`#${e.seq} ${e.type} · ${new Date(e.time).toLocaleString()}`}>{label(e)}</span>
+                <pre>{summary(e)}</pre>
+              </div>
+            ))}
+          </section>
+        );
+      })}
     </>
   );
 }
@@ -105,17 +129,18 @@ function StepsTable({ steps }: { steps: Step[] }) {
   const t = totals(steps);
   return (
     <table className="steps">
-      <thead><tr><th>Step</th><th>Status</th><th>Cost</th><th>Tokens in / out</th></tr></thead>
+      <thead><tr><th>Step</th><th>By</th><th>Status</th><th>Cost</th><th>Tokens in / out</th></tr></thead>
       <tbody>
         {steps.map((s) => (
           <tr key={s.id}>
-            <td>{s.step_id}{s.attempt > 1 && <span className="type"> · attempt {s.attempt}</span>}</td>
+            <td>{stepName(s)}</td>
+            <td className="type">{who(s)}</td>
             <td>{s.status}</td>
             <td>{s.kind === "agent" ? usd(s.cost_usd) : ""}</td>
             <td>{s.kind === "agent" ? `${s.input_tokens.toLocaleString()} / ${s.output_tokens.toLocaleString()}` : ""}</td>
           </tr>
         ))}
-        <tr><td>Total</td><td /><td>{usd(t.cost)}</td><td>{`${t.input.toLocaleString()} / ${t.output.toLocaleString()}`}</td></tr>
+        <tr><td>Total</td><td /><td /><td>{usd(t.cost)}</td><td>{`${t.input.toLocaleString()} / ${t.output.toLocaleString()}`}</td></tr>
       </tbody>
     </table>
   );

@@ -104,8 +104,11 @@ type issueRefJSON struct {
 }
 
 type issueRunJSON struct {
-	ID         uuid.UUID  `json:"id"`
-	Status     string     `json:"status"`
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	// Workflow is what the run executes, as name@version: the project's
+	// workflow, or "refine@1" for a refinement (D66).
+	Workflow   string     `json:"workflow"`
 	CreatedAt  time.Time  `json:"created_at"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
@@ -228,7 +231,7 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 	}
 	out.Runs = make([]issueRunJSON, len(runs))
 	for i, run := range runs {
-		out.Runs[i] = issueRunJSON{ID: run.ID, Status: string(run.Status), CreatedAt: run.CreatedAt,
+		out.Runs[i] = issueRunJSON{ID: run.ID, Status: string(run.Status), Workflow: run.WorkflowVersion, CreatedAt: run.CreatedAt,
 			StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, CostUSD: run.CostUSD}
 	}
 	u, err := s.Store.IssueUsage(ctx, is.ID)

@@ -73,6 +73,17 @@ Agent steps and gates start every pod with empty dependency and build caches, so
 - **Done when:** starting an epic runs its tasks in dependency order and in parallel where independent (concurrency 1 on the concrete profile, 2+ on the full profile), blocked on spec approval where required.
 - **Done (2026-11-14):** Goodreads-Clone's epic #22 (gc-7) with three sub-issues, the frontend (gc-9) and the docs (gc-10) both blocked by the API (gc-8), and the docs labeled `needs-spec-approval`, synced in as drafts with their hierarchy and dependencies (D57, D60). Starting the epic from the board on the concrete profile (`maxConcurrentIssues` 1) ran gc-8 (Goodreads-Clone#26). Its slot freed when the run ended, so gc-10's refinement ran while the change request waited for a person. The refiner asked a question through the ask-human tool, which was answered from the inbox, and the refined spec was approved there (D64-D66). The merge of #26, seen by the merge watcher (D61), released gc-9 (#27) and then gc-10 (#28), one at a time; every gate passed on the first attempt; four runs, $0.60 in all. Parallel starts with two or more slots are covered by tests (`domain.PlanSchedule`, and the scheduler against the store with a limit of 2) rather than live, since the homelab runs the concrete profile. Found by the run, for later: the refiner works without seeing its dependencies' code, so gc-10's spec called itself blocked (give the refiner its dependencies' specs and change requests); a parent's status stays `draft` (derive it from its children); the scheduler logs no requester when the request came through a parent; and decisions are recorded as `web` until per-person identity (open question 7).
 
+## M5.1 - Issue lifecycle and run visibility
+
+Fixes found by the M5 acceptance run, before the merge queue.
+
+- Readable runs: the run page labels events in plain words and attributes each to its step and to the role, harness and model behind it; the issue page lists runs by ID and date.
+- Live view on the issue page: the current run's step timeline (status, duration) and the agent's latest messages and tool calls, updating live. The full transcript stays on the run page.
+- Closing issues: a parent shows its progress (merged children of all) and stays open by default. "Complete" moves a parent whose children are all finished to `merged`; "Cancel", with a reason, moves any unfinished issue to `canceled`. Frankie then closes the provider issue (completed or not planned) with a comment naming who closed it: the first `IssueSource` write-back.
+- The refiner sees its dependencies: their titles, specs, statuses and change requests are in its prompt.
+- Small fixes: the scheduler logs the nearest requester when a start came through a parent; the UI asks for a person's name once and records decisions and answers under it instead of `web` (still unauthenticated, open question 7).
+- **Done when:** a Goodreads-Clone epic with stories that have their own tasks, plus a bug, runs from the issue list with its graph and live view; the epic is completed from Frankie and closes on GitHub; an issue is canceled from Frankie and closes on GitHub as not planned.
+
 ## M6 - Merge queue
 
 - Per-repo queue workflow, signal-with-start enqueue, rebase/conflict/red handling (`06-delivery.md`).

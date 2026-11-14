@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dependencyGraph, isFinished, retryIssue, startIssues, tree, type IssueSummary } from "./issues";
+import { dependencyGraph, isFinished, retryIssue, shortID, startIssues, tree, type IssueSummary } from "./issues";
 
 const issue = (key: string, over: Partial<IssueSummary> = {}): IssueSummary => ({
   key, number: Number(key.split("-")[1]), type: "task", title: key, status: "ready", priority: 0,
@@ -67,6 +67,10 @@ test("startIssues posts the keys and returns the plan", async () => {
 test("retryIssue reports the server's reason", async () => {
   const conflict = async () => new Response("gc-1 is running; only a failed issue can be retried\n", { status: 409 });
   await expect(retryIssue(conflict, "gc-1")).rejects.toThrow("only a failed issue");
+});
+
+test("M5.1: shortID keeps the end of a run ID", () => {
+  expect(shortID("0198f2a4-1111-7000-8000-00000000abcd")).toBe("0000abcd");
 });
 
 test("M5.1: startIssues and retryIssue send the person's name as by", async () => {

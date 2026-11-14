@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { abort, runningAgentStep, steer, totals, usd, type Step } from "./steps";
+import { abort, runningAgentStep, steer, stepName, totals, usd, who, type Step } from "./steps";
 
 const step = (step_id: string, kind: string, status: string, cost_usd = 0, input_tokens = 0, output_tokens = 0): Step =>
   ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status, cost_usd, input_tokens, output_tokens });
@@ -36,6 +36,17 @@ test("explains a step that ended meanwhile, and other refusals", async () => {
   const answer = (status: number, body = "") => async () => new Response(body, { status });
   await expect(steer(answer(409), "s1", "x")).rejects.toThrow("no longer running");
   await expect(abort(answer(400, "reason is required\n"), "s1", "x")).rejects.toThrow("reason is required");
+});
+
+test("M5.1: says who does a step's work and names its attempt", () => {
+  const base = step("implement", "agent", "running");
+  expect(who({ ...base, role: "coder", harness: "claude-code", model: "anthropic/claude-sonnet-5-5" })).toBe("coder · claude-code · anthropic/claude-sonnet-5-5");
+  expect(who({ ...base, role: "coder", harness: "pi" })).toBe("coder · pi · default model");
+  expect(who({ ...step("checks", "gate", "running"), gate: "command" })).toBe("command gate");
+  expect(who(step("open-change-request", "action", "succeeded"))).toBe("action");
+  expect(who(step("old", "agent", "succeeded"))).toBe("");
+  expect(stepName(base)).toBe("implement");
+  expect(stepName({ ...base, attempt: 3 })).toBe("implement (attempt 3)");
 });
 
 test("M5.1: steer and abort send the person's name as by", async () => {

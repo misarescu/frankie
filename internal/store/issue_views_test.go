@@ -111,8 +111,9 @@ func TestListIssueRunsAndUsage(t *testing.T) {
 	if err != nil || len(runs) != 2 {
 		t.Fatalf("ListIssueRuns = %v, %v; want 2 runs", runs, err)
 	}
-	if runs[0].ID != second.ID || runs[0].CostUSD != 1 || runs[1].ID != first.ID || runs[1].Status != domain.ExecFailed || runs[1].CostUSD != 0.25 {
-		t.Errorf("ListIssueRuns = %+v; want the second run first, with each run's cost", runs)
+	if runs[0].ID != second.ID || runs[0].CostUSD != 1 || runs[1].ID != first.ID || runs[1].Status != domain.ExecFailed || runs[1].CostUSD != 0.25 ||
+		runs[0].WorkflowVersion != second.WorkflowVersion || runs[0].WorkflowVersion == "" {
+		t.Errorf("ListIssueRuns = %+v; want the second run first, with each run's workflow and cost", runs)
 	}
 	u, err := s.IssueUsage(ctx, is.ID)
 	if err != nil || u != (domain.Usage{CostUSD: 1.25, InputTokens: 200, OutputTokens: 20}) {

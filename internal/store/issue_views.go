@@ -62,12 +62,14 @@ func (s *Store) ProjectDependencies(ctx context.Context, projectID uuid.UUID) ([
 
 // IssueRun is one of an issue's runs as the issue page lists it.
 type IssueRun struct {
-	ID         uuid.UUID
-	Status     domain.ExecStatus
-	CreatedAt  time.Time
-	StartedAt  *time.Time
-	FinishedAt *time.Time
-	CostUSD    float64
+	ID     uuid.UUID
+	Status domain.ExecStatus
+	// WorkflowVersion is what the run executes, as name@version.
+	WorkflowVersion string
+	CreatedAt       time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	CostUSD         float64
 }
 
 // ListIssueRuns returns an issue's runs, newest first.
@@ -78,7 +80,7 @@ func (s *Store) ListIssueRuns(ctx context.Context, issueID uuid.UUID) ([]IssueRu
 	}
 	out := make([]IssueRun, len(rows))
 	for i, r := range rows {
-		out[i] = IssueRun{ID: r.ID, Status: domain.ExecStatus(r.Status), CreatedAt: r.CreatedAt,
+		out[i] = IssueRun{ID: r.ID, Status: domain.ExecStatus(r.Status), WorkflowVersion: r.WorkflowVersion, CreatedAt: r.CreatedAt,
 			StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd}
 	}
 	return out, nil

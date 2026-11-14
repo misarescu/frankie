@@ -1,13 +1,16 @@
 import { expect, test } from "bun:test";
-import { isConnectionError, parseStreamEvent, summary, type RunEvent } from "./events";
+import { isConnectionError, label, parseStreamEvent, segments, summary, type RunEvent } from "./events";
 
 const ev = (type: string, payload: Record<string, unknown>): RunEvent => ({ seq: 1, time: "", type, payload });
 
 test("summarizes each event type", () => {
   expect(summary(ev("assistant_message", { text: "hi" }))).toBe("hi");
-  expect(summary(ev("tool_call", { name: "Bash", input: { command: "ls" } }))).toBe('Bash {"command":"ls"}');
+  expect(summary(ev("tool_call", { name: "Bash", input: { command: "ls" } }))).toBe("ls");
+  expect(summary(ev("tool_call", { name: "Read", input: { file_path: "a.go" } }))).toBe("a.go");
+  expect(summary(ev("tool_call", { name: "Task", input: { prompt: "x" } }))).toBe('{"prompt":"x"}');
   expect(summary(ev("token_usage", { cost_usd: 0.0832117, turns: 7, output_tokens: 1678 }))).toBe("$0.0832 · 7 turns · 1678 output tokens");
-  expect(summary(ev("state_change", { entity: "run", from: "running", to: "succeeded" }))).toBe("run: running → succeeded");
+  expect(summary(ev("state_change", { entity: "run", from: "running", to: "succeeded" }))).toBe("Run: running → succeeded");
+  expect(summary(ev("state_change", { entity: "step_run", from: "pending", to: "running" }))).toBe("Step: pending → running");
   expect(summary(ev("done", { status: "succeeded", commit_sha: "abc" }))).toBe("succeeded · abc");
   expect(summary(ev("error", { message: "run failed", detail: "no changes" }))).toBe("run failed: no changes");
   expect(summary(ev("file_diff", { path: "a.go", diff: "+x" }))).toBe("a.go\n+x");
@@ -35,4 +38,33 @@ test("parses transcript messages and ignores EventSource's own events", () => {
 test("tells a dropped connection from a transcript error event", () => {
   expect(isConnectionError(new Event("error"))).toBe(true);
   expect(isConnectionError(new MessageEvent("error", { data: "{}" }))).toBe(false);
+});
+
+test("M5.1: labels events in plain words", () => {
+  expect(label(ev("assistant_message", {}))).toBe("Agent");
+  expect(label(ev("tool_call", { name: "Bash" }))).toBe("Tool: Bash");
+  expect(label(ev("state_change", {}))).toBe("Status");
+  expect(label(ev("command_output", {}))).toBe("Command output");
+  expect(label(ev("intervention", { action: "answer" }))).toBe("Answer");
+  expect(label(ev("intervention", { action: "steer" }))).toBe("Steer");
+  expect(label(ev("new_kind", {}))).toBe("new kind");
+});
+
+test("M5.1: summarizes gate results by command and by reviewer", () => {
+  expect(summary(ev("gate_result", { type: "command", verdict: "fail",
+    details: { commands: [{ command: "mise run lint", exitCode: 0 }, { command: "mise run test", exitCode: 1 }, { command: "x", exitCode: null, reason: "timeout" }] } })))
+    .toBe("command gate failed\nmise run lint: exit 0\nmise run test: exit 1\nx: did not run (timeout)");
+  expect(summary(ev("gate_result", { type: "agent-verdict", verdict: "pass",
+    details: { reviews: [{ role: "code-reviewer", verdict: "pass", summary: "looks right" }, { step: "b", error: "no JSON" }] } })))
+    .toBe("agent-verdict gate passed\ncode-reviewer pass: looks right\nb no verdict: no JSON");
+  expect(summary(ev("gate_result", { type: "human", verdict: "escalated" }))).toBe("human gate escalated to a person");
+});
+
+test("M5.1: groups consecutive events by step execution", () => {
+  const at = (seq: number, step?: string): RunEvent => ({ seq, time: "", type: "tool_call", payload: {}, ...(step ? { step_run_id: step } : {}) });
+  const got = segments([at(1), at(2, "a"), at(3, "a"), at(4, "b"), at(5, "a"), at(6)]);
+  expect(got.map((s) => [s.stepRunID ?? "run", s.events.map((e) => e.seq)])).toEqual([
+    ["run", [1]], ["a", [2, 3]], ["b", [4]], ["a", [5]], ["run", [6]],
+  ]);
+  expect(segments([])).toEqual([]);
 });

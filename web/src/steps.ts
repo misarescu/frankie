@@ -14,7 +14,26 @@ export type Step = {
   output_tokens: number;
   started_at?: string;
   finished_at?: string;
+  // What the run's snapshot says is behind the step (M5.1): an agent step's
+  // role, harness and model (none when the platform's default applies), or a
+  // gate's type.
+  role?: string;
+  harness?: string;
+  model?: string;
+  gate?: string;
 };
+
+// who says what does a step's work: "coder · claude-code · anthropic/claude-sonnet-5-5"
+// for an agent, "command gate" for a gate.
+export function who(s: Step): string {
+  if (s.role) return [s.role, s.harness, s.model || "default model"].filter(Boolean).join(" · ");
+  if (s.gate) return `${s.gate} gate`;
+  if (s.kind === "action") return "action";
+  return "";
+}
+
+// stepName names a step execution: its step and, after a loop, its attempt.
+export const stepName = (s: Step): string => (s.attempt > 1 ? `${s.step_id} (attempt ${s.attempt})` : s.step_id);
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 

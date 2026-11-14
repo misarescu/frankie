@@ -3,6 +3,8 @@ export type RunEvent = {
   seq: number;
   time: string;
   type: string;
+  // The step execution the event belongs to; run-level events have none.
+  step_run_id?: string;
   payload: Record<string, unknown>;
 };
 
@@ -42,17 +44,72 @@ export const isConnectionError = (e: Event): boolean => !(e instanceof MessageEv
 
 const str = (v: unknown): string => (v === undefined || v === null ? "" : typeof v === "string" ? v : JSON.stringify(v));
 
+const entities: Record<string, string> = { issue: "Issue", run: "Run", step_run: "Step", change_request: "Change request" };
+
+// label names an event in plain words (M5.1) instead of its wire type.
+export function label(e: RunEvent): string {
+  const p = e.payload;
+  switch (e.type) {
+    case "assistant_message": return "Agent";
+    case "tool_call": return p.name ? `Tool: ${str(p.name)}` : "Tool call";
+    case "tool_result": return "Tool result";
+    case "file_diff": return "File changed";
+    case "command_output": return "Command output";
+    case "token_usage": return "Model usage";
+    case "error": return "Error";
+    case "done": return "Session ended";
+    case "gate_result": return "Gate result";
+    case "state_change": return "Status";
+    case "question": return "Question for a person";
+    case "intervention": return p.action === "abort" ? "Abort" : p.action === "answer" ? "Answer" : "Steer";
+    default: return e.type.replaceAll("_", " ");
+  }
+}
+
+// toolInput shows the part of a tool call's input a person reads first: the
+// command, the file or the pattern; otherwise the whole input.
+function toolInput(input: unknown): string {
+  if (input && typeof input === "object") {
+    const o = input as Record<string, unknown>;
+    for (const k of ["command", "file_path", "path", "pattern", "url", "query"]) {
+      if (typeof o[k] === "string" && o[k] !== "") return o[k] as string;
+    }
+  }
+  return str(input);
+}
+
+const verdicts: Record<string, string> = { pass: "passed", fail: "failed", escalated: "escalated to a person" };
+
+// gateSummary says how a gate ended and why: each command's exit code, or each
+// reviewer's verdict.
+function gateSummary(p: Record<string, unknown>): string {
+  const head = `${str(p.type)} gate ${verdicts[str(p.verdict)] ?? str(p.verdict)}`;
+  const d = (p.details ?? {}) as { error?: string; commands?: { command: string; exitCode?: number | null; reason?: string }[];
+    reviews?: { role?: string; step?: string; verdict?: string; summary?: string; error?: string }[] };
+  const lines: string[] = [];
+  if (d.error) lines.push(d.error);
+  for (const c of d.commands ?? []) {
+    lines.push(`${c.command}: ${c.exitCode === undefined || c.exitCode === null ? "did not run" : `exit ${c.exitCode}`}${c.reason ? ` (${c.reason})` : ""}`);
+  }
+  for (const r of d.reviews ?? []) {
+    const v = r.error ? `no verdict: ${r.error}` : `${r.verdict ?? ""}${r.summary ? `: ${r.summary}` : ""}`;
+    lines.push(`${r.role || r.step || "reviewer"} ${v}`);
+  }
+  return [head, ...lines].join("\n");
+}
+
 // summary renders one event as a line of text for the transcript.
 export function summary(e: RunEvent): string {
   const p = e.payload;
   switch (e.type) {
     case "assistant_message": return str(p.text);
-    case "tool_call": return `${str(p.name)} ${str(p.input)}`;
+    case "tool_call": return toolInput(p.input);
     case "command_output": return str(p.output);
     case "tool_result": return str(p.content);
     case "file_diff": return `${str(p.path)}\n${str(p.diff)}`;
     case "token_usage": return `$${Number(p.cost_usd ?? 0).toFixed(4)} · ${str(p.turns)} turns · ${str(p.output_tokens)} output tokens`;
-    case "state_change": return `${str(p.entity)}: ${str(p.from)} → ${str(p.to)}`;
+    case "state_change": return `${entities[str(p.entity)] ?? str(p.entity)}: ${str(p.from)} → ${str(p.to)}`;
+    case "gate_result": return gateSummary(p);
     case "done": return [str(p.status), p.reason ? `: ${str(p.reason)}` : "", p.commit_sha ? ` · ${str(p.commit_sha)}` : ""].join("");
     case "error": return p.detail ? `${str(p.message)}: ${str(p.detail)}` : str(p.message);
     case "question": return `asked: ${str(p.question)}`;
@@ -63,4 +120,19 @@ export function summary(e: RunEvent): string {
     }
     default: return str(p);
   }
+}
+
+// A segment is a stretch of consecutive events of one step execution, or of the
+// run itself, so the transcript can say once which step, role, harness and model
+// produced them.
+export type Segment = { stepRunID?: string; events: RunEvent[] };
+
+export function segments(events: RunEvent[]): Segment[] {
+  const out: Segment[] = [];
+  for (const e of events) {
+    const last = out.at(-1);
+    if (last && last.stepRunID === e.step_run_id) last.events.push(e);
+    else out.push({ stepRunID: e.step_run_id, events: [e] });
+  }
+  return out;
 }

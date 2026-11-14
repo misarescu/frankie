@@ -202,9 +202,12 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 		// People may steer or abort the session while it runs (D52); runs
 		// recorded before that only waited for it.
 		supervised := workflow.GetVersion(ctx, "step-interventions", workflow.DefaultVersion, 1) >= 1
+		// The agent may ask a person (D55) only where the workflow relays
+		// the answers: in a supervised session of a run recorded since then.
+		step.AskHuman = supervised && workflow.GetVersion(ctx, "step-answers", workflow.DefaultVersion, 1) >= 1
 		running := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunAgentSession, it.in.Issue, run, pod)
 		if supervised {
-			aborted, err = it.awaitSession(ctx, stepRunID, pod, running, &session)
+			aborted, err = it.awaitSession(ctx, stepRunID, pod, running, step.AskHuman, &session)
 		} else {
 			err = running.Get(ctx, &session)
 		}

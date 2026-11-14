@@ -56,3 +56,26 @@ func TestAbortFailsTheRun(t *testing.T) {
 		t.Error("the aborted step ended as succeeded")
 	}
 }
+
+// D55: a step's session offers the ask-human tool, and an answer for the
+// running step reaches its runner naming the question; an answer naming no
+// question, or for another step, does not.
+func TestAnswerReachesTheRunningStep(t *testing.T) {
+	f := newInterpretFixture(t, slowSessions(""))
+	f.env.RegisterDelayedCallback(func() {
+		f.env.SignalWorkflow(AnswerSignal, StepIntervention{StepRunID: "sr-implement-1", By: "ana", Text: "no question"})
+		f.env.SignalWorkflow(AnswerSignal, StepIntervention{StepRunID: "sr-earlier-1", By: "ana", Text: "ignored", QuestionID: "q0"})
+		f.env.SignalWorkflow(AnswerSignal, StepIntervention{StepRunID: "sr-implement-1", By: "ana", Text: "8080", QuestionID: "q1"})
+	}, 10*time.Minute)
+	out := f.run(t, loopSnapshot(t, loopDefinition))
+	if !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	if len(f.sessions) == 0 || !f.sessions[0].Step.AskHuman {
+		t.Errorf("the session was not offered ask-human: %+v", f.sessions)
+	}
+	want := activities.Intervention{RunID: testRun.RunID, StepRunID: "sr-implement-1", Action: domain.InterventionAnswer, By: "ana", Text: "8080", QuestionID: "q1"}
+	if len(f.interventions) != 1 || f.interventions[0] != want {
+		t.Errorf("interventions = %+v", f.interventions)
+	}
+}

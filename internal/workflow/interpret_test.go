@@ -341,6 +341,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_loops_exhausted_escalated.json", "M3: escalate-exhausted-loops version, escalation approved"},
 	{"testdata/interpret_protected_changes_approved.json", "M3: protected-changes version, forced human gate approved"},
 	{"testdata/interpret_steer_then_abort.json", "M4: step-interventions version, a steer then an abort fail the run"},
+	{"testdata/interpret_question_answered.json", "M4: step-answers version, a question answered by signal"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

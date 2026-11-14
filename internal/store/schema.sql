@@ -33,6 +33,11 @@ CREATE TABLE issues (
   source_ref          text,
   labels              text[]      NOT NULL DEFAULT '{}',
   created_by          text        NOT NULL,
+  -- Someone asked to start this issue, or everything under it (D62).
+  start_requested_at  timestamptz,
+  start_requested_by  text,
+  -- When the scheduler last started it; holds a slot until its run exists (D62).
+  scheduled_at        timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

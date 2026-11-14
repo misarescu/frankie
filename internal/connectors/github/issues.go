@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/misarescu/frankie/internal/domain"
@@ -96,4 +97,22 @@ func (c *Client) issues(ctx context.Context, path string) ([]domain.ExternalIssu
 		out = append(out, r.external())
 	}
 	return out, nil
+}
+
+// IssueNumber reads the issue number from a GitHub issue URL
+// ("https://github.com/owner/name/issues/42"), the source ref intake stores.
+func IssueNumber(ref string) (int, bool) {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return 0, false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 4 || parts[2] != "issues" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(parts[3])
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
 }

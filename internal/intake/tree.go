@@ -118,15 +118,4 @@ func (t *tree) issueType(n *treeNode) domain.IssueType {
 	return domain.InferIssueType(n.issue.SubIssues > 0, grandchildren)
 }
 
-// newStatus is the status a new issue starts in. Until the scheduler starts
-// issues (M5), only what intake started before D60 is ready: a labeled issue
-// without sub-issues or open blockers that is not an epic. Everything else waits
-// as a draft.
-func (t *tree) newStatus(n *treeNode, typ domain.IssueType) domain.IssueStatus {
-	if n.labeled && typ != domain.IssueEpic && n.issue.SubIssues == 0 && n.issue.OpenBlockers == 0 {
-		return domain.IssueReady
-	}
-	return domain.IssueDraft
-}
-
 func sameRepo(a, b string) bool { return strings.EqualFold(a, b) }

@@ -16,6 +16,8 @@ func TestRequireToken(t *testing.T) {
 		"/api/steps/00000000-0000-0000-0000-000000000000/steer",
 		"/api/steps/00000000-0000-0000-0000-000000000000/abort",
 		"/api/questions/00000000-0000-0000-0000-000000000000/answer",
+		"/api/issues/start",
+		"/api/issues/gc-1/retry",
 	}
 	newServer := func(token string) *httptest.Server {
 		mux := http.NewServeMux()

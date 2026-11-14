@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
@@ -21,6 +22,7 @@ import (
 	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/intake"
 	"github.com/misarescu/frankie/internal/mergequeue"
+	"github.com/misarescu/frankie/internal/scheduler"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
@@ -54,7 +56,13 @@ type temporalStarter struct {
 	models Models
 }
 
+// schedulerInterval is how often the scheduler looks for issues to start.
+const schedulerInterval = 5 * time.Second
+
 func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueRunInput) error {
+	if n, ok := github.IssueNumber(in.SourceURL); ok && in.SourceNumber == 0 {
+		in.SourceNumber = n // the change request then closes the GitHub issue
+	}
 	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, in)
 	if err != nil {
 		return err
@@ -151,10 +159,18 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		go mw.Run(ctx)
 	}
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
-		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c: c, files: gh, models: cfg.Models}, Projects: projects,
+		in := &intake.Intake{Store: st, Source: gh, Projects: projects,
 			Label: cfg.IntakeLabel, Interval: max(cfg.PollInterval, 10*time.Second), Log: log.With("component", "intake")}
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)
 	}
+	sch := &scheduler.Scheduler{Store: st, Starter: temporalStarter{c: c, files: gh, models: cfg.Models},
+		Projects: make(map[uuid.UUID]scheduler.Project, len(projects)), Limit: cfg.MaxConcurrentIssues,
+		Interval: schedulerInterval, Log: log.With("component", "scheduler")}
+	for _, p := range projects {
+		sch.Projects[p.ID] = scheduler.Project{Repo: p.Repo, BaseBranch: p.BaseBranch}
+	}
+	go sch.Run(ctx)
+	log.Info("scheduler running", "maxConcurrentIssues", sch.Limit)
 	return c, func() { w.Stop(); c.Close() }, nil
 }

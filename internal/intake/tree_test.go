@@ -62,37 +62,30 @@ func TestCollectTreeIsBounded(t *testing.T) {
 	}
 }
 
-func TestTreeTypesAndStatuses(t *testing.T) {
+func TestTreeTypes(t *testing.T) {
 	epic := ext(1, "factory") // no type label: inferred from the tree
 	epic.SubIssues = 1
 	story := ext(2)
 	story.SubIssues = 1
 	task := ext(3, "factory")
 	bug := ext(4, "factory", "Bug")
-	bug.OpenBlockers = 1
-	labeledEpic := ext(5, "factory", "epic")
-	src := &fakeSource{issues: []domain.ExternalIssue{epic, task, bug, labeledEpic},
-		subs:      map[int][]domain.ExternalIssue{1: {story}, 2: {task}},
-		blockedBy: map[int][]domain.ExternalIssue{4: {}}}
+	src := &fakeSource{issues: []domain.ExternalIssue{epic, task, bug},
+		subs: map[int][]domain.ExternalIssue{1: {story}, 2: {task}}}
 	tr, err := collectTree(t.Context(), src, "o/r", "factory")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {
-		e      domain.ExternalIssue
-		typ    domain.IssueType
-		status domain.IssueStatus
+		e   domain.ExternalIssue
+		typ domain.IssueType
 	}{
-		{epic, domain.IssueEpic, domain.IssueDraft},        // has grandchildren
-		{story, domain.IssueStory, domain.IssueDraft},      // has children; not labeled
-		{task, domain.IssueTask, domain.IssueReady},        // labeled leaf
-		{bug, domain.IssueBug, domain.IssueDraft},          // open blocker
-		{labeledEpic, domain.IssueEpic, domain.IssueDraft}, // an epic never starts
+		{epic, domain.IssueEpic},   // has grandchildren
+		{story, domain.IssueStory}, // has children
+		{task, domain.IssueTask},   // a leaf
+		{bug, domain.IssueBug},     // from its label
 	} {
-		n := tr.nodes[tt.e.Ref]
-		typ := tr.issueType(n)
-		if typ != tt.typ || tr.newStatus(n, typ) != tt.status {
-			t.Errorf("#%d = %s %s, want %s %s", tt.e.Number, typ, tr.newStatus(n, typ), tt.typ, tt.status)
+		if typ := tr.issueType(tr.nodes[tt.e.Ref]); typ != tt.typ {
+			t.Errorf("#%d = %s, want %s", tt.e.Number, typ, tt.typ)
 		}
 	}
 }

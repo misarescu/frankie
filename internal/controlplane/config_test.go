@@ -11,7 +11,7 @@ func TestLoadConfigFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.json")
 	err := os.WriteFile(path, []byte(`{
 	  "repos": [{"name": "misarescu/Goodreads-Clone", "upstream": "https://github.com/misarescu/Goodreads-Clone.git", "keyPrefix": "gc"}],
-	  "intakeLabel": "factory", "pollInterval": "30s",
+	  "intakeLabel": "factory", "pollInterval": "30s", "maxConcurrentIssues": 2,
 	  "temporal": {"address": "frankie-temporal:7233", "namespace": "frankie"},
 	  "gatewayAdminURL": "http://frankie-llm-gateway:4000",
 	  "providers": [{"name": "anthropic", "models": ["claude-sonnet-5-5"]}, {"name": "openrouter", "models": ["openai/gpt-5.6-terra"]}],
@@ -36,7 +36,7 @@ func TestLoadConfigFile(t *testing.T) {
 	if a.Limits.Memory().String() != "3Gi" || a.WorkspaceSize.String() != "10Gi" || a.BudgetUSD != 2 {
 		t.Errorf("agent = %+v", a)
 	}
-	if cfg.TemporalAddress != "frankie-temporal:7233" || cfg.TemporalNamespace != "frankie" || cfg.IntakeLabel != "factory" {
+	if cfg.TemporalAddress != "frankie-temporal:7233" || cfg.TemporalNamespace != "frankie" || cfg.IntakeLabel != "factory" || cfg.MaxConcurrentIssues != 2 {
 		t.Errorf("cfg = %+v", cfg)
 	}
 	// The agent's key is granted the model under its gateway name; runs are
@@ -50,6 +50,7 @@ func TestLoadConfigFileErrors(t *testing.T) {
 	for name, body := range map[string]string{
 		"not json":                    `{`,
 		"bad duration":                `{"pollInterval": "soon"}`,
+		"negative concurrency":        `{"maxConcurrentIssues": -1}`,
 		"bad quantity":                `{"agent": {"cpu": "lots", "memory": "1Gi"}}`,
 		"unknown provider":            `{"providers": [{"name": "acme", "models": ["fast"]}]}`,
 		"default model not a ref":     `{"providers": [{"name": "anthropic", "models": ["claude-sonnet-5-5"]}], "agent": {"model": "claude-sonnet-5-5"}}`,
@@ -64,6 +65,11 @@ func TestLoadConfigFileErrors(t *testing.T) {
 		}
 	}
 	var cfg Config
+	if path := filepath.Join(t.TempDir(), "c.json"); os.WriteFile(path, []byte(`{}`), 0o600) == nil {
+		if err := LoadConfigFile(path, &cfg); err != nil || cfg.MaxConcurrentIssues != 1 {
+			t.Errorf("unset maxConcurrentIssues = %d, %v; want 1", cfg.MaxConcurrentIssues, err)
+		}
+	}
 	if err := LoadConfigFile("/does/not/exist.json", &cfg); err == nil {
 		t.Error("missing file accepted")
 	}

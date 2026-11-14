@@ -56,6 +56,7 @@ app.kubernetes.io/component: {{ index . 1 }}
   "repos" $repos
   "intakeLabel" .Values.controlPlane.intake.label
   "pollInterval" .Values.controlPlane.intake.pollInterval
+  "maxConcurrentIssues" (int .Values.scheduler.maxConcurrentIssues)
   "temporal" (dict "address" (printf "%s-temporal:7233" $full) "namespace" .Values.temporal.namespace)
   "gatewayAdminURL" (printf "http://%s-llm-gateway:%v" $full .Values.llmGateway.port)
   "providers" $providers

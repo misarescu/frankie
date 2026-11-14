@@ -30,6 +30,8 @@ type issueSummaryJSON struct {
 	SourceRef string      `json:"source_ref,omitempty"`
 	CostUSD   float64     `json:"cost_usd"`
 	LatestRun *runRefJSON `json:"latest_run,omitempty"`
+	// StartRequestedAt is set once someone asked to start the issue itself (D62).
+	StartRequestedAt *time.Time `json:"start_requested_at,omitempty"`
 }
 
 type runRefJSON struct {
@@ -75,7 +77,7 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request) {
 	for i, is := range issues {
 		js := issueSummaryJSON{Key: is.Key, Number: is.Number, Type: string(is.Type), Title: is.Title, Status: string(is.Status),
 			Priority: is.Priority, DependsOn: []string{}, Labels: nonNilStrings(is.Labels),
-			SourceRef: is.SourceRef, CostUSD: is.CostUSD}
+			SourceRef: is.SourceRef, CostUSD: is.CostUSD, StartRequestedAt: is.StartRequestedAt}
 		deps := dependsOn[is.ID]
 		slices.SortFunc(deps, func(a, b store.IssueSummary) int { return a.Number - b.Number })
 		for _, d := range deps {
@@ -139,6 +141,8 @@ type issueDetailJSON struct {
 	Labels             []string            `json:"labels"`
 	SourceRef          string              `json:"source_ref,omitempty"`
 	CreatedBy          string              `json:"created_by"`
+	StartRequestedAt   *time.Time          `json:"start_requested_at,omitempty"`
+	StartRequestedBy   string              `json:"start_requested_by,omitempty"`
 	CreatedAt          time.Time           `json:"created_at"`
 	UpdatedAt          time.Time           `json:"updated_at"`
 	Parent             *issueRefJSON       `json:"parent,omitempty"`
@@ -175,7 +179,8 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJSON, error) {
 	out := issueDetailJSON{Key: is.Key, Number: is.Number, Type: string(is.Type), Title: is.Title, Status: string(is.Status),
 		Priority: is.Priority, Spec: is.Spec, AcceptanceCriteria: nonNilStrings(is.AcceptanceCriteria), Labels: nonNilStrings(is.Labels),
-		SourceRef: is.SourceRef, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt}
+		SourceRef: is.SourceRef, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt,
+		StartRequestedAt: is.StartRequestedAt, StartRequestedBy: is.StartRequestedBy}
 	p, err := s.Store.GetProject(ctx, is.ProjectID)
 	if err != nil {
 		return out, err

@@ -52,6 +52,8 @@ type Config struct {
 	Kube         kubernetes.Interface // where agent pods are launched
 	IntakeLabel  string
 	PollInterval time.Duration
+	// MaxConcurrentIssues is how many issues may hold a run at once (D62); at least 1.
+	MaxConcurrentIssues int
 }
 
 // Listeners are where the control plane serves.
@@ -110,7 +112,8 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	hub := api.NewHub(cfg.DatabaseURL, log.With("component", "events"))
 	go hub.Run(ctx)
 	mux := http.NewServeMux()
-	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Token: cfg.APIToken}).Register(mux)
+	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Token: cfg.APIToken,
+		MaxConcurrentIssues: cfg.MaxConcurrentIssues}).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {

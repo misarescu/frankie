@@ -78,10 +78,36 @@ LEFT JOIN LATERAL (
 WHERE i.project_id = @project_id
 ORDER BY i.priority DESC, i.number;
 
--- Sync from an issue source (D60): only a draft takes the source's title, body,
--- labels and type; once refined or started, the factory's copy is authoritative.
--- name: UpdateDraftIssueFromSource :one
-UPDATE issues
+-- Sync from an issue source (D60, D62): an issue that never ran (a draft, or a
+-- ready issue without runs) takes the source's title, body, labels and type; once
+-- started, the factory's copy is authoritative.
+-- name: UpdateUnstartedIssueFromSource :one
+UPDATE issues AS i
 SET title = @title, spec = @spec, labels = @labels, type = @type, updated_at = now()
-WHERE id = @id AND status = 'draft'
+WHERE i.id = @id AND (i.status = 'draft'
+  OR (i.status = 'ready' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id)))
 RETURNING *;
+
+-- Asks to start an issue (D62); the first request is kept.
+-- name: RequestIssueStart :one
+UPDATE issues
+SET start_requested_at = coalesce(start_requested_at, now()),
+    start_requested_by = coalesce(start_requested_by, @requested_by::text),
+    updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: MarkIssueScheduled :exec
+UPDATE issues SET scheduled_at = now(), updated_at = now() WHERE id = @id;
+
+-- Every issue as the scheduler sees it (D62). busy: an active run, or started by
+-- the scheduler in the last five minutes and still waiting for its run.
+-- name: ListSchedIssues :many
+SELECT i.id, i.key, i.type, i.parent_id, i.status, i.priority, i.number,
+       (i.start_requested_at IS NOT NULL)::boolean AS requested,
+       (EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id AND r.status IN ('pending', 'running'))
+        OR (i.status = 'ready' AND coalesce(i.scheduled_at > now() - interval '5 minutes', false)))::boolean AS busy
+FROM issues i;
+
+-- name: ListAllDependencies :many
+SELECT issue_id, depends_on_id FROM issue_dependencies;

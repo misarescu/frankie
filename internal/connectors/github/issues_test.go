@@ -82,3 +82,19 @@ func TestRepoFromURL(t *testing.T) {
 func equalExternal(a, b domain.ExternalIssue) bool {
 	return reflect.DeepEqual(a, b)
 }
+
+func TestIssueNumber(t *testing.T) {
+	for ref, want := range map[string]int{
+		"https://github.com/o/r/issues/42":          42,
+		"https://github.com/o/r/pull/42":            0,
+		"https://github.com/o/r/issues/x":           0,
+		"https://github.com/o/r/issues/0":           0,
+		"":                                          0,
+		"https://github.com/o/r/issues/42/comments": 0,
+	} {
+		got, ok := IssueNumber(ref)
+		if got != want || ok != (want > 0) {
+			t.Errorf("IssueNumber(%q) = %d, %v; want %d", ref, got, ok, want)
+		}
+	}
+}

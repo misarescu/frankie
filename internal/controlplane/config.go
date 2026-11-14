@@ -39,7 +39,9 @@ type fileConfig struct {
 	Providers    config.Providers `json:"providers"`
 	IntakeLabel  string           `json:"intakeLabel"`
 	PollInterval string           `json:"pollInterval"`
-	Temporal     struct {
+	// MaxConcurrentIssues is scheduler.maxConcurrentIssues (D62); 0 means 1.
+	MaxConcurrentIssues int `json:"maxConcurrentIssues"`
+	Temporal            struct {
 		Address   string `json:"address"`
 		Namespace string `json:"namespace"`
 	} `json:"temporal"`
@@ -236,6 +238,10 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Repos = fc.Repos
 	cfg.IntakeLabel = fc.IntakeLabel
+	if fc.MaxConcurrentIssues < 0 {
+		return fmt.Errorf("controlplane: config: maxConcurrentIssues %d is negative", fc.MaxConcurrentIssues)
+	}
+	cfg.MaxConcurrentIssues = max(fc.MaxConcurrentIssues, 1)
 	cfg.TemporalAddress, cfg.TemporalNamespace = fc.Temporal.Address, fc.Temporal.Namespace
 	cfg.GatewayAdminURL = fc.GatewayAdminURL
 

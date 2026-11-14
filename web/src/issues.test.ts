@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { dependencyGraph, isFinished, retryIssue, shortID, startIssues, tree, type IssueSummary } from "./issues";
+import {
+  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, leafStatuses, progress, progressText, retryIssue, shortID, startIssues, tree,
+  type IssueRef, type IssueSummary,
+} from "./issues";
 
 const issue = (key: string, over: Partial<IssueSummary> = {}): IssueSummary => ({
   key, number: Number(key.split("-")[1]), type: "task", title: key, status: "ready", priority: 0,
@@ -83,3 +86,52 @@ test("M5.1: startIssues and retryIssue send the person's name as by", async () =
   await retryIssue(fetchFn, "gc-1", "Ana");
   expect(bodies).toEqual([{ keys: ["gc-1"], by: "Ana" }, { by: "Ana" }]);
 });
+
+test("M5.1: a parent's progress counts merged, canceled and all", () => {
+  const p = progress(["merged", "released", "canceled", "running", "draft"]);
+  expect(p).toEqual({ merged: 2, canceled: 1, total: 5 });
+  expect(progressText(p)).toBe("2 of 5 merged, 1 canceled");
+  expect(progressText(progress(["merged", "ready"]))).toBe("1 of 2 merged");
+});
+
+test("M5.1: the issue list counts the leaves under a parent", () => {
+  const issues = [
+    issue("gc-1", { type: "epic", status: "draft" }),
+    issue("gc-2", { parent: "gc-1", type: "story", status: "draft" }),
+    issue("gc-3", { parent: "gc-2", status: "merged" }),
+    issue("gc-4", { parent: "gc-2", status: "running" }),
+    issue("gc-5", { parent: "gc-1", type: "bug", status: "canceled" }),
+  ];
+  expect(leafStatuses(issues, "gc-1").sort()).toEqual(["canceled", "merged", "running"]);
+  expect(leafStatuses(issues, "gc-2").sort()).toEqual(["merged", "running"]);
+  expect(leafStatuses(issues, "gc-3")).toEqual([]);
+});
+
+test("M5.1: Complete is offered exactly when the API would accept it", () => {
+  const ref = (status: string): IssueRef => ({ key: "k", type: "task", title: "t", status });
+  expect(canComplete({ status: "draft", children: [ref("merged"), ref("canceled")] })).toBe(true);
+  expect(canComplete({ status: "ready", children: [ref("released")] })).toBe(true);
+  expect(canComplete({ status: "draft", children: [ref("merged"), ref("awaiting_human")] })).toBe(false);
+  expect(canComplete({ status: "draft", children: [ref("canceled")] })).toBe(false); // cancel it instead
+  expect(canComplete({ status: "draft", children: [] })).toBe(false); // a leaf
+  expect(canComplete({ status: "merged", children: [ref("merged")] })).toBe(false);
+});
+
+test("M5.1: complete and cancel post to the issue, with the name and the reason", async () => {
+  const calls: { url: string; body: unknown }[] = [];
+  const fetchFn = async (url: string, init?: RequestInit) => {
+    calls.push({ url, body: JSON.parse(String(init?.body)) });
+    return Response.json({ closed: [{ key: "gc-7", type: "epic", title: "t", status: "merged" }] });
+  };
+  expect((await completeIssue(fetchFn, "gc-7", "Ana")).closed[0]!.status).toBe("merged");
+  await cancelIssue(fetchFn, "gc-1", "  its change request was closed ", "Ana");
+  expect(calls).toEqual([
+    { url: "/api/issues/gc-7/complete", body: { by: "Ana" } },
+    { url: "/api/issues/gc-1/cancel", body: { reason: "its change request was closed", by: "Ana" } },
+  ]);
+  await expect(cancelIssue(fetchFn, "gc-1", " ")).rejects.toThrow("say why");
+  expect(calls).toHaveLength(2);
+  const refused = async () => new Response("gc-1 has a run in progress (run x); abort its step or decide its gate first\n", { status: 409 });
+  await expect(cancelIssue(refused, "gc-1", "stop")).rejects.toThrow("run in progress");
+});
+

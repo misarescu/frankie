@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import { isFinished, retryIssue, shortID, startIssues, type IssueDetail, type IssueRef, type StartReply } from "./issues";
+import {
+  canComplete, cancelIssue, completeIssue, isFinished, progress, progressText, retryIssue, shortID, startIssues,
+  type CloseReply, type IssueDetail, type IssueRef, type StartReply,
+} from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
 import { watch, type LiveRunRef } from "./live";
 import { LiveRun } from "./LiveRun";
@@ -14,6 +17,8 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
   const [is, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reply, setReply] = useState<StartReply | null>(null);
+  const [closed, setClosed] = useState<CloseReply | null>(null);
+  const [canceling, setCanceling] = useState(false);
   const [busy, setBusy] = useState(false);
   // Runs the live view follows: those in progress, and those that finished
   // while the page was open (M5.1).
@@ -31,6 +36,8 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
   useEffect(() => {
     setIssue(null);
     setReply(null);
+    setClosed(null);
+    setCanceling(false);
     setWatched([]);
   }, [issueKey]);
   const fast = (is?.live_runs?.length ?? 0) > 0 || fastUntil > Date.now();
@@ -53,6 +60,11 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
     act(startIssues(apiFetch, [issueKey]).then(setReply));
   };
 
+  const complete = () => {
+    if (!is || !window.confirm(`Complete ${is.key}? It moves to merged, and Frankie closes its GitHub issue as completed.`)) return;
+    act(completeIssue(apiFetch, is.key).then(setClosed));
+  };
+
   const head = <h1><a href="#/issues">Issues</a> / {issueKey}</h1>;
   if (!is) return <>{head}{error && <p className="status">{error}</p>}</>;
   const decidable = (is.status === "refining" && is.spec_proposal) || is.status === "draft";
@@ -67,6 +79,18 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
         {is.spec_approved_by && <> · spec approved by {is.spec_approved_by}</>}
         {is.usage.cost_usd > 0 && <> · {usd(is.usage.cost_usd)} ({is.usage.input_tokens + is.usage.output_tokens} tokens)</>}
       </p>
+      {is.closed_at && (
+        <p className="question">
+          {is.status === "canceled" ? "Canceled" : "Completed"} by {is.closed_by || "someone"} on {new Date(is.closed_at).toLocaleString()}
+          {is.close_reason && <>: {is.close_reason}</>}
+        </p>
+      )}
+      {is.children.length > 0 && (
+        <p className="status">
+          Sub-issues: {progressText(progress(is.children.map((c) => c.status)))}
+          {!isFinished(is.status) && !canComplete(is) && " · it can be completed once they are all finished"}
+        </p>
+      )}
       <div className="actions">
         {!isFinished(is.status) && (
           <button disabled={busy} onClick={start}>
@@ -74,8 +98,19 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
           </button>
         )}
         {is.status === "failed" && <button disabled={busy} onClick={() => act(retryIssue(apiFetch, is.key))}>Retry</button>}
+        {canComplete(is) && <button disabled={busy} onClick={complete}>Complete</button>}
+        {!isFinished(is.status) && !canceling && <button className="reject" disabled={busy} onClick={() => setCanceling(true)}>Cancel…</button>}
         {error && <span className="status">{error}</span>}
       </div>
+      {canceling && (
+        <CancelForm issue={is} onDone={(r) => { setCanceling(false); setClosed(r); load(); }} onClose={() => setCanceling(false)} />
+      )}
+      {closed && (
+        <p className="status">
+          Closed: {closed.closed.map((c, n) => <span key={c.key}>{n > 0 && ", "}<a href={`#/issues/${c.key}`}>{c.key}</a> ({c.status})</span>)}.
+          {" "}Frankie closes their GitHub issues within a minute.
+        </p>
+      )}
       {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
       {watched.map((r) => <LiveRun key={r.id} run={r} showIssue={r.issue_key !== is.key} />)}
       {is.spec_feedback && <p className="question">Last spec sent back: {is.spec_feedback}</p>}
@@ -160,6 +195,38 @@ function Relations({ title, refs }: { title: string; refs: IssueRef[] }) {
         <span key={r.key}>{n > 0 && " · "}<a href={`#/issues/${r.key}`}>{r.key}</a> {r.title} <StatusChip status={r.status} /></span>
       ))}
     </p>
+  );
+}
+
+// CancelForm cancels the issue and everything unfinished under it, with a
+// reason that is also posted on the GitHub issues (D70, D71).
+function CancelForm({ issue, onDone, onClose }: { issue: IssueDetail; onDone: (r: CloseReply) => void; onClose: () => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = () => {
+    setBusy(true);
+    setError(null);
+    cancelIssue(apiFetch, issue.key, reason)
+      .then(onDone)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <section className="approval">
+      <h2>Cancel {issue.key}</h2>
+      <p className="type">
+        {issue.children.length > 0 ? "It and every unfinished issue under it move" : "It moves"} to canceled, and Frankie closes
+        {" "}the GitHub {issue.children.length > 0 ? "issues" : "issue"} as not planned, with this reason. A run in progress has to end first.
+      </p>
+      <textarea placeholder="Why is it canceled? (posted on GitHub)" value={reason} maxLength={2000}
+        onChange={(e) => setReason(e.target.value)} disabled={busy} />
+      <div className="actions">
+        <button className="reject" onClick={send} disabled={busy || reason.trim() === ""}>Cancel issue</button>
+        <button onClick={onClose} disabled={busy}>Keep it</button>
+        {error && <span className="status">{error}</span>}
+      </div>
+    </section>
   );
 }
 

@@ -254,7 +254,9 @@ func (s *session) call(ctx context.Context, cmd map[string]any, out any) error {
 	_, err = s.stdin.Write(append(line, '\n'))
 	s.writeMu.Unlock()
 	if err != nil {
-		return fmt.Errorf("pi: %s: %w", cmd["type"], err)
+		// A write fails once pi's stdin is closed, which happens when it
+		// exited: report it like a closed output, whichever comes first.
+		return fmt.Errorf("pi: %s: pi exited (%w)", cmd["type"], err)
 	}
 	select {
 	case r := <-ch:

@@ -95,6 +95,7 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, a
 			fmt.Fprintf(&b, "- %s\n", c)
 		}
 	}
+	writeDependencies(&b, in.Dependencies)
 	writeAnswers(&b, answers)
 	if f := strings.TrimSpace(in.SpecFeedback); f != "" {
 		b.WriteString("\nAn earlier refinement of this issue was sent back. Address this:\n\n")
@@ -112,6 +113,29 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, a
 		b.WriteString("\nWhen you are done, summarize what you did and how you verified it.")
 	}
 	return b.String()
+}
+
+// writeDependencies tells the refiner what the issue builds on (M5.1): each
+// dependency's status, change requests and spec. A dependency that is not on the
+// base branch yet may already have its code on its branch, which the agent can
+// read, so the spec need not call the issue blocked.
+func writeDependencies(b *strings.Builder, deps []IssueDependency) {
+	if len(deps) == 0 {
+		return
+	}
+	b.WriteString("\nThis issue depends on the issues below; it starts only once they are merged. Write the spec against what they deliver. " +
+		"Where one is not merged yet, read its change on its branch (`git fetch origin <branch>`, then `git diff HEAD...FETCH_HEAD`) " +
+		"rather than calling this issue blocked because that work is not on the base branch yet.\n")
+	for _, d := range deps {
+		fmt.Fprintf(b, "\n%s: %s (%s)\n", d.Key, strings.TrimSpace(d.Title), strings.ReplaceAll(d.Status, "_", " "))
+		for _, c := range d.ChangeRequests {
+			fmt.Fprintf(b, "Change request %s (%s), branch %s\n", c.URL, c.Status, c.Branch)
+		}
+		if spec := strings.TrimSpace(d.Spec); spec != "" {
+			b.WriteString(spec)
+			b.WriteString("\n")
+		}
+	}
 }
 
 // writeAnswers adds what people answered about the issue, the latest

@@ -141,24 +141,27 @@ type changeRequestJSON struct {
 
 // issueDetailJSON is the issue page (D59).
 type issueDetailJSON struct {
-	Key                string              `json:"key"`
-	Number             int                 `json:"number"`
-	Project            string              `json:"project"`
-	Type               string              `json:"type"`
-	Title              string              `json:"title"`
-	Status             string              `json:"status"`
-	Priority           int                 `json:"priority"`
-	Spec               string              `json:"spec"`
-	AcceptanceCriteria []string            `json:"acceptance_criteria"`
-	Labels             []string            `json:"labels"`
-	SourceRef          string              `json:"source_ref,omitempty"`
-	CreatedBy          string              `json:"created_by"`
-	StartRequestedAt   *time.Time          `json:"start_requested_at,omitempty"`
-	StartRequestedBy   string              `json:"start_requested_by,omitempty"`
-	SpecApprovedAt     *time.Time          `json:"spec_approved_at,omitempty"`
-	SpecApprovedBy     string              `json:"spec_approved_by,omitempty"`
-	SpecFeedback       string              `json:"spec_feedback,omitempty"`
-	SpecProposal       *domain.RefinedSpec `json:"spec_proposal,omitempty"`
+	Key                string     `json:"key"`
+	Number             int        `json:"number"`
+	Project            string     `json:"project"`
+	Type               string     `json:"type"`
+	Title              string     `json:"title"`
+	Status             string     `json:"status"`
+	Priority           int        `json:"priority"`
+	Spec               string     `json:"spec"`
+	AcceptanceCriteria []string   `json:"acceptance_criteria"`
+	Labels             []string   `json:"labels"`
+	SourceRef          string     `json:"source_ref,omitempty"`
+	CreatedBy          string     `json:"created_by"`
+	StartRequestedAt   *time.Time `json:"start_requested_at,omitempty"`
+	StartRequestedBy   string     `json:"start_requested_by,omitempty"`
+	// StartRequestedVia is the ancestor whose start request covers the issue,
+	// when it has none of its own; StartRequestedBy is then that request's (D62).
+	StartRequestedVia string              `json:"start_requested_via,omitempty"`
+	SpecApprovedAt    *time.Time          `json:"spec_approved_at,omitempty"`
+	SpecApprovedBy    string              `json:"spec_approved_by,omitempty"`
+	SpecFeedback      string              `json:"spec_feedback,omitempty"`
+	SpecProposal      *domain.RefinedSpec `json:"spec_proposal,omitempty"`
 	// Who completed or canceled the issue, when, and why (D70).
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
 	ClosedBy    string         `json:"closed_by,omitempty"`
@@ -216,6 +219,15 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 		return out, err
 	}
 	out.Project = p.Name
+	if out.StartRequestedBy == "" {
+		by, via, err := s.Store.StartRequester(ctx, is)
+		if err != nil {
+			return out, err
+		}
+		if by != "" {
+			out.StartRequestedBy, out.StartRequestedVia = by, via
+		}
+	}
 	if is.ParentID != nil {
 		parent, err := s.Store.GetIssue(ctx, *is.ParentID)
 		if err != nil {

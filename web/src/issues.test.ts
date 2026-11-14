@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, leafStatuses, progress, progressText, retryIssue, shortID, startIssues, tree,
-  type IssueRef, type IssueSummary,
+  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, shortID, startIssues, tree,
+  type IssueDetail, type IssueRef, type IssueSummary,
 } from "./issues";
 
 const issue = (key: string, over: Partial<IssueSummary> = {}): IssueSummary => ({
@@ -133,5 +133,35 @@ test("M5.1: complete and cancel post to the issue, with the name and the reason"
   expect(calls).toHaveLength(2);
   const refused = async () => new Response("gc-1 has a run in progress (run x); abort its step or decide its gate first\n", { status: 409 });
   await expect(cancelIssue(refused, "gc-1", "stop")).rejects.toThrow("run in progress");
+});
+
+test("M5.1: the issue page offers Start only where it does something", () => {
+  const ref = (status: string): IssueRef => ({ key: "k", type: "task", title: "t", status });
+  const leaf = { status: "ready", children: [] as IssueRef[], change_requests: [] as IssueDetail["change_requests"] };
+  expect(issueActions(leaf)).toEqual({ start: "Start", retry: false, complete: false, cancel: true });
+  expect(issueActions({ ...leaf, start_requested_by: "Mihai", start_requested_via: "gc-11" }).note)
+    .toBe("Start requested by Mihai (through gc-11): it starts once its dependencies are done and a slot is free");
+  expect(issueActions({ ...leaf, status: "running" })).toEqual({ retry: false, complete: false, cancel: true, note: "A run is in progress" });
+  const waiting = issueActions({ ...leaf, status: "awaiting_human",
+    change_requests: [{ repo: "o/r", number: 3, url: "u3", status: "closed" }, { repo: "o/r", number: 4, url: "u4", status: "open" }] });
+  expect([waiting.start, waiting.note, waiting.changeRequest]).toEqual([undefined, "Waiting for a person: review the change request", "u4"]);
+  expect(issueActions({ ...leaf, status: "failed" })).toEqual({ retry: true, complete: false, cancel: true });
+  expect(issueActions({ ...leaf, status: "refining", spec_proposal: { spec: "s", acceptance_criteria: [] } }).note).toContain("waits for approval");
+  expect(issueActions({ ...leaf, status: "merged" })).toEqual({ retry: false, complete: false, cancel: false });
+
+  const parent = { ...leaf, status: "draft", children: [ref("running"), ref("merged")] };
+  expect(issueActions(parent).start).toBe("Start all under it");
+  expect(issueActions({ ...parent, start_requested_by: "Mihai" })).toEqual({ retry: false, complete: false, cancel: true, note: "Start requested by Mihai" });
+  expect(issueActions({ ...parent, children: [ref("merged")] })).toMatchObject({ complete: true, cancel: true });
+});
+
+test("M5.1: a parent's spec is not approved", () => {
+  const base = { status: "draft", type: "task", children: [] as IssueRef[] };
+  expect(specDecidable(base)).toBe(true);
+  expect(specDecidable({ ...base, type: "epic" })).toBe(false);
+  expect(specDecidable({ ...base, type: "story", children: [{ key: "k", type: "task", title: "t", status: "ready" }] })).toBe(false);
+  expect(specDecidable({ ...base, status: "refining" })).toBe(false);
+  expect(specDecidable({ ...base, status: "refining", spec_proposal: { spec: "s", acceptance_criteria: [] } })).toBe(true);
+  expect(specDecidable({ ...base, status: "ready" })).toBe(false);
 });
 

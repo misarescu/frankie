@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import {
-  canComplete, cancelIssue, completeIssue, isFinished, progress, progressText, retryIssue, shortID, startIssues,
+  cancelIssue, completeIssue, issueActions, progress, progressText, retryIssue, shortID, specDecidable, startIssues,
   type CloseReply, type IssueDetail, type IssueRef, type StartReply,
 } from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
@@ -67,7 +67,7 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
 
   const head = <h1><a href="#/issues">Issues</a> / {issueKey}</h1>;
   if (!is) return <>{head}{error && <p className="status">{error}</p>}</>;
-  const decidable = (is.status === "refining" && is.spec_proposal) || is.status === "draft";
+  const actions = issueActions(is);
   return (
     <>
       {head}
@@ -75,7 +75,6 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
       <p className="status">
         {is.project}
         {is.source_ref && <> · <a href={is.source_ref} target="_blank" rel="noreferrer">source</a></>}
-        {is.start_requested_by && <> · start requested by {is.start_requested_by}</>}
         {is.spec_approved_by && <> · spec approved by {is.spec_approved_by}</>}
         {is.usage.cost_usd > 0 && <> · {usd(is.usage.cost_usd)} ({is.usage.input_tokens + is.usage.output_tokens} tokens)</>}
       </p>
@@ -85,21 +84,32 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
           {is.close_reason && <>: {is.close_reason}</>}
         </p>
       )}
+
+      <Relations title="part of" refs={is.parent ? [is.parent] : []} />
       {is.children.length > 0 && (
-        <p className="status">
-          Sub-issues: {progressText(progress(is.children.map((c) => c.status)))}
-          {!isFinished(is.status) && !canComplete(is) && " · it can be completed once they are all finished"}
-        </p>
+        <section className="children">
+          <h3 className="type">contains · {progressText(progress(is.children.map((c) => c.status)))}</h3>
+          <ul>
+            {is.children.map((c) => (
+              <li key={c.key}><a href={`#/issues/${c.key}`}>{c.key}</a> {c.title} <span className="type">· {c.type}</span> <StatusChip status={c.status} /></li>
+            ))}
+          </ul>
+        </section>
       )}
+      <Relations title="waits for" refs={is.depends_on} />
+      <Relations title="needed by" refs={is.dependents} />
+
       <div className="actions">
-        {!isFinished(is.status) && (
-          <button disabled={busy} onClick={start}>
-            {is.children.length > 0 ? "Start all under it" : "Start"}
-          </button>
+        {actions.start && <button disabled={busy} onClick={start}>{actions.start}</button>}
+        {actions.retry && <button disabled={busy} onClick={() => act(retryIssue(apiFetch, is.key))}>Retry</button>}
+        {actions.complete && <button disabled={busy} onClick={complete}>Complete</button>}
+        {actions.cancel && !canceling && <button className="reject" disabled={busy} onClick={() => setCanceling(true)}>Cancel…</button>}
+        {actions.note && (
+          <span className="status">
+            {actions.note}
+            {actions.changeRequest && <>: <a href={actions.changeRequest} target="_blank" rel="noreferrer">open it</a></>}
+          </span>
         )}
-        {is.status === "failed" && <button disabled={busy} onClick={() => act(retryIssue(apiFetch, is.key))}>Retry</button>}
-        {canComplete(is) && <button disabled={busy} onClick={complete}>Complete</button>}
-        {!isFinished(is.status) && !canceling && <button className="reject" disabled={busy} onClick={() => setCanceling(true)}>Cancel…</button>}
         {error && <span className="status">{error}</span>}
       </div>
       {canceling && (
@@ -112,33 +122,30 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
         </p>
       )}
       {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
-      {watched.map((r) => <LiveRun key={r.id} run={r} showIssue={r.issue_key !== is.key} />)}
       {is.spec_feedback && <p className="question">Last spec sent back: {is.spec_feedback}</p>}
       {is.overlaps.length > 0 && (
         <p className="question">
           Likely overlap: {is.overlaps.map((o) => `${o.with} (${o.paths.join(", ")})`).join("; ")}
         </p>
       )}
+      {watched.map((r) => <LiveRun key={r.id} run={r} showIssue={r.issue_key !== is.key} />)}
 
       {is.spec_proposal && (
         <section className="approval">
           <h2>Refined spec waiting for approval</h2>
           {is.spec_proposal.summary && <p className="question">{is.spec_proposal.summary}</p>}
-          <pre>{is.spec_proposal.spec}</pre>
+          <div className="spec-text">{is.spec_proposal.spec}</div>
           <Criteria items={is.spec_proposal.acceptance_criteria} />
           {(is.spec_proposal.file_hints?.length ?? 0) > 0 && <p className="type">touches {is.spec_proposal.file_hints!.join(", ")}</p>}
         </section>
       )}
-      {decidable && <SpecDecisionForm issueKey={is.key} refined={!!is.spec_proposal} onDecided={load} />}
+      {specDecidable(is) && <SpecDecisionForm issueKey={is.key} refined={!!is.spec_proposal} onDecided={load} />}
 
-      <h2 className="type">spec</h2>
-      <pre>{is.spec || "(no description)"}</pre>
-      <Criteria items={is.acceptance_criteria} />
-
-      <Relations title="part of" refs={is.parent ? [is.parent] : []} />
-      <Relations title="contains" refs={is.children} />
-      <Relations title="waits for" refs={is.depends_on} />
-      <Relations title="needed by" refs={is.dependents} />
+      <section className="spec">
+        <h3>Spec</h3>
+        <div className="spec-text">{is.spec || <span className="type">(no description)</span>}</div>
+        <Criteria items={is.acceptance_criteria} />
+      </section>
 
       {is.runs.length > 0 && (
         <>
@@ -180,7 +187,7 @@ function Criteria({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
     <>
-      <h2 className="type">acceptance criteria</h2>
+      <h3 className="type">acceptance criteria</h3>
       <ul>{items.map((c, i) => <li key={i}>{c}</li>)}</ul>
     </>
   );

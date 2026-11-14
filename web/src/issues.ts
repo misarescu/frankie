@@ -45,6 +45,9 @@ export type IssueDetail = {
   updated_at: string;
   start_requested_at?: string;
   start_requested_by?: string;
+  // The ancestor whose start request covers this issue, when it has none of
+  // its own (start_requested_by is then that request's).
+  start_requested_via?: string;
   spec_approved_at?: string;
   spec_approved_by?: string;
   spec_feedback?: string;
@@ -150,6 +153,65 @@ export function canComplete(is: Pick<IssueDetail, "status" | "children">): boole
   const p = progress(is.children.map((c) => c.status));
   return (is.status === "draft" || is.status === "ready") && p.total > 0 &&
     is.children.every((c) => isFinished(c.status)) && p.canceled < p.total;
+}
+
+// IssueActions is what the issue page offers (M5.1): a button only where it
+// does something, otherwise a note saying what the issue waits for.
+export type IssueActions = {
+  start?: string; // the Start button's label
+  retry: boolean;
+  complete: boolean;
+  cancel: boolean;
+  note?: string;
+  changeRequest?: string; // the change request a person reviews
+};
+
+export function issueActions(
+  is: Pick<IssueDetail, "status" | "children" | "start_requested_by" | "start_requested_via" | "spec_proposal" | "change_requests">,
+): IssueActions {
+  const finished = isFinished(is.status);
+  const out: IssueActions = { retry: is.status === "failed", complete: canComplete(is), cancel: !finished };
+  if (finished) return out;
+  const requested = is.start_requested_by
+    ? `Start requested by ${is.start_requested_by}${is.start_requested_via ? ` (through ${is.start_requested_via})` : ""}`
+    : undefined;
+  if (is.children.length > 0) {
+    // A request on a parent covers everything under it, also sub-issues added
+    // later (D62): once requested, there is nothing more to start.
+    if (requested) out.note = requested;
+    else out.start = "Start all under it";
+    return out;
+  }
+  switch (is.status) {
+    case "draft":
+    case "ready":
+      if (requested) out.note = `${requested}: it starts once its dependencies are done and a slot is free`;
+      else out.start = "Start";
+      break;
+    case "refining":
+      out.note = is.spec_proposal ? "The refined spec waits for approval below" : "The refiner is writing its spec";
+      break;
+    case "running":
+      out.note = "A run is in progress";
+      break;
+    case "queued":
+      out.note = "In the merge queue";
+      break;
+    case "awaiting_human": {
+      out.note = "Waiting for a person: review the change request";
+      out.changeRequest = is.change_requests.find((c) => c.status === "open")?.url;
+      break;
+    }
+  }
+  return out;
+}
+
+// specDecidable says whether the page offers to approve or reject the spec
+// (D64, D66): a leaf's draft, or a refined spec waiting. A parent's spec is not
+// approved; its sub-issues' are.
+export function specDecidable(is: Pick<IssueDetail, "status" | "type" | "children" | "spec_proposal">): boolean {
+  if (is.children.length > 0 || is.type === "epic") return false;
+  return is.status === "draft" || (is.status === "refining" && !!is.spec_proposal);
 }
 
 // shortID shortens a run's ID for lists. IDs are UUIDv7, whose leading digits

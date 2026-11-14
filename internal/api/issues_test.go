@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
 )
@@ -148,6 +150,17 @@ func TestGetIssue(t *testing.T) {
 	}
 	if epic.Parent != nil || epic.Runs == nil || len(epic.Runs) != 0 || epic.LiveRuns == nil || epic.ChangeRequests == nil || epic.AcceptanceCriteria == nil {
 		t.Errorf("epic = %+v; want no parent and empty (not null) lists", epic)
+	}
+
+	// M5.1: a sub-issue covered by its parent's start request says so.
+	if _, err := st.RequestIssueStart(ctx, []uuid.UUID{is["epic"].ID}, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	var covered issueDetailJSON
+	getJSON(t, srv.URL+"/api/issues/"+is["ui"].Key, &covered)
+	if covered.StartRequestedBy != "ana" || covered.StartRequestedVia != is["epic"].Key || covered.StartRequestedAt != nil {
+		t.Errorf("covered sub-issue: by %q via %q at %v; want ana via %s and no request of its own",
+			covered.StartRequestedBy, covered.StartRequestedVia, covered.StartRequestedAt, is["epic"].Key)
 	}
 
 	var api issueDetailJSON

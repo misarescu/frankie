@@ -57,6 +57,24 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 	return i, err
 }
 
+const getProject = `-- name: GetProject :one
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects WHERE id = $1
+`
+
+func (q *Queries) GetProject(ctx context.Context, id uuid.UUID) (Project, error) {
+	row := q.db.QueryRow(ctx, getProject, id)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.KeyPrefix,
+		&i.NextIssueNumber,
+	)
+	return i, err
+}
+
 const getProjectByName = `-- name: GetProjectByName :one
 SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects WHERE name = $1
 `
@@ -73,6 +91,37 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 		&i.NextIssueNumber,
 	)
 	return i, err
+}
+
+const listProjects = `-- name: ListProjects :many
+SELECT id, name, created_at, updated_at, key_prefix, next_issue_number FROM projects ORDER BY name
+`
+
+func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
+	rows, err := q.db.Query(ctx, listProjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Project
+	for rows.Next() {
+		var i Project
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.KeyPrefix,
+			&i.NextIssueNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockProject = `-- name: LockProject :exec

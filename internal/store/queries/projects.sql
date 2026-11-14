@@ -17,3 +17,9 @@ RETURNING key_prefix, (next_issue_number - 1)::integer AS number;
 -- together close a cycle that each alone would not.
 -- name: LockProject :exec
 SELECT id FROM projects WHERE id = @id FOR UPDATE;
+
+-- name: ListProjects :many
+SELECT * FROM projects ORDER BY name;
+
+-- name: GetProject :one
+SELECT * FROM projects WHERE id = @id;

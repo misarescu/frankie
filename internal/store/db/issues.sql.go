@@ -418,6 +418,69 @@ func (q *Queries) ListProjectDependencies(ctx context.Context, projectID uuid.UU
 	return items, nil
 }
 
+const listProjectIssues = `-- name: ListProjectIssues :many
+SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8
+          FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
+       -- An issue without runs gets the nil UUID and an empty status.
+       coalesce(lr.id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_run_id,
+       coalesce(lr.status, '')::text AS latest_run_status
+FROM issues i
+LEFT JOIN LATERAL (
+  SELECT r.id, r.status FROM runs r WHERE r.issue_id = i.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1
+) lr ON true
+WHERE i.project_id = $1
+ORDER BY i.priority DESC, i.number
+`
+
+type ListProjectIssuesRow struct {
+	Issue           Issue
+	CostUsd         float64
+	LatestRunID     uuid.UUID
+	LatestRunStatus string
+}
+
+// A project's issues for the board: model spend across all runs and the latest run.
+func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([]ListProjectIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectIssues, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectIssuesRow
+	for rows.Next() {
+		var i ListProjectIssuesRow
+		if err := rows.Scan(
+			&i.Issue.ID,
+			&i.Issue.ProjectID,
+			&i.Issue.Type,
+			&i.Issue.Title,
+			&i.Issue.Spec,
+			&i.Issue.AcceptanceCriteria,
+			&i.Issue.Status,
+			&i.Issue.Priority,
+			&i.Issue.SourceRef,
+			&i.Issue.Labels,
+			&i.Issue.CreatedBy,
+			&i.Issue.CreatedAt,
+			&i.Issue.UpdatedAt,
+			&i.Issue.Number,
+			&i.Issue.Key,
+			&i.Issue.ParentID,
+			&i.CostUsd,
+			&i.LatestRunID,
+			&i.LatestRunStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeIssueDependency = `-- name: RemoveIssueDependency :exec
 DELETE FROM issue_dependencies WHERE issue_id = $1 AND depends_on_id = $2
 `

@@ -41,6 +41,18 @@ func TestCreateIssueDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestGetProject(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	got, err := s.GetProject(t.Context(), p.ID)
+	if err != nil || got.Name != p.Name || got.KeyPrefix != p.KeyPrefix {
+		t.Fatalf("GetProject = %+v, %v; want %+v", got, err, p)
+	}
+	if _, err := s.GetProject(t.Context(), domain.NewID()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetProject(unknown) = %v, want ErrNotFound", err)
+	}
+}
+
 // An external issue syncs into at most one Issue per project.
 func TestIssueSourceRefUniquePerProject(t *testing.T) {
 	s := newTestStore(t)

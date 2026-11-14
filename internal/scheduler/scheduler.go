@@ -141,34 +141,16 @@ func (s *Scheduler) start(ctx context.Context, id uuid.UUID, refine bool) error 
 	if err := s.Store.MarkIssueScheduled(ctx, is.ID); err != nil {
 		return err
 	}
-	by, via := s.requester(ctx, is)
+	// The requester is for the log: a failed lookup does not fail a start that
+	// already happened.
+	by, via, err := s.Store.StartRequester(ctx, is)
+	if err != nil {
+		s.Log.Warn("find who requested a start", "issue", is.Key, "error", err)
+	}
 	attrs := []any{"issue", is.Key, "refinement", refine, "requested_by", by}
-	if via != is.Key {
+	if via != "" && via != is.Key {
 		attrs = append(attrs, "requested_via", via)
 	}
 	s.Log.Info("issue started", attrs...)
 	return nil
-}
-
-// requester says who asked to start the issue and on which issue they asked: the
-// issue itself, or the nearest ancestor with a request, since a request on a
-// parent covers everything under it (D62). It is for the log, so a failed lookup
-// leaves the answer empty rather than failing a start that already happened.
-func (s *Scheduler) requester(ctx context.Context, is domain.Issue) (by, via string) {
-	seen := map[uuid.UUID]bool{}
-	for cur := is; ; {
-		if cur.StartRequestedBy != "" {
-			return cur.StartRequestedBy, cur.Key
-		}
-		if cur.ParentID == nil || seen[*cur.ParentID] {
-			return "", is.Key
-		}
-		seen[cur.ID] = true
-		parent, err := s.Store.GetIssue(ctx, *cur.ParentID)
-		if err != nil {
-			s.Log.Warn("find who requested a start", "issue", is.Key, "error", err)
-			return "", is.Key
-		}
-		cur = parent
-	}
 }

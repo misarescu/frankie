@@ -41,6 +41,53 @@ func TestRequestIssueStart(t *testing.T) {
 	}
 }
 
+// M5.1: the requester of an issue is its own, or its nearest requested ancestor's.
+func TestStartRequester(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	ctx := t.Context()
+	mk := func(typ domain.IssueType, parent *domain.Issue) domain.Issue {
+		in := NewIssue{ProjectID: p.ID, Type: typ, Title: string(typ), Status: domain.IssueReady, CreatedBy: "t"}
+		if parent != nil {
+			in.ParentID = &parent.ID
+		}
+		is, err := s.CreateIssue(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return is
+	}
+	epic := mk(domain.IssueEpic, nil)
+	story := mk(domain.IssueStory, &epic)
+	task := mk(domain.IssueTask, &story)
+	other := mk(domain.IssueTask, &story)
+	alone := mk(domain.IssueTask, nil)
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{epic.ID}, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{other.ID}, "bo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		id      uuid.UUID
+		by, via string
+	}{
+		{task.ID, "ana", epic.Key},  // through two parents
+		{other.ID, "bo", other.Key}, // its own request comes first
+		{epic.ID, "ana", epic.Key},
+		{alone.ID, "", ""}, // nobody asked
+	} {
+		is, err := s.GetIssue(ctx, c.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		by, via, err := s.StartRequester(ctx, is)
+		if err != nil || by != c.by || via != c.via {
+			t.Errorf("%s: StartRequester = %q, %q, %v; want %q, %q", is.Key, by, via, err, c.by, c.via)
+		}
+	}
+}
+
 // D62: the scheduler sees requests, parents, dependencies and busy slots.
 func TestSchedulingState(t *testing.T) {
 	s := newTestStore(t)

@@ -52,6 +52,11 @@ CREATE TABLE issues (
   spec_feedback       text        NOT NULL DEFAULT '',
   -- The refiner's result (a domain.RefinedSpec) while it waits for approval (D66).
   spec_proposal       jsonb,
+  -- Closing by a person (D70): completing a parent (-> merged) or canceling,
+  -- who did it, when, and the reason a cancel gave.
+  closed_at           timestamptz,
+  closed_by           text,
+  close_reason        text        NOT NULL DEFAULT '',
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   -- An external issue (e.g. a GitHub issue URL) syncs into at most one Issue per project.

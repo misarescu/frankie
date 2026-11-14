@@ -56,9 +56,12 @@ Allowed transitions (enforced in `internal/domain`; anything not listed is rejec
 | `queued` | `merged`, `running` (merge queue sends a conflict back to the coder) |
 | `merged` | `released` |
 | any state before `merged` | `failed`, `canceled` |
-| `failed` | `ready` (re-arm for a new Run) |
+| `failed` | `ready` (re-arm for a new Run), `canceled` (a person gives up on it, D70) |
+| `draft`, `ready` of a **parent** | `merged` (a person completes it, D70; not a generic transition: only `domain.CheckComplete` allows it) |
 
 `merged` is not failed or canceled: the code is already on `main`; a bad release produces a new bug issue instead. `released` and `canceled` are terminal.
+
+Closing (D70): parents do not run, so they stay `draft` (or `ready`) while their sub-issues work, and stay open by default because issues may be added later; the issue page shows their progress. A person **completes** a parent once every sub-issue is finished (`merged`, `released` or `canceled`) and at least one was not canceled: it moves to `merged`, which also counts it done for its dependents. A person **cancels** any unfinished issue with a reason: it and every unfinished issue under it move to `canceled`; finished ones keep their status. Canceling is refused while a run under the issue is in progress: end it first (abort its agent step or decide its gate). Both record `closed_at`, `closed_by` and (for a cancel) `close_reason`, with a `state_change` event per issue.
 
 ### Run / StepRun / AgentSession
 Run and StepRun share one status machine: `pending -> running -> succeeded | failed | canceled`, plus `pending -> failed | canceled`. Entering `running` stamps `started_at`; a terminal status stamps `finished_at`. An issue has at most one active (`pending` or `running`) Run, enforced by a partial unique index.

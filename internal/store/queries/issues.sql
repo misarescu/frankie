@@ -156,3 +156,22 @@ SET spec = @spec, acceptance_criteria = @acceptance_criteria, file_hints = @file
     spec_proposal = NULL, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- A person completes a parent or cancels an issue (D70): the status moves as
+-- TransitionIssue does, recording who, when and why.
+-- name: CloseIssue :one
+UPDATE issues
+SET status = @to_status, closed_at = now(), closed_by = @closed_by, close_reason = @close_reason, updated_at = now()
+WHERE id = @id AND status = @from_status
+RETURNING *;
+
+-- An issue and every issue under it, the issue first, then by depth and number.
+-- The hierarchy is at most three deep (D57); the depth bound stops a loop.
+-- name: ListIssueSubtree :many
+WITH RECURSIVE sub (sub_id, depth) AS (
+  SELECT top.id, 0 FROM issues top WHERE top.id = @issue_id
+  UNION
+  SELECT c.id, sub.depth + 1 FROM issues c JOIN sub ON c.parent_id = sub.sub_id WHERE sub.depth < 10
+)
+SELECT issues.* FROM issues JOIN sub ON sub.sub_id = issues.id
+ORDER BY sub.depth, issues.number;

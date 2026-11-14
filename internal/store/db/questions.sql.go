@@ -186,6 +186,48 @@ func (q *Queries) GetQuestionByRunnerID(ctx context.Context, arg GetQuestionByRu
 	return i, err
 }
 
+const listAnsweredQuestions = `-- name: ListAnsweredQuestions :many
+SELECT q.id, q.step_run_id, q.run_id, q.question_id, q.question, q.status, q.answer, q.answered_by, q.answered_at, q.created_at, q.updated_at
+FROM questions q
+JOIN runs r ON r.id = q.run_id
+WHERE r.issue_id = $1 AND q.status = 'answered'
+ORDER BY q.answered_at, q.id
+`
+
+// What people answered for an issue, across its runs, oldest first: later
+// steps get it as part of the issue (D56).
+func (q *Queries) ListAnsweredQuestions(ctx context.Context, issueID uuid.UUID) ([]Question, error) {
+	rows, err := q.db.Query(ctx, listAnsweredQuestions, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Question
+	for rows.Next() {
+		var i Question
+		if err := rows.Scan(
+			&i.ID,
+			&i.StepRunID,
+			&i.RunID,
+			&i.QuestionID,
+			&i.Question,
+			&i.Status,
+			&i.Answer,
+			&i.AnsweredBy,
+			&i.AnsweredAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingQuestions = `-- name: ListPendingQuestions :many
 SELECT q.id, q.step_run_id, q.run_id, q.question_id, q.question, q.status, q.answer, q.answered_by, q.answered_at, q.created_at, q.updated_at, s.step_id, i.key AS issue_key, i.title AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id

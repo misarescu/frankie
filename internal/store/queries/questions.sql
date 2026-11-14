@@ -48,3 +48,12 @@ JOIN step_runs s ON s.id = q.step_run_id
 JOIN runs r ON r.id = q.run_id
 JOIN issues i ON i.id = r.issue_id
 WHERE q.id = @id AND q.status = 'pending' AND s.status = 'running';
+
+-- What people answered for an issue, across its runs, oldest first: later
+-- steps get it as part of the issue (D56).
+-- name: ListAnsweredQuestions :many
+SELECT q.*
+FROM questions q
+JOIN runs r ON r.id = q.run_id
+WHERE r.issue_id = @issue_id AND q.status = 'answered'
+ORDER BY q.answered_at, q.id;

@@ -127,3 +127,17 @@ func questionFromRow(r db.Question) domain.Question {
 		Status: domain.QuestionStatus(r.Status), Answer: deref(r.Answer), AnsweredBy: deref(r.AnsweredBy),
 		AnsweredAt: r.AnsweredAt, CreatedAt: r.CreatedAt}
 }
+
+// ListAnsweredQuestions returns the questions people answered for an issue,
+// across all its runs, oldest answer first.
+func (s *Store) ListAnsweredQuestions(ctx context.Context, issueID uuid.UUID) ([]domain.Question, error) {
+	rows, err := s.q.ListAnsweredQuestions(ctx, issueID)
+	if err != nil {
+		return nil, mapErr("list answered questions", err)
+	}
+	out := make([]domain.Question, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, questionFromRow(r))
+	}
+	return out, nil
+}

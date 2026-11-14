@@ -1,6 +1,6 @@
 -- name: CreateIssue :one
-INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by)
-VALUES (@id, @project_id, @number, @key, sqlc.narg('parent_id'), @type, @title, @spec, @acceptance_criteria, @status, @priority, sqlc.narg('source_ref'), @labels, @created_by)
+INSERT INTO issues (id, project_id, number, key, parent_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, file_hints)
+VALUES (@id, @project_id, @number, @key, sqlc.narg('parent_id'), @type, @title, @spec, @acceptance_criteria, @status, @priority, sqlc.narg('source_ref'), @labels, @created_by, @file_hints)
 RETURNING *;
 
 -- name: GetIssue :one
@@ -83,7 +83,7 @@ ORDER BY i.priority DESC, i.number;
 -- started, the factory's copy is authoritative.
 -- name: UpdateUnstartedIssueFromSource :one
 UPDATE issues AS i
-SET title = @title, spec = @spec, labels = @labels, type = @type, updated_at = now()
+SET title = @title, spec = @spec, labels = @labels, type = @type, file_hints = @file_hints, updated_at = now()
 WHERE i.id = @id AND (i.status = 'draft'
   OR (i.status = 'ready' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = i.id)))
 RETURNING *;
@@ -111,3 +111,12 @@ FROM issues i;
 
 -- name: ListAllDependencies :many
 SELECT issue_id, depends_on_id FROM issue_dependencies;
+
+-- The files an issue's latest change touched (D63).
+-- name: SetIssueChangedPaths :exec
+UPDATE issues SET changed_paths = @changed_paths, updated_at = now() WHERE id = @id;
+
+-- Issues with the paths they touch, for overlap warnings (D63); finished ones are left out.
+-- name: ListPathsIssues :many
+SELECT id, key, project_id, status, file_hints, changed_paths FROM issues
+WHERE status NOT IN ('merged', 'released', 'canceled');

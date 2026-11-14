@@ -152,6 +152,11 @@ type issueDetailJSON struct {
 	Runs               []issueRunJSON      `json:"runs"`
 	Usage              usageJSON           `json:"usage"`
 	ChangeRequests     []changeRequestJSON `json:"change_requests"`
+	// FileHints and ChangedPaths are what overlap warnings compare (D63);
+	// Overlaps lists the in-flight issues of the project this one likely collides with.
+	FileHints    []string      `json:"file_hints"`
+	ChangedPaths []string      `json:"changed_paths"`
+	Overlaps     []overlapJSON `json:"overlaps"`
 }
 
 // getIssue returns one issue with its relations, runs and usage: GET /api/issues/{key}.
@@ -227,6 +232,10 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 	out.Usage = usageJSON{CostUSD: u.CostUSD, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens}
 	crs, err := s.Store.ListChangeRequestsForIssue(ctx, is.ID)
 	if err != nil {
+		return out, err
+	}
+	out.FileHints, out.ChangedPaths = nonNilStrings(is.FileHints), nonNilStrings(is.ChangedPaths)
+	if out.Overlaps, err = s.overlaps(ctx, map[string]bool{is.Key: true}); err != nil {
 		return out, err
 	}
 	out.ChangeRequests = make([]changeRequestJSON, len(crs))

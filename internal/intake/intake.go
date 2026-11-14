@@ -72,7 +72,7 @@ func (in *Intake) syncProject(ctx context.Context, p Project) error {
 		typ := t.issueType(n)
 		src = append(src, store.SourceIssue{Ref: ref, Type: typ, Title: n.issue.Title, Spec: n.issue.Body,
 			Labels: n.issue.Labels, CreatedBy: "github:" + n.issue.Author, ParentRef: n.parent,
-			BlockedBy: n.blockedBy, Status: domain.IssueReady})
+			BlockedBy: n.blockedBy, Status: domain.IssueReady, FileHints: domain.ExtractFileHints(n.issue.Body)})
 	}
 	res, err := in.Store.SyncIssues(ctx, p.ID, src)
 	if err != nil {

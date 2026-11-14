@@ -57,6 +57,7 @@ type NewIssue struct {
 	SourceRef          string
 	Labels             []string
 	CreatedBy          string
+	FileHints          []string // paths the issue is expected to touch (D63)
 }
 
 // CreateIssue inserts an issue with the project's next number and key. A SourceRef
@@ -113,6 +114,7 @@ func createIssue(ctx context.Context, q *db.Queries, in NewIssue) (db.Issue, err
 		SourceRef:          nonEmpty(in.SourceRef),
 		Labels:             nonNil(in.Labels),
 		CreatedBy:          in.CreatedBy,
+		FileHints:          nonNil(in.FileHints),
 	})
 	if err != nil {
 		return db.Issue{}, mapErr("create issue", err)
@@ -216,6 +218,8 @@ func issueFromRow(r db.Issue) domain.Issue {
 		CreatedBy:          r.CreatedBy,
 		StartRequestedAt:   r.StartRequestedAt,
 		StartRequestedBy:   deref(r.StartRequestedBy),
+		FileHints:          r.FileHints,
+		ChangedPaths:       r.ChangedPaths,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 	}

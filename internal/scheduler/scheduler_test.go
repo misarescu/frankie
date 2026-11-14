@@ -182,3 +182,33 @@ func TestSchedulerStartFailures(t *testing.T) {
 		t.Fatalf("started %v, want %s on the retry", starter.started, is.Key)
 	}
 }
+
+// D63: starting an issue that likely overlaps one in flight logs a warning and
+// still starts it.
+func TestSchedulerWarnsAboutOverlap(t *testing.T) {
+	s := storetest.New(t)
+	ctx := t.Context()
+	p, _ := s.CreateProject(ctx, "o/r", "or")
+	busy, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", Status: domain.IssueAwaitingHuman, CreatedBy: "t"})
+	if err := s.SetIssueChangedPaths(ctx, busy.ID, []string{"internal/api/issues.go"}); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := s.CreateIssue(ctx, store.NewIssue{ProjectID: p.ID, Type: domain.IssueTask, Title: "t", Status: domain.IssueReady, CreatedBy: "t",
+		FileHints: []string{"internal/api/schedule.go"}})
+	if _, err := s.RequestIssueStart(ctx, []uuid.UUID{next.ID}, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	starter := &fakeStarter{s: s}
+	sch := &Scheduler{Store: s, Starter: starter, Projects: map[uuid.UUID]Project{p.ID: {Repo: "o/r"}},
+		Limit: 1, Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	if err := sch.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(starter.started) != 1 {
+		t.Fatalf("started %v; a warning does not hold the issue back", starter.started)
+	}
+	if out := logs.String(); !strings.Contains(out, "likely overlaps") || !strings.Contains(out, "with="+busy.Key) || !strings.Contains(out, "internal/api") {
+		t.Errorf("logs = %s", out)
+	}
+}

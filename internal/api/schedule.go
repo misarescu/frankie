@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,35 @@ type startResponse struct {
 	Requested []string      `json:"requested"`
 	Starting  []string      `json:"starting"`
 	Waiting   []waitingJSON `json:"waiting"`
+	// Overlaps warn that a starting or waiting issue likely touches the same
+	// code as one in flight (D63); they do not stop it.
+	Overlaps []overlapJSON `json:"overlaps"`
+}
+
+type overlapJSON struct {
+	Key   string   `json:"key"`
+	With  string   `json:"with"`
+	Paths []string `json:"paths"`
+}
+
+// overlaps compares the issues named in keys with the in-flight issues of their
+// projects (D63).
+func (s *Server) overlaps(ctx context.Context, keys map[string]bool) ([]overlapJSON, error) {
+	all, err := s.Store.ListPathsIssues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []domain.PathsIssue
+	for _, is := range all {
+		if keys[is.Key] {
+			candidates = append(candidates, is)
+		}
+	}
+	out := []overlapJSON{}
+	for _, o := range domain.FindOverlaps(candidates, all) {
+		out = append(out, overlapJSON(o))
+	}
+	return out, nil
 }
 
 // cleanBy checks the "by" field of the scheduling writes; empty means the web UI.
@@ -142,17 +172,21 @@ func (s *Server) planFor(r *http.Request, roots []uuid.UUID) (startResponse, err
 		}
 	}
 	out := startResponse{Starting: []string{}, Waiting: []waitingJSON{}}
+	planned := map[string]bool{}
 	for _, is := range plan.Start {
 		if inScope[is.Key] {
 			out.Starting = append(out.Starting, is.Key)
+			planned[is.Key] = true
 		}
 	}
 	for _, w := range plan.Waiting {
 		if inScope[w.Key] {
 			out.Waiting = append(out.Waiting, waitingJSON(w))
+			planned[w.Key] = true
 		}
 	}
-	return out, nil
+	out.Overlaps, err = s.overlaps(r.Context(), planned)
+	return out, err
 }
 
 type retryRequest struct {

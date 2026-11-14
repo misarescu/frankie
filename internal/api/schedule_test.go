@@ -3,11 +3,13 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/store"
 )
 
 // postDecode posts JSON with the test token and decodes a 2xx reply into out.
@@ -116,5 +118,48 @@ func TestRetryIssue(t *testing.T) {
 	}
 	if code := postDecode(t, srv.URL+"/api/issues/gc-999/retry", `{}`, nil); code != http.StatusNotFound {
 		t.Errorf("unknown issue = %d, want 404", code)
+	}
+}
+
+// D63: the start reply and the issue page warn about likely overlap with
+// in-flight work and between issues that may start together.
+func TestStartIssuesWarnsAboutOverlap(t *testing.T) {
+	st, srv, run, _ := testServer(t)
+	ctx := t.Context()
+	running, _ := st.GetIssue(ctx, run.IssueID) // gc-1, running
+	if err := st.SetIssueChangedPaths(ctx, running.ID, []string{"src/search/index.ts"}); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(hints ...string) domain.Issue {
+		is, err := st.CreateIssue(ctx, store.NewIssue{ProjectID: running.ProjectID, Type: domain.IssueTask, Title: "t",
+			Status: domain.IssueReady, CreatedBy: "t", FileHints: hints})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return is
+	}
+	a := mk("src/search/ui.tsx")
+	b := mk("src/search/")
+	c := mk("docs/x.md")
+
+	var got startResponse
+	body := `{"keys":["` + a.Key + `","` + b.Key + `","` + c.Key + `"]}`
+	if code := postDecode(t, srv.URL+"/api/issues/start", body, &got); code != http.StatusAccepted {
+		t.Fatalf("start = %d", code)
+	}
+	want := []overlapJSON{
+		{Key: a.Key, With: running.Key, Paths: []string{"src/search"}},
+		{Key: a.Key, With: b.Key, Paths: []string{"src/search"}},
+		{Key: b.Key, With: running.Key, Paths: []string{"src/search"}},
+	}
+	if !reflect.DeepEqual(got.Overlaps, want) {
+		t.Fatalf("overlaps = %+v, want %+v", got.Overlaps, want)
+	}
+
+	var detail issueDetailJSON
+	getJSON(t, srv.URL+"/api/issues/"+a.Key, &detail)
+	if !slices.Equal(detail.FileHints, []string{"src/search/ui.tsx"}) || len(detail.ChangedPaths) != 0 ||
+		len(detail.Overlaps) != 1 || detail.Overlaps[0].With != running.Key {
+		t.Errorf("detail = hints %q, changed %q, overlaps %+v", detail.FileHints, detail.ChangedPaths, detail.Overlaps)
 	}
 }

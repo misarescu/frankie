@@ -105,8 +105,12 @@ type Issue struct {
 	// of it (D62); StartRequestedBy says who.
 	StartRequestedAt *time.Time
 	StartRequestedBy string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// FileHints are paths the issue is expected to touch; ChangedPaths the files
+	// its latest change touched (D63).
+	FileHints    []string
+	ChangedPaths []string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ChangeRequestStatus is a change request's state on its provider.

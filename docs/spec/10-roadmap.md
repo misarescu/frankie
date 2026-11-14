@@ -75,14 +75,14 @@ Agent steps and gates start every pod with empty dependency and build caches, so
 
 ## M5.1 - Issue lifecycle and run visibility
 
-Fixes found by the M5 acceptance run, before the merge queue.
+Fixes from the M5 acceptance run and its review, before the merge queue.
 
-- Readable runs: the run page labels events in plain words and attributes each to its step and to the role, harness and model behind it; the issue page lists runs by ID and date.
-- Live view on the issue page: the current run's step timeline (status, duration) and the agent's latest messages and tool calls, updating live. The full transcript stays on the run page.
-- Closing issues: a parent shows its progress (merged children of all) and stays open by default. "Complete" moves a parent whose children are all finished to `merged`; "Cancel", with a reason, moves any unfinished issue to `canceled`. Frankie then closes the provider issue (completed or not planned) with a comment naming who closed it: the first `IssueSource` write-back.
-- The refiner sees its dependencies: their titles, specs, statuses and change requests are in its prompt.
-- Small fixes: the scheduler logs the nearest requester when a start came through a parent; the UI asks for a person's name once and records decisions and answers under it instead of `web` (still unauthenticated, open question 7).
-- **Done when:** a Goodreads-Clone epic with stories that have their own tasks, plus a bug, runs from the issue list with its graph and live view; the epic is completed from Frankie and closes on GitHub; an issue is canceled from Frankie and closes on GitHub as not planned.
+- Readable runs: events labeled in plain words instead of their types, each attributed to its step (implement, checks, review, ...) and to the role, harness and model that produced it; runs listed with their ID and date on the issue page.
+- Live view on the issue page: the current run's step timeline with status and duration, and the agent's latest messages and tool calls, updating while the run goes; the full transcript stays on the run page.
+- Closing issues: a parent shows its progress (merged children of all) and stays open by default, since issues may be added to it later. A person completes a parent whose children are all finished (it moves to `merged`) or cancels any unfinished issue with a reason (`canceled`). Frankie then closes the source issue too, as completed or as not planned, with a comment naming who closed it: the first write-back through `IssueSource`.
+- The refiner sees the issue's dependencies: their specs, statuses and change requests, so a dependent spec is written against the work it builds on.
+- The scheduler logs who asked to start an issue when the request came through a parent; the UI asks for a name once and records it on decisions and answers instead of `web` (still unauthenticated, open question 7).
+- **Done when:** a Goodreads-Clone epic with stories that have their own tasks, and a bug, runs from the issue list with its graph and live view, the epic is completed from Frankie and closes on GitHub, and an issue is canceled from Frankie and closes on GitHub as not planned.
 
 ## M6 - Merge queue
 

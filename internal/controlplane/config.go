@@ -293,6 +293,7 @@ func LoadConfigFile(path string, cfg *Config) error {
 	if cfg.Models, err = fc.models(); err != nil {
 		return err
 	}
+	cfg.Agent.ModelAPIs = cfg.Models.Providers.GatewayAPIs()
 	return nil
 }
 

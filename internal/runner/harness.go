@@ -35,6 +35,35 @@ type SessionConfig struct {
 	// AllowedTools are harness-neutral tool names (StartRequest.allowed_tools);
 	// empty means the harness's defaults.
 	AllowedTools []string
+	// Gateway is the LLM gateway and virtual key (StartRequest.gateway); zero
+	// when the control plane passed them in Env instead.
+	Gateway Gateway
+}
+
+// ReadOnlyCommands are the shell commands the bash:readonly tool allows, for
+// every harness: they inspect the workspace and its history without changing
+// them. This narrows what a reviewer does; the boundary is still the read-only
+// workspace, which the runner never commits or pushes.
+var ReadOnlyCommands = []string{
+	"git diff", "git log", "git show", "git status", "git blame", "git grep",
+	"git ls-files", "git rev-parse", "git merge-base",
+	"ls", "cat", "head", "tail", "wc", "grep", "rg", "tree", "pwd",
+}
+
+// ModelAPI is the API the gateway serves the session's model with.
+type ModelAPI string
+
+// Model APIs (StartRequest.gateway.api).
+const (
+	ModelAPIAnthropic ModelAPI = "anthropic"
+	ModelAPIOpenAI    ModelAPI = "openai"
+)
+
+// Gateway is how a session reaches its model.
+type Gateway struct {
+	BaseURL string
+	APIKey  string
+	API     ModelAPI // empty: unspecified, the harness's own default
 }
 
 // Emit appends a normalized event to the session's stream. A harness must emit

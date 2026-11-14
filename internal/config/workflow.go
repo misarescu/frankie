@@ -208,7 +208,7 @@ var harnesses = map[string]struct {
 	apis      []API
 }{
 	"claude-code": {available: true, apis: []API{APIAnthropic}},
-	"opencode":    {available: false, apis: []API{APIAnthropic, APIOpenAI}},
+	"opencode":    {available: true, apis: []API{APIAnthropic, APIOpenAI}},
 	"pi":          {available: false, apis: []API{APIAnthropic, APIOpenAI}},
 }
 

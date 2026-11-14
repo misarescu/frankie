@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Agent pod image: the runner plus Claude Code and mise (docs/spec/04, docs/spec/05).
+# Agent pod image: the runner plus Claude Code, opencode and mise (docs/spec/04, docs/spec/05).
 # This is the platform base image (factory-base, D30): toolchain images layer a
 # repo's mise.toml on top of it, so a new build of this image rebuilds them all.
 # Build from the repo root: docker build -f deploy/images/runner/Dockerfile .
@@ -13,8 +13,15 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/runner ./cmd/runner
 
 FROM debian:trixie-slim
+ARG TARGETARCH
 # Pinned to the version the adapter was verified against (mise run test:smoke-claude).
 ARG CLAUDE_CODE_VERSION=2.1.323
+# Pinned to the version the opencode adapter's tests run (mise.toml); the
+# checksums are the release assets' (mise.lock). Downloaded from GitHub, not
+# opencode.ai, which also serves opencode's own models and is never allowlisted.
+ARG OPENCODE_VERSION=2.2.7
+ARG OPENCODE_SHA256_AMD64=89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7
+ARG OPENCODE_SHA256_ARM64=c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7
 # mise runs the repo's tasks and installs its pinned tools (D15). The installer
 # verifies the release checksum.
 ARG MISE_VERSION=v2026.11.7
@@ -25,6 +32,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL https://mise.run | MISE_VERSION="${MISE_VERSION}" MISE_INSTALL_PATH=/usr/local/bin/mise sh \
  && mise --version | grep -q "${MISE_VERSION#v}" \
+ && case "${TARGETARCH}" in \
+      amd64) oc_arch=x64; oc_sum="${OPENCODE_SHA256_AMD64}" ;; \
+      arm64) oc_arch=arm64; oc_sum="${OPENCODE_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/opencode.tar.gz "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${oc_arch}.tar.gz" \
+ && echo "${oc_sum}  /tmp/opencode.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
+ && rm /tmp/opencode.tar.gz \
+ && opencode --version | grep -q "v${OPENCODE_VERSION}$" \
  && useradd --create-home --uid 10001 --user-group --shell /bin/bash agent \
  && install -d -o 10001 -g 10001 /workspace
 USER 10001:10001
@@ -37,4 +54,4 @@ ENV PATH=/home/agent/.local/bin:$PATH \
 COPY --from=build /out/runner /usr/local/bin/runner
 WORKDIR /workspace
 EXPOSE 7070
-ENTRYPOINT ["/usr/local/bin/runner", "--listen", ":7070", "--workdir", "/workspace", "--claude-bin", "/home/agent/.local/bin/claude"]
+ENTRYPOINT ["/usr/local/bin/runner", "--listen", ":7070", "--workdir", "/workspace", "--claude-bin", "/home/agent/.local/bin/claude", "--opencode-bin", "/usr/local/bin/opencode"]

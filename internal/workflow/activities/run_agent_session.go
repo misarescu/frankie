@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
@@ -53,6 +54,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	runner := runnerv1.NewRunnerServiceClient(conn)
 
 	set := a.sessionSettings(run)
+	harness, err := runnerHarness(set.harness)
+	if err != nil {
+		return SessionResult{}, temporal.NewNonRetryableApplicationError(err.Error(), "harness", err)
+	}
 
 	var vkey string
 	if !progress.Started {
@@ -81,7 +86,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil {
 			return SessionResult{}, err
 		}
-		_, err = runner.Start(ctx, a.startRequest(in, run, set, start, token, vkey))
+		_, err = runner.Start(ctx, a.startRequest(in, run, set, harness, start, token, vkey))
 		// Only "already started" means an earlier attempt got this far; any other
 		// failure (e.g. the workspace clone) is the real error.
 		if err != nil && !isPrecondition(err, "already started") {
@@ -149,6 +154,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 // there is one (Interpret), else the platform's M2 settings (IssueRun).
 type sessionSettings struct {
 	model, systemPrompt string
+	harness             string
 	budget              float64
 	timeout             time.Duration
 	allowedTools        []string
@@ -160,6 +166,7 @@ func (a *Activities) sessionSettings(run StartRunResult) sessionSettings {
 	if s := run.Step; s != nil {
 		set.model, set.budget, set.timeout = cmp.Or(s.Model, set.model), cmp.Or(s.BudgetUSD, set.budget), cmp.Or(s.Timeout, set.timeout)
 		set.systemPrompt, set.allowedTools, set.readOnly = s.SystemPrompt, s.AllowedTools, s.Contract != ""
+		set.harness = s.Harness
 	}
 	return set
 }
@@ -172,19 +179,26 @@ func (a *Activities) sessionGrant(in IssueRunInput, run StartRunResult, set sess
 
 // startRequest is the runner's Start for the session. Credentials travel only
 // here, over gRPC, never in the pod spec or the workflow history.
-func (a *Activities) startRequest(in IssueRunInput, run StartRunResult, set sessionSettings, start StartPoint, token, vkey string) *runnerv1.StartRequest {
-	return &runnerv1.StartRequest{
-		StepRunId: run.StepRunID, Harness: runnerv1.Harness_HARNESS_CLAUDE_CODE, Model: set.model,
-		SystemPrompt: set.systemPrompt,
-		Env: map[string]string{
+func (a *Activities) startRequest(in IssueRunInput, run StartRunResult, set sessionSettings, harness runnerv1.Harness, start StartPoint, token, vkey string) *runnerv1.StartRequest {
+	var env map[string]string
+	if harness == runnerv1.Harness_HARNESS_CLAUDE_CODE {
+		// Runners older than StartRequest.gateway read these; drop them once
+		// every toolchain image has a newer runner.
+		env = map[string]string{
 			"ANTHROPIC_BASE_URL":   a.Agent.GatewayURL,
 			"ANTHROPIC_AUTH_TOKEN": vkey,
 			// Background tasks must stay on a model the key allows.
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL": set.model,
 			"ANTHROPIC_SMALL_FAST_MODEL":    set.model,
-		},
-		Timeout:     durationpb.New(set.timeout),
-		IdleTimeout: durationpb.New(a.Agent.IdleTimeout),
+		}
+	}
+	return &runnerv1.StartRequest{
+		StepRunId: run.StepRunID, Harness: harness, Model: set.model,
+		SystemPrompt: set.systemPrompt,
+		Env:          env,
+		Gateway:      &runnerv1.Gateway{BaseUrl: a.Agent.GatewayURL, ApiKey: vkey, Api: modelAPI(a.Agent.ModelAPIs[set.model])},
+		Timeout:      durationpb.New(set.timeout),
+		IdleTimeout:  durationpb.New(a.Agent.IdleTimeout),
 		Workspace: &runnerv1.Workspace{
 			CloneUrl: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
 			BaseRef: start.CloneRef, Branch: run.Branch, CommitMessage: in.IssueKey + ": " + in.Title,
@@ -218,4 +232,26 @@ func domainEventType(t runnerv1.EventType) domain.EventType {
 		return d
 	}
 	return domain.EventError
+}
+
+// runnerHarness is the runner's harness for a definition's harness name.
+func runnerHarness(name string) (runnerv1.Harness, error) {
+	switch name {
+	case "", "claude-code":
+		return runnerv1.Harness_HARNESS_CLAUDE_CODE, nil
+	case "opencode":
+		return runnerv1.Harness_HARNESS_OPENCODE, nil
+	}
+	return runnerv1.Harness_HARNESS_UNSPECIFIED, fmt.Errorf("harness %q is not supported by the runner", name)
+}
+
+// modelAPI is the runner's model API; unknown models leave it to the harness's default.
+func modelAPI(api config.API) runnerv1.ModelAPI {
+	switch api {
+	case config.APIAnthropic:
+		return runnerv1.ModelAPI_MODEL_API_ANTHROPIC
+	case config.APIOpenAI:
+		return runnerv1.ModelAPI_MODEL_API_OPENAI
+	}
+	return runnerv1.ModelAPI_MODEL_API_UNSPECIFIED
 }

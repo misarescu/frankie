@@ -317,6 +317,77 @@ version = "2.34.0"
 backend = "go:github.com/onsi/ginkgo/v2/ginkgo"
 specifiers = ["2.34.0"]
 
+[[tools."github:anomalyco/opencode"]]
+version = "2.2.7"
+backend = "github:anomalyco/opencode"
+specifiers = ["2.2.7"]
+
+[tools."github:anomalyco/opencode"."platforms.linux-arm64"]
+checksum = "sha256:c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038368"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.linux-arm64-musl"]
+checksum = "sha256:a03405f94ae02db7acb0870cf32030bab86460dc7faf524780e9cae305526b96"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038192"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.linux-x64"]
+checksum = "sha256:89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038589"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.linux-x64-baseline"]
+checksum = "sha256:89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038589"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.linux-x64-musl"]
+checksum = "sha256:c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64-musl.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038510"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64-musl.tar.gz"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038510"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.macos-arm64"]
+checksum = "sha256:811c42be9cad489ea8c411ead49e06f691deee4957ba9a0a56a159a7d6c1abdc"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-darwin-arm64.zip"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731036577"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.macos-x64"]
+checksum = "sha256:3e4ea96ece041218cc74bc7c7d5cd202ff1f7983e32fc7ab6c58d532445e7961"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-darwin-x64.zip"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731036579"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.macos-x64-baseline"]
+checksum = "sha256:3e4ea96ece041218cc74bc7c7d5cd202ff1f7983e32fc7ab6c58d532445e7961"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-darwin-x64.zip"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731036579"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.windows-x64"]
+checksum = "sha256:91398e0e2c2bc72f6c93dbdae426a0710884ed3277a08558200753c7a995daa8"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-windows-x64.zip"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038629"
+provenance = "github-attestations"
+
+[tools."github:anomalyco/opencode"."platforms.windows-x64-baseline"]
+checksum = "sha256:91398e0e2c2bc72f6c93dbdae426a0710884ed3277a08558200753c7a995daa8"
+url = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-windows-x64.zip"
+url_api = "https://api.github.com/repos/anomalyco/opencode/releases/assets/731038629"
+provenance = "github-attestations"
+
 [[tools.go]]
 version = "1.27.4"
 backend = "core:go"

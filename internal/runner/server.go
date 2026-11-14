@@ -123,6 +123,7 @@ func (s *Server) Start(ctx context.Context, req *runnerv1.StartRequest) (*runner
 		Env:          req.GetEnv(),
 		MaxTurns:     int(req.GetMaxTurns()),
 		AllowedTools: req.GetAllowedTools(),
+		Gateway:      gatewayConfig(req.GetGateway()),
 	}
 	// The session outlives this RPC, so it must not inherit its cancellation.
 	sess, err := h.Start(context.WithoutCancel(ctx), cfg, emit)
@@ -280,4 +281,16 @@ func (s *Server) watch(sess Session, log *EventLog, timeout, idle time.Duration)
 			}
 		}
 	}
+}
+
+// gatewayConfig converts StartRequest.gateway; nil gives the zero Gateway.
+func gatewayConfig(g *runnerv1.Gateway) Gateway {
+	out := Gateway{BaseURL: g.GetBaseUrl(), APIKey: g.GetApiKey()}
+	switch g.GetApi() {
+	case runnerv1.ModelAPI_MODEL_API_ANTHROPIC:
+		out.API = ModelAPIAnthropic
+	case runnerv1.ModelAPI_MODEL_API_OPENAI:
+		out.API = ModelAPIOpenAI
+	}
+	return out
 }

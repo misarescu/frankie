@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/misarescu/frankie/internal/config"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -55,7 +57,7 @@ func TestReviewerSessionIsReadOnly(t *testing.T) {
 	if g := a.sessionGrant(testInput, reviewer, set); !g.ReadOnly || g.IssueKey != "gc-1" {
 		t.Errorf("reviewer grant = %+v", g)
 	}
-	req := a.startRequest(testInput, reviewer, set, start, "tok", "vkey")
+	req := a.startRequest(testInput, reviewer, set, runnerv1.Harness_HARNESS_CLAUDE_CODE, start, "tok", "vkey")
 	w := req.GetWorkspace()
 	if !w.GetReadOnly() || w.GetCompareRef() != "main" || w.GetBaseRef() != "agent/gc-1/add-search" ||
 		!slices.Equal(req.GetAllowedTools(), []string{"read", "bash:readonly"}) || req.GetModel() != "claude-opus-5-5" || req.GetSystemPrompt() != "review" {
@@ -68,7 +70,7 @@ func TestReviewerSessionIsReadOnly(t *testing.T) {
 	if g := a.sessionGrant(testInput, coder, set); g.ReadOnly {
 		t.Errorf("coder grant = %+v", g)
 	}
-	req = a.startRequest(testInput, coder, set, start, "tok", "vkey")
+	req = a.startRequest(testInput, coder, set, runnerv1.Harness_HARNESS_CLAUDE_CODE, start, "tok", "vkey")
 	if req.GetWorkspace().GetReadOnly() || len(req.GetAllowedTools()) != 0 || req.GetModel() != "claude-sonnet-5-5" {
 		t.Errorf("coder start = %+v", req)
 	}
@@ -76,5 +78,50 @@ func TestReviewerSessionIsReadOnly(t *testing.T) {
 	// IssueRun's step keeps the M2 settings.
 	if set := a.sessionSettings(testRun); set.readOnly || set.systemPrompt != SystemPrompt() || set.timeout != time.Hour {
 		t.Errorf("IssueRun settings = %+v", set)
+	}
+}
+
+// A step's harness and model reach the runner with the gateway and the API
+// the model is served with; only Claude Code still gets its legacy variables.
+func TestStartRequestCarriesHarnessAndGateway(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{Model: "claude-sonnet-5-5", SessionTimeout: time.Hour, GatewayURL: "http://gw:4000",
+		ModelAPIs: map[string]config.API{"claude-sonnet-5-5": config.APIAnthropic, "openai/gpt-5.6-terra": config.APIOpenAI}}}
+	start := StartPoint{CloneRef: "main"}
+	tests := []struct {
+		name       string
+		step       AgentStep
+		harness    runnerv1.Harness
+		api        runnerv1.ModelAPI
+		anthropEnv bool
+	}{
+		{"default harness", AgentStep{StepID: "implement"}, runnerv1.Harness_HARNESS_CLAUDE_CODE, runnerv1.ModelAPI_MODEL_API_ANTHROPIC, true},
+		{"opencode on OpenRouter", AgentStep{StepID: "implement", Harness: "opencode", Model: "openai/gpt-5.6-terra"},
+			runnerv1.Harness_HARNESS_OPENCODE, runnerv1.ModelAPI_MODEL_API_OPENAI, false},
+		{"opencode on Anthropic", AgentStep{StepID: "implement", Harness: "opencode"},
+			runnerv1.Harness_HARNESS_OPENCODE, runnerv1.ModelAPI_MODEL_API_ANTHROPIC, false},
+		{"unknown model", AgentStep{StepID: "implement", Harness: "opencode", Model: "gone"},
+			runnerv1.Harness_HARNESS_OPENCODE, runnerv1.ModelAPI_MODEL_API_UNSPECIFIED, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := testRun
+			run.Step = &tt.step
+			set := a.sessionSettings(run)
+			h, err := runnerHarness(set.harness)
+			if err != nil || h != tt.harness {
+				t.Fatalf("harness = %v, %v", h, err)
+			}
+			req := a.startRequest(testInput, run, set, h, start, "tok", "vkey")
+			g := req.GetGateway()
+			if req.GetHarness() != tt.harness || g.GetBaseUrl() != "http://gw:4000" || g.GetApiKey() != "vkey" || g.GetApi() != tt.api {
+				t.Errorf("start = %+v", req)
+			}
+			if _, ok := req.GetEnv()["ANTHROPIC_AUTH_TOKEN"]; ok != tt.anthropEnv {
+				t.Errorf("env = %v", req.GetEnv())
+			}
+		})
+	}
+	if _, err := runnerHarness("pi"); err == nil {
+		t.Error("pi is not supported by the runner yet")
 	}
 }

@@ -14,6 +14,8 @@ test("summarizes each event type", () => {
   expect(summary(ev("intervention", { action: "steer", by: "ana", text: "use the helper", delivered: true }))).toBe("ana steered: use the helper");
   expect(summary(ev("question", { question_id: "q1", question: "Which port?" }))).toBe("asked: Which port?");
   expect(summary(ev("intervention", { action: "abort", by: "ana", text: "wrong", delivered: false }))).toBe("ana aborted: wrong (the session had already ended)");
+  expect(summary(ev("intervention", { action: "answer", by: "ana", text: "8080", question_id: "q1", delivered: true }))).toBe("ana answered: 8080");
+  expect(summary(ev("intervention", { action: "answer", by: "ana", text: "8080", question_id: "q1", delivered: false }))).toBe("ana answered: 8080 (the agent no longer waited for it)");
 });
 
 test("tolerates missing fields", () => {

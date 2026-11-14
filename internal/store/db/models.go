@@ -89,6 +89,20 @@ type Project struct {
 	NextIssueNumber int32
 }
 
+type Question struct {
+	ID         uuid.UUID
+	StepRunID  uuid.UUID
+	RunID      uuid.UUID
+	QuestionID string
+	Question   string
+	Status     string
+	Answer     *string
+	AnsweredBy *string
+	AnsweredAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type Run struct {
 	ID                 uuid.UUID
 	IssueID            uuid.UUID

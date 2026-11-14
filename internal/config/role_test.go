@@ -130,6 +130,7 @@ func TestResolveRolesRejects(t *testing.T) {
 		{"a tool the harness lacks", head + "  - id: x\n    agent: {role: browser, harness: pi}\n", "role browser allows web-fetch, which harness pi does not have"},
 		{"reviewer outside a verdict group", head + "  - id: x\n    agent: {role: code-reviewer}\n", "put it in a parallel group with an agent-verdict gate"},
 		{"coder judged by an agent-verdict gate", head + checks + "  - id: r\n    parallel: [{agent: {role: coder}}]\n    gate: {type: agent-verdict}\n", "does not return a review verdict"},
+		{"refiner in a workflow", head + "  - id: x\n    agent: {role: refiner}\n", "only refinement runs it"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,7 +138,7 @@ func TestResolveRolesRejects(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = ResolveRoles(w, lookupIn(coderRole, reviewerRole, foreign, browser))
+			_, err = ResolveRoles(w, lookupIn(coderRole, reviewerRole, foreign, browser, refinerRole))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("err = %v, want %q", err, tt.want)
 			}
@@ -152,4 +153,22 @@ func TestResolveRolesRejects(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+var refinerRole = Role{Name: "refiner", Version: 1, SystemPrompt: "x", AllowedTools: []string{"read", "grep"}, OutputContract: ContractRefinedSpec}
+
+// D65: refinement runs only a role returning a refined spec.
+func TestResolveRefinementRoles(t *testing.T) {
+	w, err := ParseWorkflow([]byte("name: refine\nversion: 1\nsteps:\n  - id: refine\n    agent: {role: refiner}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveRefinementRoles(w, lookupIn(refinerRole))
+	if err != nil || got["refiner"].OutputContract != ContractRefinedSpec {
+		t.Fatalf("ResolveRefinementRoles = %+v, %v", got, err)
+	}
+	coderOnly, _ := ParseWorkflow([]byte("name: refine\nversion: 1\nsteps:\n  - id: refine\n    agent: {role: coder}\n"))
+	if _, err := ResolveRefinementRoles(coderOnly, lookupIn(coderRole)); err == nil || !strings.Contains(err.Error(), "does not return a refined spec") {
+		t.Fatalf("a coder as refiner: err = %v", err)
+	}
 }

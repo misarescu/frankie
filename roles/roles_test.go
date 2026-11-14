@@ -3,6 +3,7 @@ package roles
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 
 func TestEveryBuiltInIsValid(t *testing.T) {
 	names := Names()
-	for _, want := range []string{"coder", "code-reviewer"} {
+	for _, want := range []string{"coder", "code-reviewer", "refiner"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("Names() = %v, missing %q", names, want)
 		}
@@ -111,5 +112,80 @@ func TestParseRepoRoleGetsContractInstructions(t *testing.T) {
 func TestGetUnknown(t *testing.T) {
 	if _, err := Get("nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// D65: the refiner is read-only, returns a refined spec, and is told the format.
+func TestRefinerReturnsARefinedSpec(t *testing.T) {
+	r, err := Get("refiner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.OutputContract != config.ContractRefinedSpec {
+		t.Errorf("contract = %q", r.OutputContract)
+	}
+	if slices.ContainsFunc(r.AllowedTools, func(t string) bool { return t == "edit" || t == "write" || t == "bash" }) {
+		t.Errorf("the refiner must not change the workspace: tools = %v", r.AllowedTools)
+	}
+	schema, _ := ContractSchema(config.ContractRefinedSpec)
+	if !strings.HasSuffix(r.SystemPrompt, string(schema)) {
+		t.Error("the platform's contract instructions are not appended")
+	}
+}
+
+// The JSON Schema shown to the refiner and the Go parser must agree.
+func TestRefinedSpecSchemaMatchesParser(t *testing.T) {
+	raw, err := ContractSchema(config.ContractRefinedSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			MaxLength int `json:"maxLength"`
+			MaxItems  int `json:"maxItems"`
+			Items     struct {
+				MaxLength int `json:"maxLength"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.Required, []string{"spec", "acceptance_criteria"}) {
+		t.Errorf("required = %v", s.Required)
+	}
+	keys := slices.Sorted(maps.Keys(s.Properties))
+	if !slices.Equal(keys, []string{"acceptance_criteria", "file_hints", "spec", "summary"}) {
+		t.Errorf("properties = %v, the parser knows acceptance_criteria, file_hints, spec, summary", keys)
+	}
+	p := s.Properties
+	at := func(field string, n int, extra string) []byte {
+		switch field {
+		case "spec":
+			return []byte(`{"spec":"` + strings.Repeat("x", n) + `","acceptance_criteria":["c"]` + extra + `}`)
+		case "criteria":
+			return []byte(`{"spec":"x","acceptance_criteria":[` + strings.TrimSuffix(strings.Repeat(`"c",`, n), ",") + `]}`)
+		case "criterion":
+			return []byte(`{"spec":"x","acceptance_criteria":["` + strings.Repeat("c", n) + `"]}`)
+		case "hints":
+			return []byte(`{"spec":"x","acceptance_criteria":["c"],"file_hints":[` + strings.TrimSuffix(strings.Repeat(`"a/b",`, n), ",") + `]}`)
+		}
+		return []byte(`{"spec":"x","acceptance_criteria":["c"],"summary":"` + strings.Repeat("x", n) + `"}`)
+	}
+	for _, tt := range []struct {
+		field string
+		limit int
+	}{
+		{"spec", p["spec"].MaxLength}, {"criteria", p["acceptance_criteria"].MaxItems},
+		{"criterion", p["acceptance_criteria"].Items.MaxLength}, {"hints", p["file_hints"].MaxItems},
+		{"summary", p["summary"].MaxLength},
+	} {
+		if _, err := domain.ParseRefinedSpec(at(tt.field, tt.limit, "")); err != nil {
+			t.Errorf("%s at the schema's limit %d: %v", tt.field, tt.limit, err)
+		}
+		if _, err := domain.ParseRefinedSpec(at(tt.field, tt.limit+1, "")); err == nil {
+			t.Errorf("%s over the schema's limit %d is accepted", tt.field, tt.limit)
+		}
 	}
 }

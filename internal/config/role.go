@@ -31,6 +31,11 @@ type Role struct {
 // domain.ReviewVerdict, described to the agent by roles/schemas/review-verdict.json.
 const ContractReviewVerdict = "review-verdict"
 
+// ContractRefinedSpec is the output contract of the refiner role: a
+// domain.RefinedSpec, described by roles/schemas/refined-spec.json (D65). Only
+// refinement runs such a role, never a workflow definition.
+const ContractRefinedSpec = "refined-spec"
+
 // roleFile is a role as written in roles/<name>.yaml or .factory/roles/<name>.yaml.
 type roleFile struct {
 	Name             string          `json:"name"`
@@ -51,7 +56,7 @@ type outputContract struct {
 // limited to commands that do not change the workspace.
 var roleTools = []string{"read", "grep", "glob", "edit", "write", "bash", "bash:readonly", "web-fetch"}
 
-var outputContracts = []string{ContractReviewVerdict}
+var outputContracts = []string{ContractReviewVerdict, ContractRefinedSpec}
 
 const maxSystemPrompt = 64 << 10
 
@@ -128,8 +133,19 @@ type RoleLookup func(name string) (Role, error)
 // every role exists, a pinned version matches the role's, the role's default
 // model suits the step's harness, and reviewer roles (those returning a
 // verdict) sit exactly in parallel groups judged by an agent-verdict gate. It
-// returns the roles the workflow uses, by name, for the run's snapshot.
+// returns the roles the workflow uses, by name, for the run's snapshot. A role
+// returning a refined spec belongs to refinement and is rejected here.
 func ResolveRoles(w Workflow, lookup RoleLookup) (map[string]Role, error) {
+	return resolveRoles(w, lookup, false)
+}
+
+// ResolveRefinementRoles is ResolveRoles for the refinement definition (D65):
+// its agent steps must use a role returning a refined spec.
+func ResolveRefinementRoles(w Workflow, lookup RoleLookup) (map[string]Role, error) {
+	return resolveRoles(w, lookup, true)
+}
+
+func resolveRoles(w Workflow, lookup RoleLookup, refinement bool) (map[string]Role, error) {
 	out := map[string]Role{}
 	var errs []error
 	check := func(path string, s Step, verdictGroup bool) {
@@ -157,7 +173,12 @@ func ResolveRoles(w Workflow, lookup RoleLookup) (map[string]Role, error) {
 				errs = append(errs, fmt.Errorf("%s.agent: role %s defaults to %s, which harness %s cannot use (%w); set a model", path, name, r.DefaultModel, a.Harness, err))
 			}
 		}
+		refiner := r.OutputContract == ContractRefinedSpec
 		switch reviewer := r.OutputContract == ContractReviewVerdict; {
+		case refinement && !refiner:
+			errs = append(errs, fmt.Errorf("%s.agent.role: %s does not return a refined spec, so refinement cannot use it", path, name))
+		case !refinement && refiner:
+			errs = append(errs, fmt.Errorf("%s.agent.role: %s returns a refined spec; only refinement runs it, not a workflow", path, name))
 		case verdictGroup && !reviewer:
 			errs = append(errs, fmt.Errorf("%s.agent.role: %s does not return a review verdict, so an agent-verdict gate cannot judge it", path, name))
 		case !verdictGroup && reviewer:

@@ -144,7 +144,7 @@ func projectGraph(ctx context.Context, q *db.Queries, projectID uuid.UUID) ([]do
 	}
 	nodes := make([]domain.IssueNode, len(nodeRows))
 	for i, r := range nodeRows {
-		nodes[i] = domain.IssueNode{ID: r.ID, Key: r.Key, ParentID: r.ParentID}
+		nodes[i] = domain.IssueNode{ID: r.ID, Key: r.Key, Type: domain.IssueType(r.Type), ParentID: r.ParentID}
 	}
 	deps := make([]domain.Dependency, len(depRows))
 	for i, r := range depRows {

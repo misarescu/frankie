@@ -34,6 +34,7 @@ func ValidParent(child, parent IssueType) bool {
 type IssueNode struct {
 	ID       uuid.UUID
 	Key      string
+	Type     IssueType
 	ParentID *uuid.UUID
 }
 

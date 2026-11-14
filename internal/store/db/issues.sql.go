@@ -309,12 +309,13 @@ func (q *Queries) ListIssueDependents(ctx context.Context, dependsOnID uuid.UUID
 }
 
 const listIssueNodes = `-- name: ListIssueNodes :many
-SELECT id, key, parent_id FROM issues WHERE project_id = $1
+SELECT id, key, type, parent_id FROM issues WHERE project_id = $1
 `
 
 type ListIssueNodesRow struct {
 	ID       uuid.UUID
 	Key      string
+	Type     string
 	ParentID *uuid.UUID
 }
 
@@ -328,7 +329,12 @@ func (q *Queries) ListIssueNodes(ctx context.Context, projectID uuid.UUID) ([]Li
 	var items []ListIssueNodesRow
 	for rows.Next() {
 		var i ListIssueNodesRow
-		if err := rows.Scan(&i.ID, &i.Key, &i.ParentID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Type,
+			&i.ParentID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -547,6 +553,53 @@ type TransitionIssueParams struct {
 // Compare-and-set: only moves the issue if it is still in from_status.
 func (q *Queries) TransitionIssue(ctx context.Context, arg TransitionIssueParams) (Issue, error) {
 	row := q.db.QueryRow(ctx, transitionIssue, arg.ToStatus, arg.ID, arg.FromStatus)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Type,
+		&i.Title,
+		&i.Spec,
+		&i.AcceptanceCriteria,
+		&i.Status,
+		&i.Priority,
+		&i.SourceRef,
+		&i.Labels,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.Key,
+		&i.ParentID,
+	)
+	return i, err
+}
+
+const updateDraftIssueFromSource = `-- name: UpdateDraftIssueFromSource :one
+UPDATE issues
+SET title = $1, spec = $2, labels = $3, type = $4, updated_at = now()
+WHERE id = $5 AND status = 'draft'
+RETURNING id, project_id, type, title, spec, acceptance_criteria, status, priority, source_ref, labels, created_by, created_at, updated_at, number, key, parent_id
+`
+
+type UpdateDraftIssueFromSourceParams struct {
+	Title  string
+	Spec   string
+	Labels []string
+	Type   string
+	ID     uuid.UUID
+}
+
+// Sync from an issue source (D60): only a draft takes the source's title, body,
+// labels and type; once refined or started, the factory's copy is authoritative.
+func (q *Queries) UpdateDraftIssueFromSource(ctx context.Context, arg UpdateDraftIssueFromSourceParams) (Issue, error) {
+	row := q.db.QueryRow(ctx, updateDraftIssueFromSource,
+		arg.Title,
+		arg.Spec,
+		arg.Labels,
+		arg.Type,
+		arg.ID,
+	)
 	var i Issue
 	err := row.Scan(
 		&i.ID,

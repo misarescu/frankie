@@ -62,56 +62,62 @@ type NewIssue struct {
 // CreateIssue inserts an issue with the project's next number and key. A SourceRef
 // already synced into the project returns ErrConflict (and consumes no number).
 func (s *Store) CreateIssue(ctx context.Context, in NewIssue) (domain.Issue, error) {
-	if in.Status == "" {
-		in.Status = domain.IssueDraft
-	}
-	switch {
-	case !in.Type.Valid():
-		return domain.Issue{}, fmt.Errorf("store: create issue: unknown type %q", in.Type)
-	case !in.Status.Valid():
-		return domain.Issue{}, fmt.Errorf("store: create issue: unknown status %q", in.Status)
-	case in.Title == "":
-		return domain.Issue{}, errors.New("store: create issue: empty title")
-	case in.CreatedBy == "":
-		return domain.Issue{}, errors.New("store: create issue: empty created_by")
-	}
 	var out domain.Issue
 	err := s.inTx(ctx, func(q *db.Queries) error {
-		if in.ParentID != nil {
-			if err := checkParent(ctx, q, in.ProjectID, in.Type, *in.ParentID); err != nil {
-				return fmt.Errorf("store: create issue: %w", err)
-			}
-		}
-		alloc, err := q.AllocateIssueNumber(ctx, in.ProjectID)
-		if err != nil {
-			return mapErr("allocate issue number", err)
-		}
-		row, err := q.CreateIssue(ctx, db.CreateIssueParams{
-			ID:                 domain.NewID(),
-			ProjectID:          in.ProjectID,
-			Number:             alloc.Number,
-			Key:                domain.IssueKey(alloc.KeyPrefix, int(alloc.Number)),
-			ParentID:           in.ParentID,
-			Type:               string(in.Type),
-			Title:              in.Title,
-			Spec:               in.Spec,
-			AcceptanceCriteria: nonNil(in.AcceptanceCriteria),
-			Status:             string(in.Status),
-			Priority:           int32(in.Priority),
-			SourceRef:          nonEmpty(in.SourceRef),
-			Labels:             nonNil(in.Labels),
-			CreatedBy:          in.CreatedBy,
-		})
-		if err != nil {
-			return mapErr("create issue", err)
-		}
+		row, err := createIssue(ctx, q, in)
 		out = issueFromRow(row)
-		return nil
+		return err
 	})
 	if err != nil {
 		return domain.Issue{}, err
 	}
 	return out, nil
+}
+
+// createIssue validates and inserts an issue inside the caller's transaction.
+func createIssue(ctx context.Context, q *db.Queries, in NewIssue) (db.Issue, error) {
+	if in.Status == "" {
+		in.Status = domain.IssueDraft
+	}
+	switch {
+	case !in.Type.Valid():
+		return db.Issue{}, fmt.Errorf("store: create issue: unknown type %q", in.Type)
+	case !in.Status.Valid():
+		return db.Issue{}, fmt.Errorf("store: create issue: unknown status %q", in.Status)
+	case in.Title == "":
+		return db.Issue{}, errors.New("store: create issue: empty title")
+	case in.CreatedBy == "":
+		return db.Issue{}, errors.New("store: create issue: empty created_by")
+	}
+	if in.ParentID != nil {
+		if err := checkParent(ctx, q, in.ProjectID, in.Type, *in.ParentID); err != nil {
+			return db.Issue{}, fmt.Errorf("store: create issue: %w", err)
+		}
+	}
+	alloc, err := q.AllocateIssueNumber(ctx, in.ProjectID)
+	if err != nil {
+		return db.Issue{}, mapErr("allocate issue number", err)
+	}
+	row, err := q.CreateIssue(ctx, db.CreateIssueParams{
+		ID:                 domain.NewID(),
+		ProjectID:          in.ProjectID,
+		Number:             alloc.Number,
+		Key:                domain.IssueKey(alloc.KeyPrefix, int(alloc.Number)),
+		ParentID:           in.ParentID,
+		Type:               string(in.Type),
+		Title:              in.Title,
+		Spec:               in.Spec,
+		AcceptanceCriteria: nonNil(in.AcceptanceCriteria),
+		Status:             string(in.Status),
+		Priority:           int32(in.Priority),
+		SourceRef:          nonEmpty(in.SourceRef),
+		Labels:             nonNil(in.Labels),
+		CreatedBy:          in.CreatedBy,
+	})
+	if err != nil {
+		return db.Issue{}, mapErr("create issue", err)
+	}
+	return row, nil
 }
 
 // GetIssueByKey returns an issue by its key, e.g. "frk-42".

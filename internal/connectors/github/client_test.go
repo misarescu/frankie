@@ -9,27 +9,6 @@ import (
 	"testing"
 )
 
-func TestListOpenIssuesSkipsPullRequests(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer pat" || r.URL.Path != "/repos/o/r/issues" ||
-			r.URL.Query().Get("labels") != "factory" || r.URL.Query().Get("state") != "open" {
-			http.Error(w, "unexpected request "+r.URL.String(), http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write([]byte(`[
-		 {"number":1,"title":"Add search","body":"spec","html_url":"https://github.com/o/r/issues/1","user":{"login":"mi"},"labels":[{"name":"factory"}]},
-		 {"number":2,"title":"a PR","html_url":"https://github.com/o/r/pull/2","pull_request":{}}]`))
-	}))
-	defer srv.Close()
-	issues, err := NewClient("pat", srv.URL).ListOpenIssues(t.Context(), "o/r", "factory")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(issues) != 1 || issues[0].Number != 1 || issues[0].URL != "https://github.com/o/r/issues/1" || issues[0].Author != "mi" {
-		t.Errorf("issues = %+v", issues)
-	}
-}
-
 func TestOpenPullRequest(t *testing.T) {
 	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +52,7 @@ func TestStatusErrors(t *testing.T) {
 		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	_, err := NewClient("bad", srv.URL).ListOpenIssues(t.Context(), "o/r", "factory")
+	_, err := NewClient("bad", srv.URL).ListLabeledIssues(t.Context(), "o/r", "factory")
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Errorf("err = %v", err)
 	}

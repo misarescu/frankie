@@ -33,3 +33,5 @@ table.issues td { vertical-align: top; } select { font: inherit; color: var(--fg
 .timeline li.st-running { border-left-color: var(--accent); } .timeline li.st-succeeded { border-left-color: var(--ok); } .timeline li.st-failed { border-left-color: var(--bad); }
 .st-succeeded { color: var(--ok); border-color: var(--ok); } .st-pending { opacity: .7; }
 .latest .ev { padding: 4px 0; } .latest pre { margin: 2px 0 0; white-space: pre-wrap; }
+.timeline li.upcoming { opacity: .45; border-left-style: dashed; }
+

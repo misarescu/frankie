@@ -5,7 +5,7 @@ import {
   type CloseReply, type IssueDetail, type IssueRef, type StartReply,
 } from "./issues";
 import { StartReplyPanel, StatusChip } from "./IssuesPage";
-import { watch, type LiveRunRef } from "./live";
+import { latestRun, watch, type LiveRunRef } from "./live";
 import { LiveRun } from "./LiveRun";
 import { decideSpec, type SpecDecision } from "./specs";
 import { usd } from "./steps";
@@ -20,8 +20,9 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
   const [closed, setClosed] = useState<CloseReply | null>(null);
   const [canceling, setCanceling] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Runs the live view follows: those in progress, and those that finished
-  // while the page was open (M5.1).
+  // Runs the live view follows: the latest run of an issue that does the work,
+  // those in progress under a parent, and those that finished while the page
+  // was open (M5.1).
   const [watched, setWatched] = useState<LiveRunRef[]>([]);
   // Poll quickly while something runs or right after a start, so the first
   // run shows up within seconds of the scheduler starting it.
@@ -30,7 +31,13 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
   const load = useCallback(() => {
     fetch(`/api/issues/${encodeURIComponent(issueKey)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? "no such issue" : `status ${r.status}`))))
-      .then((d: IssueDetail) => { setIssue(d); setError(null); setWatched((w) => watch(w, d.live_runs ?? [])); })
+      .then((d: IssueDetail) => {
+        setIssue(d);
+        setError(null);
+        // An issue that does the work always shows its latest run; a parent its runs in progress.
+        const latest = latestRun(d);
+        setWatched((w) => watch(w, [...(d.live_runs ?? []), ...(latest ? [latest] : [])]));
+      })
       .catch((e: Error) => setError(e.message));
   }, [issueKey]);
   useEffect(() => {

@@ -23,6 +23,19 @@ export type Step = {
   gate?: string;
 };
 
+// PlanStep is a step a run's workflow executes, in order (GET /api/runs/{id}/plan).
+export type PlanStep = { step_id: string; kind: string; role?: string; harness?: string; model?: string; gate?: string };
+
+// upcoming lists the planned steps that have not run yet, in plan order, as
+// steps without a status, so a timeline can show them greyed after the ones
+// that ran.
+export function upcoming(plan: PlanStep[], ran: Step[]): Step[] {
+  const seen = new Set(ran.map((s) => s.step_id));
+  return plan.filter((p) => !seen.has(p.step_id)).map((p) => ({
+    ...p, id: `plan-${p.step_id}`, attempt: 1, status: "not started", cost_usd: 0, input_tokens: 0, output_tokens: 0,
+  }));
+}
+
 // who says what does a step's work: "coder · claude-code · anthropic/claude-sonnet-5-5"
 // for an agent, "command gate" for a gate.
 export function who(s: Step): string {

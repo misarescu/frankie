@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { RunEvent } from "./events";
-import { clip, duration, keepLatest, watch, type LiveRunRef } from "./live";
+import { clip, duration, keepLatest, latestRun, watch, type LiveRunRef } from "./live";
 
 const ev = (seq: number, type: string): RunEvent => ({ seq, time: "", type, payload: {} });
 
@@ -39,3 +39,13 @@ test("M5.1: clips long text", () => {
   expect(clip("short")).toBe("short");
   expect(clip("abcdef ghij", 7)).toBe("abcdef …");
 });
+
+test("M5.1: an issue that does the work keeps showing its latest run; a parent shows none", () => {
+  const runs = [{ id: "r2", status: "succeeded", workflow: "default-build@1", created_at: "2026-11-15T01:10:11Z" },
+    { id: "r1", status: "failed", workflow: "default-build@1", created_at: "2026-11-15T00:10:11Z" }];
+  expect(latestRun({ key: "gc-12", title: "Rate a single book", children: [], runs })).toEqual(
+    { id: "r2", status: "succeeded", workflow: "default-build@1", created_at: "2026-11-15T01:10:11Z", issue_key: "gc-12", issue_title: "Rate a single book" });
+  expect(latestRun({ key: "gc-12", title: "t", children: [], runs: [] })).toBeUndefined();
+  expect(latestRun({ key: "gc-11", title: "t", children: [{}], runs })).toBeUndefined();
+});
+

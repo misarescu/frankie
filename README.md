@@ -4,7 +4,7 @@ Frankie is a self-hosted platform that turns specs into merged, released softwar
 
 The name comes from the shipwright of the Strawhats crew from One Piece. Frankie can build and maintain everything, you just have to ask.
 
-Status: **M3 complete**: configurable workflows and gates, running on a homelab k3s cluster and on this repo itself. Start with `AGENTS.md`, then `docs/spec/10-roadmap.md`.
+Status: **M4 complete**: configurable workflows and gates on three harnesses and two model providers, running on a homelab k3s cluster and on this repo itself. Start with `AGENTS.md`, then `docs/spec/10-roadmap.md`.
 
 Getting started: install [mise](https://mise.jdx.dev), then `mise install` and `mise run doctor`.
 

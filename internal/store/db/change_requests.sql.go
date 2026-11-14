@@ -11,6 +11,101 @@ import (
 	"github.com/google/uuid"
 )
 
+const finishChangeRequest = `-- name: FinishChangeRequest :one
+UPDATE change_requests
+SET status = $1, updated_at = now()
+WHERE id = $2 AND status = 'open'
+RETURNING id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at
+`
+
+type FinishChangeRequestParams struct {
+	Status string
+	ID     uuid.UUID
+}
+
+// Compare-and-set from open to merged or closed.
+func (q *Queries) FinishChangeRequest(ctx context.Context, arg FinishChangeRequestParams) (ChangeRequest, error) {
+	row := q.db.QueryRow(ctx, finishChangeRequest, arg.Status, arg.ID)
+	var i ChangeRequest
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.RunID,
+		&i.Repo,
+		&i.Number,
+		&i.ProviderRef,
+		&i.Branch,
+		&i.HeadSha,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getChangeRequest = `-- name: GetChangeRequest :one
+SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests WHERE id = $1
+`
+
+func (q *Queries) GetChangeRequest(ctx context.Context, id uuid.UUID) (ChangeRequest, error) {
+	row := q.db.QueryRow(ctx, getChangeRequest, id)
+	var i ChangeRequest
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.RunID,
+		&i.Repo,
+		&i.Number,
+		&i.ProviderRef,
+		&i.Branch,
+		&i.HeadSha,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listChangeRequestsAwaitingMerge = `-- name: ListChangeRequestsAwaitingMerge :many
+SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests
+WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awaiting_human')
+ORDER BY created_at, id
+`
+
+// Open change requests whose issue waits for a person: the ones that can be merged
+// on the provider (D61).
+func (q *Queries) ListChangeRequestsAwaitingMerge(ctx context.Context) ([]ChangeRequest, error) {
+	rows, err := q.db.Query(ctx, listChangeRequestsAwaitingMerge)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChangeRequest
+	for rows.Next() {
+		var i ChangeRequest
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.RunID,
+			&i.Repo,
+			&i.Number,
+			&i.ProviderRef,
+			&i.Branch,
+			&i.HeadSha,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChangeRequestsForIssue = `-- name: ListChangeRequestsForIssue :many
 SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests WHERE issue_id = $1 ORDER BY created_at
 `

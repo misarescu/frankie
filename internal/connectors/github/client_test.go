@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 func TestOpenPullRequest(t *testing.T) {
@@ -179,5 +181,34 @@ func TestListFiles(t *testing.T) {
 	paths, complete, err := NewClient("pat", srv.URL).ListFiles(t.Context(), "o/r", "abc")
 	if err != nil || !complete || len(paths) != 2 || paths[1] != "web/bun.lock" {
 		t.Fatalf("paths %v, complete %v, err %v", paths, complete, err)
+	}
+}
+
+func TestChangeRequestStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/1":
+			_, _ = w.Write([]byte(`{"state":"open","merged":false}`))
+		case "/repos/o/r/pulls/2":
+			_, _ = w.Write([]byte(`{"state":"closed","merged":true}`))
+		case "/repos/o/r/pulls/3":
+			_, _ = w.Write([]byte(`{"state":"closed","merged":false}`))
+		case "/repos/o/r/pulls/4":
+			_, _ = w.Write([]byte(`{"state":"weird"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient("pat", srv.URL)
+	for n, want := range map[int]domain.ChangeRequestStatus{1: domain.ChangeRequestOpen, 2: domain.ChangeRequestMerged, 3: domain.ChangeRequestClosed} {
+		if got, err := c.ChangeRequestStatus(t.Context(), "o/r", n); err != nil || got != want {
+			t.Errorf("#%d = %q, %v; want %q", n, got, err, want)
+		}
+	}
+	for _, n := range []int{4, 5} {
+		if _, err := c.ChangeRequestStatus(t.Context(), "o/r", n); err == nil {
+			t.Errorf("#%d: no error", n)
+		}
 	}
 }

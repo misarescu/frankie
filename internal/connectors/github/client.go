@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 // Client is a minimal GitHub REST client for the M1 connector needs.
@@ -125,6 +127,27 @@ func (c *Client) send(ctx context.Context, method, path, accept string, body any
 		return nil, &StatusError{Code: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
 	return data, nil
+}
+
+// ChangeRequestStatus reports whether pull request number of repo is open,
+// merged or closed without merging (D61).
+func (c *Client) ChangeRequestStatus(ctx context.Context, repo string, number int) (domain.ChangeRequestStatus, error) {
+	var pr struct {
+		State  string `json:"state"`
+		Merged bool   `json:"merged"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", repo, number), nil, &pr); err != nil {
+		return "", err
+	}
+	switch {
+	case pr.Merged:
+		return domain.ChangeRequestMerged, nil
+	case pr.State == "closed":
+		return domain.ChangeRequestClosed, nil
+	case pr.State == "open":
+		return domain.ChangeRequestOpen, nil
+	}
+	return "", fmt.Errorf("github: pull request %s#%d has unknown state %q", repo, number, pr.State)
 }
 
 // ResolveRef returns the commit SHA a branch, tag or SHA of repo points to now.

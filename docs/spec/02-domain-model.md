@@ -41,7 +41,7 @@ draft -> refining -> ready -> running -> awaiting_human -> queued -> merged -> r
 
 - `refining`: optional refinement agent rewrites the ticket into acceptance criteria and asks questions. An issue becomes `ready` only after refinement/approval (spec approval is the first human gate; it happens before the workflow starts).
 - `running`: a Run is active. `awaiting_human`: a `human` gate or ask-human tool is blocking.
-- `queued`: in the repo merge queue. `merged`: on `main`. `released`: included in a Release that reached the final stage.
+- `queued`: in the repo merge queue. `merged`: on `main`; until the merge queue exists (M6), an issue reaches it when a person merges its change request on the provider (D61). `released`: included in a Release that reached the final stage.
 
 Allowed transitions (enforced in `internal/domain`; anything not listed is rejected):
 
@@ -51,7 +51,7 @@ Allowed transitions (enforced in `internal/domain`; anything not listed is rejec
 | `refining` | `ready` |
 | `ready` | `running` |
 | `running` | `awaiting_human`, `queued` |
-| `awaiting_human` | `running` |
+| `awaiting_human` | `running`, `merged` (a person merged the change request on the provider, D61) |
 | `queued` | `merged`, `running` (merge queue sends a conflict back to the coder) |
 | `merged` | `released` |
 | any state before `merged` | `failed`, `canceled` |

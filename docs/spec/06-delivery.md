@@ -30,6 +30,7 @@ Two change requests can each pass against old `main` and still break when combin
   4. **Red after rebase:** treated like a conflict - back to the coder.
 - **FR-MQ-3** Order: engineer-defined dependency order, then FIFO.
 - **FR-MQ-4** Prevention: when choosing parallel issues the scheduler warns if they likely touch the same packages.
+- Before the queue (M5, D61): people merge change requests on the provider, and a watcher in `internal/mergequeue` moves the issue from `awaiting_human` to `merged` when it sees the merge. The queue keeps that watcher for merges made by hand.
 - **Later optimization** (only if the queue becomes a bottleneck, unlikely at homelab scale): speculative batching - test A, A+B, A+B+C together, merge the longest green prefix.
 
 ## Releases and stages

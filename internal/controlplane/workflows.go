@@ -20,6 +20,7 @@ import (
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/intake"
+	"github.com/misarescu/frankie/internal/mergequeue"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
@@ -144,6 +145,11 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	}
 	log.Info("temporal worker started", "address", cfg.TemporalAddress, "taskQueue", workflow.TaskQueue)
 
+	if cfg.GitHubToken != "" {
+		mw := &mergequeue.Watcher{Store: st, Source: gh, Interval: max(cfg.PollInterval, 10*time.Second),
+			Log: log.With("component", "mergequeue")}
+		go mw.Run(ctx)
+	}
 	if cfg.GitHubToken != "" && cfg.IntakeLabel != "" {
 		in := &intake.Intake{Store: st, Source: gh, Starter: temporalStarter{c: c, files: gh, models: cfg.Models}, Projects: projects,
 			Label: cfg.IntakeLabel, Interval: max(cfg.PollInterval, 10*time.Second), Log: log.With("component", "intake")}

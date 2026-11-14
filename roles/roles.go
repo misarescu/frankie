@@ -25,6 +25,7 @@ var ErrNotFound = errors.New("no built-in role with that name")
 // contractSchemas maps each output contract to its JSON Schema file.
 var contractSchemas = map[string]string{
 	config.ContractReviewVerdict: "schemas/review-verdict.json",
+	config.ContractRefinedSpec:   "schemas/refined-spec.json",
 }
 
 // Names lists the built-in roles, sorted.

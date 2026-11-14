@@ -120,7 +120,7 @@ Roles are parsed by `internal/config` (`ParseRole`); the built-ins are embedded 
 - `output_contract.schema` names a contract the platform knows, not a file: the gate must understand the result, so a repo cannot define its own. The only one is `review-verdict` (`domain.ReviewVerdict`, JSON Schema in `roles/schemas/review-verdict.json`): `{verdict: pass|fail, summary?, findings: [{severity: blocker|major|minor|info, file?, line?, message}]}`, at most 100 findings, and a passing verdict carries no blocker. The platform appends the contract's instructions and schema to the role's system prompt.
 - A role returning a verdict runs only as a branch of a parallel group judged by an `agent-verdict` gate, and such a group's branches all return verdicts.
 
-M3 ships `coder` and `code-reviewer`.
+M3 ships `coder` and `code-reviewer`. M5 ships `refiner` (D65): read-only like a reviewer, it returns the `refined-spec` contract (`domain.RefinedSpec`, `roles/schemas/refined-spec.json`): `{spec, acceptance_criteria: [1..30], file_hints?, summary?}`. Only refinement runs it; a workflow definition naming it is rejected, and refinement rejects a role without that contract.
 
 Initial roles: `refiner`, `coder` (Go, React variants), `e2e-test-writer`, `code-reviewer`, `security-reviewer`, `helm-reviewer`, `release-agent`, `flag-cleanup`. Each role's prompt tells it about the repo's `CLAUDE.md`/`AGENTS.md`, ADRs and coding standards, which live in the repo and are read every run. Agents may propose changes to those documents through a normal change request.
 

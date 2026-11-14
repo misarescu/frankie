@@ -68,35 +68,20 @@ var errRead = errors.New("read")
 // over built-in ones of the same name; a project that selects no workflow runs
 // the built-in default (workflows.Default).
 func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapshot, error) {
-	sha, err := r.ResolveRef(ctx, repo, baseBranch)
+	rd, err := open(ctx, r, repo, baseBranch)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot: resolve %s@%s: %w", repo, baseBranch, err)
+		return Snapshot{}, err
 	}
-	read := func(p string) ([]byte, bool, error) {
-		b, found, err := r.FileAt(ctx, repo, p, sha)
-		if err != nil {
-			return nil, false, fmt.Errorf("%w %s@%s: %w", errRead, p, sha, err)
-		}
-		return b, found, nil
-	}
-
-	raw, found, err := read(config.ProjectConfigPath)
+	project, err := rd.project()
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
-	}
-	var project config.Project
-	if found {
-		// The services limit is the platform's and is checked per pod.
-		if project, err = config.ParseProject(raw, math.MaxInt); err != nil {
-			return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
-		}
+		return Snapshot{}, err
 	}
 	if project.Workflow == "" {
 		project.Workflow = workflows.Default
 	}
 
-	s := Snapshot{BaseSHA: sha, IssueBudgetUSD: project.Budgets.IssueUSD}
-	raw, found, err = read(config.ProtectedPathsFile)
+	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD}
+	raw, found, err := rd.read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
 	}
@@ -108,7 +93,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 	}
 	s.ProtectedPaths = config.ProtectedPatterns(repoProtected)
 	defPath := path.Join(WorkflowsDir, project.Workflow+".yaml")
-	raw, found, err = read(defPath)
+	raw, found, err = rd.read(defPath)
 	switch {
 	case err != nil:
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
@@ -126,10 +111,58 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 			return Snapshot{}, fmt.Errorf("snapshot: %w: workflow %q is neither in %s nor built in: %w", ErrInvalid, project.Workflow, WorkflowsDir, err)
 		}
 	}
+	if s.Roles, err = rolesResult(config.ResolveRoles(s.Workflow, rd.roleLookup())); err != nil {
+		return Snapshot{}, err
+	}
+	return s, nil
+}
 
-	s.Roles, err = config.ResolveRoles(s.Workflow, func(name string) (config.Role, error) {
+// reader reads a repo's files at the commit its base branch pointed to when the
+// snapshot was taken, so everything in one snapshot comes from one commit.
+type reader struct {
+	ctx  context.Context
+	r    FileReader
+	repo string
+	sha  string
+}
+
+func open(ctx context.Context, r FileReader, repo, baseBranch string) (*reader, error) {
+	sha, err := r.ResolveRef(ctx, repo, baseBranch)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: resolve %s@%s: %w", repo, baseBranch, err)
+	}
+	return &reader{ctx: ctx, r: r, repo: repo, sha: sha}, nil
+}
+
+func (rd *reader) read(p string) ([]byte, bool, error) {
+	b, found, err := rd.r.FileAt(rd.ctx, rd.repo, p, rd.sha)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w %s@%s: %w", errRead, p, rd.sha, err)
+	}
+	return b, found, nil
+}
+
+// project reads `.factory/config.yaml`; a repo without one has the defaults.
+func (rd *reader) project() (config.Project, error) {
+	raw, found, err := rd.read(config.ProjectConfigPath)
+	if err != nil {
+		return config.Project{}, fmt.Errorf("snapshot: %w", err)
+	}
+	var project config.Project
+	if found {
+		// The services limit is the platform's and is checked per pod.
+		if project, err = config.ParseProject(raw, math.MaxInt); err != nil {
+			return config.Project{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+		}
+	}
+	return project, nil
+}
+
+// roleLookup finds a role in the repo's .factory/roles/, else among the built-ins.
+func (rd *reader) roleLookup() config.RoleLookup {
+	return func(name string) (config.Role, error) {
 		rolePath := path.Join(RolesDir, name+".yaml")
-		raw, found, err := read(rolePath)
+		raw, found, err := rd.read(rolePath)
 		if err != nil {
 			return config.Role{}, err
 		}
@@ -137,7 +170,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 			return roles.Get(name)
 		}
 		role, err := roles.Parse(raw, func(p string) ([]byte, error) {
-			b, found, err := read(path.Join(RolesDir, p))
+			b, found, err := rd.read(path.Join(RolesDir, p))
 			if err == nil && !found {
 				err = fmt.Errorf("%s not found", path.Join(RolesDir, p))
 			}
@@ -147,12 +180,16 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 			err = fmt.Errorf("%s is named %q", rolePath, role.Name)
 		}
 		return role, err
-	})
+	}
+}
+
+// rolesResult tells a failed read (worth retrying) from roles the repo must fix.
+func rolesResult(rs map[string]config.Role, err error) (map[string]config.Role, error) {
 	if errors.Is(err, errRead) {
-		return Snapshot{}, fmt.Errorf("snapshot: %w", err)
+		return nil, fmt.Errorf("snapshot: %w", err)
 	}
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+		return nil, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
 	}
-	return s, nil
+	return rs, nil
 }

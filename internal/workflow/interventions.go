@@ -15,23 +15,29 @@ import (
 const (
 	SteerSignal = "step-steer"
 	AbortSignal = "step-abort"
+	// AnswerSignal answers a question the agent asked with the ask-human
+	// tool (D55).
+	AnswerSignal = "step-answer"
 )
 
-// StepIntervention is a person's steer or abort of one agent step.
+// StepIntervention is a person's steer, abort or answer to one agent step.
 type StepIntervention struct {
 	// StepRunID is the step's StepRun; one for any other step (one that
 	// already ended) is ignored.
 	StepRunID string
 	By        string
-	// Text is the steering message, or the reason for an abort.
+	// Text is the steering message, the reason for an abort, or the answer.
 	Text string
+	// QuestionID is the runner's ID of the question an answer answers.
+	QuestionID string `json:",omitempty"`
 }
 
 // awaitSession waits for an agent step's session and meanwhile relays the
-// steers and aborts addressed to it to the step's runner. It returns the
-// abort a person sent, if any: the session then ends aborted and the run
-// fails with who aborted it and why.
-func (it *interpreter) awaitSession(ctx workflow.Context, stepRunID string, pod activities.AgentPod, session workflow.Future, out *activities.SessionResult) (*StepIntervention, error) {
+// steers and aborts addressed to it to the step's runner, and its answers
+// when the session offers the ask-human tool. It returns the abort a person
+// sent, if any: the session then ends aborted and the run fails with who
+// aborted it and why.
+func (it *interpreter) awaitSession(ctx workflow.Context, stepRunID string, pod activities.AgentPod, session workflow.Future, answers bool, out *activities.SessionResult) (*StepIntervention, error) {
 	var (
 		err     error
 		ended   bool
@@ -47,7 +53,7 @@ func (it *interpreter) awaitSession(ctx workflow.Context, stepRunID string, pod 
 		// Recording and delivery are best effort: a failure must not end a
 		// session that is still working.
 		_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.InterveneSession, pod, activities.Intervention{
-			RunID: it.run.RunID, StepRunID: stepRunID, Action: action, By: in.By, Text: in.Text,
+			RunID: it.run.RunID, StepRunID: stepRunID, Action: action, By: in.By, Text: in.Text, QuestionID: in.QuestionID,
 		}).Get(ctx, nil)
 	}
 	steers := workflow.GetSignalChannel(ctx, SteerSignal)
@@ -67,6 +73,15 @@ func (it *interpreter) awaitSession(ctx workflow.Context, stepRunID string, pod 
 		c.Receive(ctx, &in)
 		relay(domain.InterventionAbort, in)
 	})
+	if answers {
+		sel.AddReceive(workflow.GetSignalChannel(ctx, AnswerSignal), func(c workflow.ReceiveChannel, _ bool) {
+			var in StepIntervention
+			c.Receive(ctx, &in)
+			if in.QuestionID != "" {
+				relay(domain.InterventionAnswer, in)
+			}
+		})
+	}
 	for !ended {
 		sel.Select(ctx)
 	}

@@ -150,6 +150,27 @@ CREATE TABLE approvals (
 
 CREATE INDEX approvals_status_idx ON approvals (status, created_at);
 
+-- Questions an agent asked a person with the ask-human tool (D55): the
+-- session's activity writes one when it sees the question event, the
+-- InterveneSession activity records its answer, and finishing the step run
+-- expires the ones nobody answered. question_id is the runner's.
+CREATE TABLE questions (
+  id          uuid        PRIMARY KEY,
+  step_run_id uuid        NOT NULL REFERENCES step_runs (id),
+  run_id      uuid        NOT NULL REFERENCES runs (id),
+  question_id text        NOT NULL,
+  question    text        NOT NULL,
+  status      text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'answered', 'expired')),
+  answer      text,
+  answered_by text,
+  answered_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT questions_step_run_question_key UNIQUE (step_run_id, question_id)
+);
+
+CREATE INDEX questions_status_idx ON questions (status, created_at);
+
 -- The digest each toolchain image was built as (open question 15, D45). Pods
 -- run toolchain images by this digest only: the registry is writable by build
 -- pods, so a tag there proves nothing.

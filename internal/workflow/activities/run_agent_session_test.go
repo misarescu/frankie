@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/misarescu/frankie/internal/config"
 
 	"google.golang.org/grpc/codes"
@@ -127,4 +129,55 @@ func TestStartRequestCarriesHarnessAndGateway(t *testing.T) {
 	if _, err := runnerHarness("aider"); err == nil {
 		t.Error("an unknown harness was accepted")
 	}
+}
+
+// D55: the ask-human tool is offered exactly when the workflow says it relays
+// answers.
+func TestStartRequestOffersAskHuman(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{Model: "claude-sonnet-5-5", SessionTimeout: time.Hour}}
+	for _, ask := range []bool{false, true} {
+		run := testRun
+		run.Step = &AgentStep{StepID: "implement", AskHuman: ask}
+		set := a.sessionSettings(run)
+		if got := a.startRequest(testInput, run, set, runnerv1.Harness_HARNESS_CLAUDE_CODE, StartPoint{CloneRef: "main"}, "tok", "vkey").GetAskHuman(); got != ask {
+			t.Errorf("AskHuman %v: start request asks %v", ask, got)
+		}
+	}
+}
+
+// D55: a question event becomes a pending question of the step; a malformed
+// one is skipped rather than failing the session.
+func TestOpenQuestionRecordsTheQuestion(t *testing.T) {
+	st, in := readyIssue(t)
+	a := &Activities{Store: st, Log: quietLog()}
+	run := startedRun(t, a, in)
+	step := uuid.MustParse(runningAgentStep(t, a, run))
+	for _, payload := range []string{`{"question_id":"q1","question":"Which port?"}`, `{"question_id":"q1","question":"Which port?"}`,
+		`{"question":"no id"}`, `not json`} {
+		if err := a.openQuestion(t.Context(), step, []byte(payload)); err != nil {
+			t.Fatalf("%s: %v", payload, err)
+		}
+	}
+	pending, err := st.ListPendingQuestions(t.Context())
+	if err != nil || len(pending) != 1 || pending[0].QuestionID != "q1" || pending[0].Text != "Which port?" || pending[0].StepRunID != step {
+		t.Errorf("pending = %+v, %v", pending, err)
+	}
+}
+
+// runningAgentStep starts the run's implement step and marks it running, as
+// launching its pod does, and returns its StepRun ID.
+func runningAgentStep(t *testing.T, a *Activities, run StartRunResult) string {
+	t.Helper()
+	val, err := activityEnv(a).ExecuteActivity(a.StartStep, StepStart{RunID: run.RunID, StepID: "implement", Attempt: 1, Kind: domain.StepAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stepRunID string
+	if err := val.Get(&stepRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Store.TransitionStepRun(t.Context(), uuid.MustParse(stepRunID), domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	return stepRunID
 }

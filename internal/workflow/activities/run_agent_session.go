@@ -138,6 +138,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if _, err := a.Store.AppendEvent(ctx, store.NewEvent{RunID: &runID, StepRunID: &stepID, Ts: e.GetTime().AsTime(), Type: typ, Payload: e.GetPayload()}); err != nil {
 			return SessionResult{}, err
 		}
+		if typ == domain.EventQuestion {
+			if err := a.openQuestion(ctx, stepID, e.GetPayload()); err != nil {
+				return SessionResult{}, err
+			}
+		}
 		progress.LastSeq = e.GetSeq()
 		if typ == domain.EventTokenUsage {
 			progress.Tokens.observe(e.GetPayload())
@@ -181,6 +186,7 @@ type sessionSettings struct {
 	timeout             time.Duration
 	allowedTools        []string
 	readOnly            bool // a reviewer: read-only token and workspace
+	askHuman            bool
 }
 
 func (a *Activities) sessionSettings(run StartRunResult) sessionSettings {
@@ -188,7 +194,7 @@ func (a *Activities) sessionSettings(run StartRunResult) sessionSettings {
 	if s := run.Step; s != nil {
 		set.model, set.budget, set.timeout = cmp.Or(s.Model, set.model), cmp.Or(s.BudgetUSD, set.budget), cmp.Or(s.Timeout, set.timeout)
 		set.systemPrompt, set.allowedTools, set.readOnly = s.SystemPrompt, s.AllowedTools, s.Contract != ""
-		set.harness = s.Harness
+		set.harness, set.askHuman = s.Harness, s.AskHuman
 	}
 	return set
 }
@@ -229,6 +235,7 @@ func (a *Activities) startRequest(in IssueRunInput, run StartRunResult, set sess
 			ReadOnly: set.readOnly, CompareRef: in.BaseBranch,
 		},
 		AllowedTools: set.allowedTools,
+		AskHuman:     set.askHuman,
 	}
 }
 
@@ -292,4 +299,20 @@ func (a *Activities) runnerConn(pod AgentPod) (*grpc.ClientConn, runnerv1.Runner
 		return nil, nil, fmt.Errorf("runner %s: %w", addr, err)
 	}
 	return conn, runnerv1.NewRunnerServiceClient(conn), nil
+}
+
+// openQuestion records a question the agent asked, for the inbox to show
+// until someone answers it (D55). A malformed one is only logged: nobody
+// could answer it, and the runner's wall-clock timeout bounds its wait.
+func (a *Activities) openQuestion(ctx context.Context, stepRunID uuid.UUID, payload []byte) error {
+	var q struct {
+		QuestionID string `json:"question_id"`
+		Question   string `json:"question"`
+	}
+	if err := json.Unmarshal(payload, &q); err != nil || q.QuestionID == "" || strings.TrimSpace(q.Question) == "" {
+		a.Log.Warn("unusable question event", "step", stepRunID, "payload", string(payload))
+		return nil
+	}
+	_, err := a.Store.OpenQuestion(ctx, store.NewQuestion{StepRunID: stepRunID, QuestionID: q.QuestionID, Question: q.Question})
+	return err
 }

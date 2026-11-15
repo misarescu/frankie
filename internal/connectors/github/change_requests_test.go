@@ -167,6 +167,63 @@ func TestCommitStatus(t *testing.T) {
 	}
 }
 
+// M6 (D86): a fine-grained token cannot read check runs; the commit's
+// workflow runs stand in, the newest per workflow and event.
+func TestCommitStatusFallsBackToWorkflowRuns(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		runs   string
+		want   domain.CheckState
+		checks int
+	}{
+		{"forbidden, latest attempt passed", http.StatusForbidden, `{"total_count":3,"workflow_runs":[
+			{"name":"ci","workflow_id":1,"event":"push","status":"completed","conclusion":"success"},
+			{"name":"ci","workflow_id":1,"event":"push","status":"completed","conclusion":"failure"},
+			{"name":"images","workflow_id":2,"event":"push","status":"completed","conclusion":"skipped"}]}`, domain.CheckSuccess, 2},
+		{"not found, one running", http.StatusNotFound, `{"total_count":2,"workflow_runs":[
+			{"name":"ci","workflow_id":1,"event":"pull_request","status":"in_progress","conclusion":null},
+			{"name":"ci","workflow_id":1,"event":"push","status":"completed","conclusion":"success"}]}`, domain.CheckPending, 2},
+		{"no workflows", http.StatusForbidden, `{"total_count":0,"workflow_runs":[]}`, domain.CheckNone, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/o/r/commits/abc/check-runs":
+					w.WriteHeader(tt.status)
+					_, _ = io.WriteString(w, `{"message":"Resource not accessible by personal access token"}`)
+				case "/repos/o/r/actions/runs":
+					if r.URL.Query().Get("head_sha") != "abc" {
+						t.Errorf("runs for %q", r.URL.Query().Get("head_sha"))
+					}
+					_, _ = io.WriteString(w, tt.runs)
+				case "/repos/o/r/commits/abc/status":
+					_, _ = io.WriteString(w, `{"statuses":[]}`)
+				default:
+					t.Errorf("unexpected %s", r.URL)
+				}
+			}))
+			defer srv.Close()
+			got, err := NewClient("pat", srv.URL).CommitStatus(t.Context(), "o/r", "abc")
+			if err != nil || got.State != tt.want || len(got.Checks) != tt.checks {
+				t.Fatalf("status = %s with %d checks, %v; want %s with %d", got.State, len(got.Checks), err, tt.want, tt.checks)
+			}
+		})
+	}
+}
+
+// Another refusal is not hidden behind the fallback.
+func TestCommitStatusReportsOtherErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	if _, err := NewClient("pat", srv.URL).CommitStatus(t.Context(), "o/r", "abc"); err == nil {
+		t.Fatal("a server error was not reported")
+	}
+}
+
 func TestCheckRunState(t *testing.T) {
 	for _, tt := range []struct {
 		status, conclusion string

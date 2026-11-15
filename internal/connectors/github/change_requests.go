@@ -88,40 +88,27 @@ func (c *Client) CloseChangeRequest(ctx context.Context, repo string, number int
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/pulls/%d", repo, number), map[string]string{"state": "closed"}, nil)
 }
 
-// maxCheckPages bounds the check runs read for one commit (100 per page).
+// maxCheckPages bounds the check or workflow runs read for one commit (100 per page).
 const maxCheckPages = 10
 
-// CommitStatus returns the provider checks of commit sha in repo (D85): its
-// latest check runs (GitHub Actions and apps) and its commit statuses, and
-// their combined state.
+// CommitStatus returns the provider checks of commit sha in repo (D85, D86):
+// its latest check runs and its commit statuses, and their combined state. A
+// fine-grained personal access token cannot read check runs (there is no
+// Checks permission for one), so when GitHub refuses them the commit's GitHub
+// Actions workflow runs stand in; checks that other apps report are then not
+// seen.
 func (c *Client) CommitStatus(ctx context.Context, repo, sha string) (domain.CommitStatus, error) {
 	out := domain.CommitStatus{SHA: sha}
 	ref := url.PathEscape(sha)
-	for page, seen := 1, 0; page <= maxCheckPages; page++ {
-		var resp struct {
-			TotalCount int `json:"total_count"`
-			CheckRuns  []struct {
-				Name       string `json:"name"`
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-				HTMLURL    string `json:"html_url"`
-				Output     struct {
-					Title string `json:"title"`
-				} `json:"output"`
-			} `json:"check_runs"`
-		}
-		q := url.Values{"per_page": {"100"}, "page": {fmt.Sprint(page)}}
-		if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+ref+"/check-runs?"+q.Encode(), nil, &resp); err != nil {
-			return domain.CommitStatus{}, err
-		}
-		for _, r := range resp.CheckRuns {
-			out.Checks = append(out.Checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL, Summary: r.Output.Title})
-		}
-		seen += len(resp.CheckRuns)
-		if len(resp.CheckRuns) == 0 || seen >= resp.TotalCount {
-			break
-		}
+	checks, err := c.checkRuns(ctx, repo, ref)
+	var se *StatusError
+	if errors.As(err, &se) && (se.Code == http.StatusForbidden || se.Code == http.StatusNotFound) {
+		checks, err = c.workflowRuns(ctx, repo, sha)
 	}
+	if err != nil {
+		return domain.CommitStatus{}, err
+	}
+	out.Checks = checks
 	var combined struct {
 		Statuses []struct {
 			Context     string `json:"context"`
@@ -138,6 +125,75 @@ func (c *Client) CommitStatus(ctx context.Context, repo, sha string) (domain.Com
 	}
 	out.State = domain.CombineChecks(out.Checks)
 	return out, nil
+}
+
+// checkRuns reads the commit's latest check runs (GitHub Actions jobs and
+// other apps' checks).
+func (c *Client) checkRuns(ctx context.Context, repo, ref string) ([]domain.Check, error) {
+	var checks []domain.Check
+	for page := 1; page <= maxCheckPages; page++ {
+		var resp struct {
+			TotalCount int `json:"total_count"`
+			CheckRuns  []struct {
+				Name       string `json:"name"`
+				Status     string `json:"status"`
+				Conclusion string `json:"conclusion"`
+				HTMLURL    string `json:"html_url"`
+				Output     struct {
+					Title string `json:"title"`
+				} `json:"output"`
+			} `json:"check_runs"`
+		}
+		q := url.Values{"per_page": {"100"}, "page": {fmt.Sprint(page)}}
+		if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+ref+"/check-runs?"+q.Encode(), nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, r := range resp.CheckRuns {
+			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL, Summary: r.Output.Title})
+		}
+		if len(resp.CheckRuns) == 0 || len(checks) >= resp.TotalCount {
+			break
+		}
+	}
+	return checks, nil
+}
+
+// workflowRuns reads the commit's GitHub Actions workflow runs (Actions:
+// read), the latest per workflow and triggering event.
+func (c *Client) workflowRuns(ctx context.Context, repo, sha string) ([]domain.Check, error) {
+	var checks []domain.Check
+	seen, read := map[string]bool{}, 0
+	for page := 1; page <= maxCheckPages; page++ {
+		var resp struct {
+			TotalCount   int `json:"total_count"`
+			WorkflowRuns []struct {
+				Name       string `json:"name"`
+				WorkflowID int64  `json:"workflow_id"`
+				Event      string `json:"event"`
+				Status     string `json:"status"`
+				Conclusion string `json:"conclusion"`
+				HTMLURL    string `json:"html_url"`
+			} `json:"workflow_runs"`
+		}
+		q := url.Values{"head_sha": {sha}, "per_page": {"100"}, "page": {fmt.Sprint(page)}}
+		if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/actions/runs?"+q.Encode(), nil, &resp); err != nil {
+			return nil, err
+		}
+		// Newest first: an older run of the same workflow and event was superseded.
+		for _, r := range resp.WorkflowRuns {
+			key := fmt.Sprintf("%d/%s", r.WorkflowID, r.Event)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL})
+		}
+		read += len(resp.WorkflowRuns)
+		if len(resp.WorkflowRuns) == 0 || read >= resp.TotalCount {
+			break
+		}
+	}
+	return checks, nil
 }
 
 // checkRunState maps a check run: done when completed, passed when it

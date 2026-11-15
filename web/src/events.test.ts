@@ -96,6 +96,10 @@ test("M6: gates for bugs say what they expect and keep", () => {
     .toBe("command gate passed\nexpects the commands to fail (a test that shows the bug)\nmise run test: exit 1");
   expect(summary(ev("gate_result", { type: "preserve", verdict: "fail", details: { step: "reproduce", files: ["a_test.go"], changed: [{ file: "a_test.go", status: "modified" }] } })))
     .toBe("preserve gate failed\na_test.go: modified after reproduce wrote it");
+  // D97: the lines the step added that the fix lost.
+  expect(summary(ev("gate_result", { type: "preserve", verdict: "fail", details: { step: "reproduce", files: ["a_test.go"],
+    changed: [{ file: "a_test.go", status: "modified", lines: ["check(t, n, 3)"] }] } })))
+    .toBe("preserve gate failed\na_test.go: modified after reproduce wrote it\n  no longer there: check(t, n, 3)");
   expect(summary(ev("gate_result", { type: "preserve", verdict: "pass", details: { step: "reproduce", files: ["a_test.go"] } })))
-    .toBe("preserve gate passed\nkeeps the 1 files reproduce changed");
+    .toBe("preserve gate passed\nkeeps what reproduce wrote in 1 files");
 });

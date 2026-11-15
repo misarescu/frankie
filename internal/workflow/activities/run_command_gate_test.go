@@ -78,6 +78,7 @@ func newGateFixtureWithFiles(t *testing.T, files map[string]string, exits ...*in
 		Agent: AgentConfig{
 			Namespace: "frankie-agents", RunnerImage: "ghcr.io/misarescu/frankie-runner:sha-abc", RuntimeClass: "kata",
 			ServiceAccount: "frankie-agent", EgressProxyURL: "http://proxy:3128", GitProxyURL: "http://cp:8081",
+			NodeSelector: map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
 		},
 		Gate: GateConfig{
 			Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("3Gi")},
@@ -146,6 +147,9 @@ func TestRunCommandGatePod(t *testing.T) {
 	pod := f.created[0]
 	if pod.Labels[sandbox.RoleLabel] != sandbox.RoleGate {
 		t.Errorf("labels = %v", pod.Labels)
+	}
+	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" { // D100
+		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
 	}
 	var cmds []string
 	for _, c := range pod.Spec.InitContainers[1:] {

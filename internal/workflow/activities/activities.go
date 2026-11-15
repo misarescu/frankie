@@ -210,12 +210,14 @@ type AgentConfig struct {
 	ServiceAccount string
 	EgressProxyURL string
 	NoProxy        []string
-	Limits         corev1.ResourceList
-	WorkspaceSize  resource.Quantity
-	PodDeadline    time.Duration
-	GitProxyURL    string // as agents reach it, e.g. http://frankie-controlplane.frankie.svc:8081
-	GatewayURL     string // as agents reach it, e.g. http://frankie-llm-gateway.frankie.svc:4000
-	Model          string
+	// NodeSelector keeps agent, gate and branch update pods on the agent pool (D100).
+	NodeSelector  map[string]string
+	Limits        corev1.ResourceList
+	WorkspaceSize resource.Quantity
+	PodDeadline   time.Duration
+	GitProxyURL   string // as agents reach it, e.g. http://frankie-controlplane.frankie.svc:8081
+	GatewayURL    string // as agents reach it, e.g. http://frankie-llm-gateway.frankie.svc:4000
+	Model         string
 	// IssueBudgetUSD is the default cap on all of an issue's sessions
 	// together; projects may set their own (D53).
 	IssueBudgetUSD float64

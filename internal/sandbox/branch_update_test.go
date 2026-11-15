@@ -245,3 +245,20 @@ func TestBranchUpdateScript(t *testing.T) {
 		})
 	}
 }
+
+// D100: branch update pods run where agent pods do.
+func TestBranchUpdatePodNodeSelector(t *testing.T) {
+	s := updateSpec()
+	s.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
+	pod, err := BranchUpdatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
+		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+	s.NodeSelector = map[string]string{"not a key!": "x"}
+	if _, err := BranchUpdatePod(s); err == nil {
+		t.Error("a bad selector was accepted")
+	}
+}

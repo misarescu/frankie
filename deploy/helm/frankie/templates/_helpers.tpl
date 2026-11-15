@@ -81,6 +81,7 @@ app.kubernetes.io/component: {{ index . 1 }}
     "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory)
     "cpuRequest" (toString (dig "requests" "cpu" "" .Values.podResources.commandGate)))
   "sandboxEnv" (include "frankie.sandboxEnv" . | fromJson)
+  "sandboxNodeSelector" .Values.agents.nodeSelector
   "services" (dict
     "maxPerPod" .Values.controlPlane.services.maxPerPod
     "cpu" (toString .Values.controlPlane.services.cpu) "memory" (toString .Values.controlPlane.services.memory))

@@ -14,6 +14,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/misarescu/frankie/internal/sandbox"
 )
 
 // Labels on every build Job and its ConfigMap. RoleLabel is what the build
@@ -63,6 +65,8 @@ type BuildConfig struct {
 	// proxy (D37). It does not change the image tag: it says where downloads
 	// come from, not what is installed.
 	Env map[string]string
+	// NodeSelector keeps build pods on the nodes agent pods use (D100); empty means any.
+	NodeSelector map[string]string
 }
 
 func (c BuildConfig) validate() error {
@@ -77,6 +81,9 @@ func (c BuildConfig) validate() error {
 	}
 	if c.Deadline <= 0 {
 		errs = append(errs, errors.New("deadline is required"))
+	}
+	if err := sandbox.ValidateNodeSelector(c.NodeSelector); err != nil {
+		errs = append(errs, err)
 	}
 	if c.ScratchSize.IsZero() {
 		errs = append(errs, errors.New("scratch size is required"))
@@ -221,6 +228,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{SafeToEvictAnnotation: "false"}},
 				Spec: corev1.PodSpec{
 					RuntimeClassName:             ptrTo(c.RuntimeClassName),
+					NodeSelector:                 c.NodeSelector,
 					ServiceAccountName:           c.ServiceAccountName,
 					AutomountServiceAccountToken: ptrTo(false),
 					EnableServiceLinks:           ptrTo(false),

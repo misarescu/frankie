@@ -54,6 +54,7 @@ func (f *queueFixture) update(t *testing.T, exit int32, report string, method do
 func TestUpdateBranch(t *testing.T) {
 	f := newQueueActivityFixture(t)
 	f.prov.branches[f.run.Branch] = updatedHead // where the pod pushed
+	f.a.Agent.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
 	out, id, pods, err := f.update(t, 0, "updated "+updatedHead+" "+queuedBase, domain.MergeRebase)
 	if err != nil || out.Outcome != BranchUpdated || out.HeadSHA != updatedHead || out.BaseSHA != queuedBase {
 		t.Fatalf("update = %+v, %v", out, err)
@@ -61,6 +62,9 @@ func TestUpdateBranch(t *testing.T) {
 	step, _ := f.a.Store.GetStepRun(t.Context(), uuid.MustParse(id))
 	if step.Status != domain.ExecSucceeded || step.CommitSHA != updatedHead || step.PodName != pods[0].Name {
 		t.Errorf("step = %s at %q in %q", step.Status, step.CommitSHA, step.PodName)
+	}
+	if pods[0].Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" { // D100
+		t.Errorf("node selector = %v", pods[0].Spec.NodeSelector)
 	}
 	c := pods[0].Spec.Containers[0]
 	env := func(k string) string {

@@ -141,3 +141,21 @@ func TestAgentPodSpecCarriesTheEgressToken(t *testing.T) {
 		t.Errorf("HTTPS_PROXY = %q, want the project's egress token", proxy)
 	}
 }
+
+// D100: agent pods go to the nodes the deployment names, e.g. the agent pool.
+func TestAgentPodSpecNodeSelector(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
+		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour,
+		Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+		WorkspaceSize: resource.MustParse("1Gi"),
+		NodeSelector:  map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
+	}}
+	pod, err := a.agentPodSpec(testInput, testRun, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
+		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+}

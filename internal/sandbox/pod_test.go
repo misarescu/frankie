@@ -196,3 +196,28 @@ func TestAgentPodRejectsABadCPURequest(t *testing.T) {
 		}
 	}
 }
+
+// D100: a node selector keeps agent pods on the agent pool; a bad one is refused.
+func TestAgentPodNodeSelector(t *testing.T) {
+	s := validSpec()
+	pod, err := AgentPod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector != nil {
+		t.Errorf("no selector configured, got %v", pod.Spec.NodeSelector)
+	}
+	s.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
+	if pod, err = AgentPod(s); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
+		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+	for _, bad := range []map[string]string{{"not a key!": "x"}, {"pool": "not a value!"}} {
+		s.NodeSelector = bad
+		if _, err := AgentPod(s); err == nil {
+			t.Errorf("selector %v accepted", bad)
+		}
+	}
+}

@@ -18,8 +18,8 @@ const (
 	// GateProviderChecks is the repo's own CI on the provider, which the merge
 	// queue waits for (D90). Definitions do not declare it.
 	GateProviderChecks GateType = "provider-checks"
-	// GatePreserve keeps what an earlier step changed (D95): none of the
-	// files that step changed may change again, e.g. a reproducing test.
+	// GatePreserve keeps what an earlier step changed (D95): the lines that
+	// step added must still be there, e.g. a reproducing test (D97).
 	GatePreserve GateType = "preserve"
 )
 
@@ -29,7 +29,8 @@ func (t GateType) Valid() bool {
 }
 
 // PreserveDetails is the Details of a preserve gate result (D95): the files
-// an earlier step changed, and those that changed again since.
+// an earlier step changed, and those that changed again since in a way that
+// lost what it wrote (D97).
 type PreserveDetails struct {
 	Step    string         `json:"step"`
 	Files   []string       `json:"files"`
@@ -37,13 +38,18 @@ type PreserveDetails struct {
 	Error   string         `json:"error,omitempty"` // why the gate could not tell
 }
 
-// ChangedAgain is a kept file a later change touched.
+// ChangedAgain is a kept file a later change touched and lost what the step
+// wrote in: removed or renamed it, or modified the lines the step added (or,
+// for a file the provider shows no diff for, modified it at all).
 type ChangedAgain struct {
 	File   string `json:"file"`
 	Status string `json:"status"` // modified, removed or renamed
+	// Lines are the first lines of the step's additions no longer found as
+	// it wrote them; empty when the whole file counts.
+	Lines []string `json:"lines,omitempty"`
 }
 
-// Passed reports whether every file the step changed is as it left it.
+// Passed reports whether everything the step wrote is still there.
 func (d PreserveDetails) Passed() bool { return d.Error == "" && len(d.Changed) == 0 }
 
 // ProviderChecksDetails is the Details of a provider-checks result: the

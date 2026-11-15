@@ -46,6 +46,10 @@ func TestDefaultBuildShape(t *testing.T) {
 	if w.Steps[3].Action != config.ActionOpenChangeRequest || w.Steps[4].Action != config.ActionEnqueue {
 		t.Errorf("actions = %q, %q", w.Steps[3].Action, w.Steps[4].Action)
 	}
+	// D89: what the queue sends back goes to the coder.
+	if o := w.Steps[4].OnFail; o == nil || o.Action != config.OnFailGoto || o.Goto != "implement" || o.MaxLoops != 2 {
+		t.Errorf("merge onFail = %+v", o)
+	}
 	for _, i := range []int{1, 2} {
 		if o := w.Steps[i].Gate.OnFail; o.Action != config.OnFailGoto || o.Goto != "implement" {
 			t.Errorf("steps[%d] onFail = %+v, want goto implement", i, o)

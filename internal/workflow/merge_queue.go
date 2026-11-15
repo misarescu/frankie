@@ -156,6 +156,16 @@ func processQueueEntry(ctx workflow.Context, e QueueEntry) QueueOutcome {
 			return end(QueueOutcomeMoved, fmt.Sprintf("%s moved to %s while queued", e.Branch, u.HeadSHA))
 		case activities.BranchConflict:
 			out.Conflicts = u.Conflicts
+			// Both sides of each conflict go back to the coder (D89).
+			if workflow.GetVersion(ctx, "conflict-context", workflow.DefaultVersion, 1) >= 1 {
+				var sides string
+				err := workflow.ExecuteActivity(short, a.ConflictContext, activities.ConflictRequest{
+					Issue: e.Issue, HeadSHA: head, BaseSHA: u.BaseSHA, Files: u.Conflicts,
+				}).Get(ctx, &sides)
+				if err == nil {
+					out.Feedback = sides
+				}
+			}
 			return end(QueueOutcomeConflict, fmt.Sprintf("%s conflicts with %s", e.Branch, e.Issue.BaseBranch))
 		case activities.BranchUpdated:
 			// The update is new code: the command gates check it again

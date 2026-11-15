@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
@@ -121,6 +122,8 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 					return why
 				}
 				it.guarded = true
+				next, reason = it.enqueue(ctx, pc, s)
+				break
 			}
 			reason = it.action(ctx, s)
 		case config.StepParallel:
@@ -388,8 +391,6 @@ func (it *interpreter) locate(id string) (int, string) {
 func (it *interpreter) action(ctx workflow.Context, s config.Step) string {
 	switch s.Action {
 	case actionOpenChangeRequest:
-	case actionEnqueue:
-		return it.enqueue(ctx, s)
 	default:
 		return fmt.Sprintf("action %q is not supported yet", s.Action)
 	}
@@ -413,17 +414,18 @@ const queueOutcomeTimeout = 7 * 24 * time.Hour
 
 // enqueue puts the run's change request on its repo's merge queue and waits
 // for the queue's outcome (D88): the run succeeds once the change request
-// merged, and fails with the queue's reason otherwise.
-func (it *interpreter) enqueue(ctx workflow.Context, s config.Step) string {
+// merged. A conflict or a failed check after the update loops back to the
+// coder when the step's onFail says so (D89); anything else fails the run.
+func (it *interpreter) enqueue(ctx workflow.Context, pc int, s config.Step) (int, string) {
 	if workflow.GetVersion(ctx, "merge-queue", workflow.DefaultVersion, 1) < 1 {
-		return "this run cannot enqueue its change request"
+		return 0, "this run cannot enqueue its change request"
 	}
 	if it.changeRequest == "" {
-		return "no change request was opened to enqueue"
+		return 0, "no change request was opened to enqueue"
 	}
 	stepRunID, err := it.startStep(ctx, s.ID, domain.StepAction)
 	if err != nil {
-		return err.Error()
+		return 0, err.Error()
 	}
 	attempt := it.attempts[s.ID]
 	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.EnqueueChangeRequest, activities.EnqueueRequest{
@@ -433,19 +435,57 @@ func (it *interpreter) enqueue(ctx workflow.Context, s config.Step) string {
 	}).Get(ctx, nil)
 	if err != nil {
 		it.finishStep(ctx, stepRunID, false)
-		return "enqueueing the change request failed: " + err.Error()
+		return 0, "enqueueing the change request failed: " + err.Error()
 	}
 
 	out, why := it.awaitQueue(ctx, s.ID, attempt)
 	it.finishStep(ctx, stepRunID, why == "" && out.Merged())
 	switch {
 	case why != "":
-		return why
-	case !out.Merged():
-		return fmt.Sprintf("merge queue: %s: %s", out.Kind, out.Reason)
+		return 0, why
+	case out.Merged():
+		it.merged = true
+		return pc + 1, ""
 	}
-	it.merged = true
-	return ""
+	failed := fmt.Sprintf("merge queue: %s: %s", out.Kind, out.Reason)
+	o := s.OnFail
+	if (out.Kind != QueueOutcomeConflict && out.Kind != QueueOutcomeRed) || o == nil || o.Action != config.OnFailGoto ||
+		workflow.GetVersion(ctx, "merge-queue-loop", workflow.DefaultVersion, 1) < 1 {
+		return 0, failed
+	}
+	if it.loops[s.ID] >= o.MaxLoops {
+		return 0, fmt.Sprintf("%s (sent back to %s %d times, the limit)", failed, o.Goto, it.loops[s.ID])
+	}
+	target, branch := it.locate(o.Goto)
+	if target < 0 {
+		return 0, fmt.Sprintf("onFail goes to %q, which is not a step", o.Goto)
+	}
+	it.loops[s.ID]++
+	short := workflow.WithActivityOptions(ctx, shortOptions)
+	if err := workflow.ExecuteActivity(short, it.a.RecordLoop, it.run.RunID, s.ID, it.loops[s.ID]).Get(ctx, nil); err != nil {
+		return 0, "recording the loop failed: " + err.Error()
+	}
+	if err := workflow.ExecuteActivity(short, it.a.LeaveQueue, it.in.Issue.IssueID).Get(ctx, nil); err != nil {
+		return 0, "leaving the queue failed: " + err.Error()
+	}
+	it.feedback = queueFeedback(it.in.Issue.BaseBranch, out)
+	it.only = branch
+	// The queue's update may have moved the branch (a merge of the base, or
+	// a rebase); the coder continues from the branch head either way.
+	return target, ""
+}
+
+// queueFeedback tells the coder why the merge queue sent the change back.
+func queueFeedback(base string, out QueueOutcome) string {
+	if out.Kind == QueueOutcomeConflict {
+		return fmt.Sprintf("The merge queue could not merge your change: your branch conflicts with `%[1]s` in %[2]s.\n\n"+
+			"Fetch and merge `%[1]s` into your branch (`git fetch origin %[1]s && git merge origin/%[1]s`), resolve every conflict and push. "+
+			"Where both sides added something, such as interface methods, struct fields, imports, routes or registrations, keep both. "+
+			"Run the checks before you push.\n\nWhat each side changed since your branch forked:\n\n%[3]s",
+			base, "`"+strings.Join(out.Conflicts, "`, `")+"`", out.Feedback)
+	}
+	return fmt.Sprintf("The merge queue brought your branch up to date with `%s` (your branch is now at %s) and a check failed on the result: %s\n\n"+
+		"Your branch already contains the update; fix the failure and push.\n\n%s", base, out.HeadSHA, out.Reason, out.Feedback)
 }
 
 // awaitQueue waits for the queue's outcome for this execution of the step,

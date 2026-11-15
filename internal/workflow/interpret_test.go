@@ -84,6 +84,7 @@ type interpretFixture struct {
 	enqueued []activities.EnqueueRequest
 	queue    func(req activities.EnqueueRequest) QueueOutcome
 	stale    *QueueOutcome
+	left     int // LeaveQueue calls
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -180,6 +181,10 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 			f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, stale) }, 30*time.Minute)
 		}
 		f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, out) }, time.Hour)
+		return nil
+	})
+	f.env.OnActivity(a.LeaveQueue, mock.Anything, testInput.IssueID).Return(func(context.Context, string) error {
+		f.left++
 		return nil
 	})
 	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.FinishInput) error {
@@ -363,6 +368,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_steer_then_abort.json", "M4: step-interventions version, a steer then an abort fail the run"},
 	{"testdata/interpret_question_answered.json", "M4: step-answers version, a question answered by signal"},
 	{"testdata/interpret_default_build_merged.json", "M6: merge-queue version, protected change approved, then merged by the queue"},
+	{"testdata/interpret_queue_conflict_then_merged.json", "M6: merge-queue-loop version, a conflict sent back to the coder, then merged"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -547,17 +553,88 @@ func TestInterpretEnqueue(t *testing.T) {
 			t.Fatalf("result = %+v", out)
 		}
 	})
-	t.Run("a conflict fails the run", func(t *testing.T) {
+	t.Run("without onFail a conflict fails the run", func(t *testing.T) {
 		f := newInterpretFixture(t)
 		f.queue = func(activities.EnqueueRequest) QueueOutcome {
 			return QueueOutcome{Kind: QueueOutcomeConflict, Reason: "agent/gc-1/add-search conflicts with main", Conflicts: []string{"a.go"}}
 		}
-		out := f.run(t, defaultBuildSnapshot(t))
+		snap := defaultBuildSnapshot(t)
+		snap.Workflow.Steps[4].OnFail = &config.OnFail{Action: config.OnFailFail}
+		out := f.run(t, snap)
 		if out.Succeeded || out.Merged || out.Reason != "step merge: merge queue: conflict: agent/gc-1/add-search conflicts with main" {
 			t.Fatalf("result = %+v", out)
 		}
-		if f.ended["sr-merge-1"] || f.finished.Merged {
-			t.Errorf("merge step ended %v, finished %+v", f.ended, f.finished)
+		if f.ended["sr-merge-1"] || f.finished.Merged || f.left != 0 {
+			t.Errorf("merge step ended %v, finished %+v, left %d", f.ended, f.finished, f.left)
+		}
+	})
+}
+
+// M6 (D89) done-when: a change request that conflicts goes back to the coder
+// with both sides, is checked and reviewed again, and merges on its second
+// time through the queue.
+func TestInterpretQueueSendsBackToTheCoder(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.queue = func(req activities.EnqueueRequest) QueueOutcome {
+		if req.Attempt == 1 {
+			return QueueOutcome{Kind: QueueOutcomeConflict, Reason: "conflicts", Conflicts: []string{"web/App.jsx", "go.mod"},
+				Feedback: "### web/App.jsx\n+import Shelves"}
+		}
+		return QueueOutcome{Kind: QueueOutcomeMerged, MergeSHA: "m3rge"}
+	}
+	out := f.run(t, defaultBuildSnapshot(t))
+	if !out.Succeeded || !out.Merged {
+		t.Fatalf("result = %+v", out)
+	}
+	want := "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 merge/1 implement/2 checks/2 code-reviewer/2 review/2 open-change-request/2 merge/2"
+	if got := f.stepIDs(); got != want {
+		t.Errorf("steps = %s\nwant    %s", got, want)
+	}
+	fb := f.sessions[2].Step.Feedback
+	for _, s := range []string{"conflicts with `main` in `web/App.jsx`, `go.mod`", "git merge origin/main", "keep both", "+import Shelves"} {
+		if !strings.Contains(fb, s) {
+			t.Errorf("coder feedback lacks %q:\n%s", s, fb)
+		}
+	}
+	if f.left != 1 || strings.Join(f.loops, ",") != "merge=1" || len(f.enqueued) != 2 || f.enqueued[1].HeadSHA != "sha3" {
+		t.Errorf("left %d, loops %v, enqueued %+v", f.left, f.loops, f.enqueued)
+	}
+}
+
+func TestInterpretQueueSendBackLimits(t *testing.T) {
+	t.Run("a red update goes back with the check's feedback", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.queue = func(req activities.EnqueueRequest) QueueOutcome {
+			if req.Attempt == 1 {
+				return QueueOutcome{Kind: QueueOutcomeRed, Reason: "the `checks` check failed", Feedback: "FAIL TestShelves", HeadSHA: "upd"}
+			}
+			return QueueOutcome{Kind: QueueOutcomeMerged}
+		}
+		if out := f.run(t, defaultBuildSnapshot(t)); !out.Merged {
+			t.Fatalf("result = %+v", out)
+		}
+		if fb := f.sessions[2].Step.Feedback; !strings.Contains(fb, "now at upd") || !strings.Contains(fb, "FAIL TestShelves") {
+			t.Errorf("feedback = %s", fb)
+		}
+	})
+	t.Run("maxLoops ends it", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.queue = func(activities.EnqueueRequest) QueueOutcome {
+			return QueueOutcome{Kind: QueueOutcomeConflict, Reason: "conflicts"}
+		}
+		out := f.run(t, defaultBuildSnapshot(t))
+		if out.Succeeded || !strings.Contains(out.Reason, "sent back to implement 2 times, the limit") || len(f.enqueued) != 3 {
+			t.Fatalf("result = %+v, enqueued %d", out, len(f.enqueued))
+		}
+	})
+	t.Run("other outcomes do not loop", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.queue = func(activities.EnqueueRequest) QueueOutcome {
+			return QueueOutcome{Kind: QueueOutcomeRefused, Reason: "branch protection"}
+		}
+		out := f.run(t, defaultBuildSnapshot(t))
+		if out.Succeeded || out.Reason != "step merge: merge queue: refused: branch protection" || f.left != 0 {
+			t.Fatalf("result = %+v", out)
 		}
 	})
 }

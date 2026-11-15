@@ -101,6 +101,9 @@ func newQueueFixture(t *testing.T, opts ...func(*queueFixture)) *queueFixture {
 		}
 		return activities.QueueMergeResult{Outcome: activities.QueueMerged, MergeSHA: "merge-" + req.Issue.IssueKey}, nil
 	})
+	f.env.OnActivity(a.ConflictContext, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ConflictRequest) (string, error) {
+		return "### " + strings.Join(req.Files, ", ") + " at " + req.BaseSHA, nil
+	})
 	f.env.OnSignalExternalWorkflow(mock.Anything, mock.Anything, "", MergeQueueOutcomeSignal, mock.Anything).Return(
 		func(_, workflowID, _, _ string, arg any) error {
 			out := arg.(QueueOutcome)
@@ -175,7 +178,7 @@ func TestMergeQueueOutcomes(t *testing.T) {
 			update: func(int, activities.BranchUpdateRequest) activities.BranchUpdateResult {
 				return activities.BranchUpdateResult{Outcome: activities.BranchConflict, BaseSHA: shaM, Conflicts: []string{"web/App.jsx"}}
 			},
-			want: QueueOutcome{Kind: QueueOutcomeConflict, Conflicts: []string{"web/App.jsx"}, HeadSHA: shaA},
+			want: QueueOutcome{Kind: QueueOutcomeConflict, Conflicts: []string{"web/App.jsx"}, HeadSHA: shaA, Feedback: "### web/App.jsx at " + shaM},
 		},
 		{
 			name: "red after the update goes back with the gate's feedback",
@@ -333,7 +336,9 @@ func TestMergeQueueContinuesAsNew(t *testing.T) {
 func TestMergeQueueReplaysRecordedHistories(t *testing.T) {
 	r := worker.NewWorkflowReplayer()
 	r.RegisterWorkflow(MergeQueue)
-	if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/merge_queue_base_moved_then_merged.json"); err != nil {
-		t.Fatal(err)
+	for _, f := range []string{"merge_queue_base_moved_then_merged.json", "merge_queue_conflict.json"} {
+		if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/"+f); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
 	}
 }

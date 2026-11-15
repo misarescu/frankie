@@ -51,6 +51,10 @@ type Step struct {
 	Parallel  []Step   `json:"parallel,omitempty"`
 	Gate      *Gate    `json:"gate,omitempty"`
 	Action    string   `json:"action,omitempty"`
+	// OnFail applies to a merge-queue.enqueue action (D89): what happens when
+	// the queue sends the change request back (a conflict, or a failed check
+	// after the update). fail (the default) or {goto, maxLoops}.
+	OnFail *OnFail `json:"onFail,omitempty"`
 }
 
 // Kind reports the step's kind, or "" when the fields do not form exactly one kind.
@@ -268,6 +272,9 @@ func (w *Workflow) applyDefaults() {
 }
 
 func (s *Step) applyDefaults() {
+	if s.Action == ActionEnqueue && s.OnFail == nil {
+		s.OnFail = &OnFail{Action: OnFailFail}
+	}
 	if s.Agent != nil {
 		if s.Agent.Harness == "" {
 			s.Agent.Harness = DefaultHarness
@@ -384,6 +391,9 @@ func (v *validator) step(path string, s Step, branch bool) {
 		v.errf(path+".id", "duplicate step id %q", s.ID)
 	}
 
+	if s.OnFail != nil && s.Action != ActionEnqueue {
+		v.errf(path+".onFail", "applies to merge-queue.enqueue only; a gate's onFail goes in its gate")
+	}
 	switch kind {
 	case StepAgent:
 		v.agent(path, s)
@@ -394,6 +404,13 @@ func (v *validator) step(path string, s Step, branch bool) {
 			v.errf(path+".action", "unknown action %q", s.Action)
 		case !implemented:
 			v.errf(path+".action", "%q is not available yet", s.Action)
+		}
+		if s.OnFail != nil && s.Action == ActionEnqueue {
+			if s.OnFail.Action == OnFailEscalate {
+				v.errf(path+".onFail", "nothing can accept a conflict or a failed check after the update, so the queue's onFail is fail or {goto, maxLoops}")
+			} else {
+				v.onFail(path+".onFail", *s.OnFail)
+			}
 		}
 	case StepGate:
 		v.gate(path+".gate", *s.Gate, false)
@@ -531,24 +548,30 @@ func (v *validator) gate(path string, g Gate, trailing bool) {
 		v.errf(path+".onFail", "a rejected human gate fails the run")
 		return
 	}
+	v.onFail(path+".onFail", o)
+}
+
+// onFail checks a gate's or the merge queue's onFail: fail, escalate, or a
+// bounded loop back to an earlier agent or parallel step.
+func (v *validator) onFail(path string, o OnFail) {
 	switch o.Action {
 	case OnFailFail, OnFailEscalate:
 		if o.Goto != "" || o.MaxLoops != 0 {
-			v.errf(path+".onFail", "goto and maxLoops apply to loops only")
+			v.errf(path, "goto and maxLoops apply to loops only")
 		}
 	case OnFailGoto:
 		switch kind := v.seen[o.Goto]; {
 		case o.Goto == "":
-			v.errf(path+".onFail.goto", "is required")
+			v.errf(path+".goto", "is required")
 		case kind == "":
-			v.errf(path+".onFail.goto", "%q is not an earlier step", o.Goto)
+			v.errf(path+".goto", "%q is not an earlier step", o.Goto)
 		case kind != StepAgent && kind != StepParallel:
-			v.errf(path+".onFail.goto", "%q is a %s step; loops go back to an agent or parallel step", o.Goto, kind)
+			v.errf(path+".goto", "%q is a %s step; loops go back to an agent or parallel step", o.Goto, kind)
 		}
 		if o.MaxLoops < 1 || o.MaxLoops > MaxLoopsLimit {
-			v.errf(path+".onFail.maxLoops", "must be between 1 and %d", MaxLoopsLimit)
+			v.errf(path+".maxLoops", "must be between 1 and %d", MaxLoopsLimit)
 		}
 	default:
-		v.errf(path+".onFail", "%q must be fail, escalate or {goto, maxLoops}", o.Action)
+		v.errf(path, "%q must be fail, escalate or {goto, maxLoops}", o.Action)
 	}
 }

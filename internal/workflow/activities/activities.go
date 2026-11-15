@@ -183,6 +183,9 @@ type FinishInput struct {
 	// AgentSucceeded marks the agent step succeeded even though the run failed,
 	// e.g. when a later gate failed (M2). Runs from before it leave it false.
 	AgentSucceeded bool
+	// Merged means the merge queue merged the run's change request (D88): the
+	// issue becomes merged rather than waiting for a person.
+	Merged bool `json:",omitempty"`
 }
 
 // AgentConfig describes how agent steps run.
@@ -297,6 +300,9 @@ type Activities struct {
 	// SpendSettle is how long to wait between reads of a session's spend
 	// while the gateway writes it; default 3s (D53).
 	SpendSettle time.Duration
+	// Queue starts and signals the merge queue workflows (D88), on TaskQueue.
+	Queue     QueueStarter
+	TaskQueue string
 }
 
 // hardcodedWorkflow is the snapshot recorded on M1 runs (invariant 4).

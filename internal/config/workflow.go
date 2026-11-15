@@ -213,10 +213,16 @@ var harnesses = map[string]struct {
 	"pi":          {available: true, apis: []API{APIAnthropic, APIOpenAI}, lacks: []string{"web-fetch"}},
 }
 
+// Actions the merge queue's steps depend on.
+const (
+	ActionOpenChangeRequest = "change-request.open"
+	ActionEnqueue           = "merge-queue.enqueue"
+)
+
 // Actions the control plane knows; the value says whether it is implemented yet.
 var actions = map[string]bool{
 	"change-request.open": true,
-	"merge-queue.enqueue": false, // M6
+	"merge-queue.enqueue": true,  // M6, D88
 	"release.create":      false, // M7
 	"issue.comment":       false,
 }
@@ -316,8 +322,22 @@ func (w Workflow) Validate() error {
 	case len(w.Steps) > maxStepsPerDefinition:
 		v.errf("steps", "%d steps, at most %d", len(w.Steps), maxStepsPerDefinition)
 	}
+	opened := false
 	for i, s := range w.Steps {
 		v.step(fmt.Sprintf("steps[%d]", i), s, false)
+		switch s.Action {
+		case ActionOpenChangeRequest:
+			opened = true
+		case ActionEnqueue:
+			// The queue merges the change request the run opened; nothing
+			// runs after the merge (D88).
+			if !opened {
+				v.errf(fmt.Sprintf("steps[%d].action", i), "%s needs an earlier %s step", ActionEnqueue, ActionOpenChangeRequest)
+			}
+			if i != len(w.Steps)-1 {
+				v.errf(fmt.Sprintf("steps[%d].action", i), "%s must be the last step", ActionEnqueue)
+			}
+		}
 	}
 	if err := errors.Join(v.errs...); err != nil {
 		return fmt.Errorf("workflow %q: %w", w.Name, err)

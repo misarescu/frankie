@@ -39,7 +39,15 @@ func (a *Activities) FinishRun(ctx context.Context, in FinishInput) error {
 	if _, err := a.Store.TransitionRun(ctx, runID, domain.ExecRunning, runStatus); err != nil {
 		return err
 	}
-	if _, err := a.Store.TransitionIssue(ctx, issueID, domain.IssueRunning, issueStatus); err != nil {
+	if in.Merged {
+		issueStatus = domain.IssueMerged
+	}
+	// A run that enqueued its change request ends with the issue queued (D88).
+	from := domain.IssueRunning
+	if is, err := a.Store.GetIssue(ctx, issueID); err == nil && is.Status == domain.IssueQueued {
+		from = domain.IssueQueued
+	}
+	if _, err := a.Store.TransitionIssue(ctx, issueID, from, issueStatus); err != nil {
 		return err
 	}
 	if !in.Succeeded {

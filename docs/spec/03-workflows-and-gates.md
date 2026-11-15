@@ -49,7 +49,7 @@ Notes versus the earliest sketch: `implement` and `e2e-tests` are in a `parallel
 
 ### Where definitions come from (D39)
 
-The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. Until later milestones, the built-in `default-build` has no `e2e-tests` branch (M7), one Claude Code reviewer (M4) and ends with `change-request.open` (M6).
+The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. Until later milestones, the built-in `default-build` has no `e2e-tests` branch (M7) and one Claude Code reviewer (M4); since M6 it ends with `change-request.open` and `merge-queue.enqueue` (D88).
 
 Parsing fills in every default, so the snapshot is explicit: `harness: claude-code`; all inputs; `policy: blocking`; `onFail: fail` for blocking gates; `run: ["mise run lint", "mise run test"]` for command gates; `require: all`; human gates `timeout: 72h, onTimeout: fail`.
 
@@ -60,7 +60,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 | agent | `id, agent{role, harness, model}, inputs?, timeout?, budgetUSD?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. |
 | gate | `id, gate{type, ...}` | See below. |
 | parallel | list of agent steps, optional trailing `gate`; `id` required when gated | Run branches concurrently; gate evaluates after all finish. A branch without an `id` is named after its role. |
-| action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`; `merge-queue.enqueue` (M6), `release.create` (M7) and `issue.comment` are rejected until they exist. |
+| action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`, M6 `merge-queue.enqueue` (last step, after `change-request.open`, D88); `release.create` (M7) and `issue.comment` are rejected until they exist. |
 
 - `role` is a role name, optionally pinned as `name@version`.
 - `model` is a model ref `<provider>/<model id>` (the id may contain slashes, as OpenRouter's `openrouter/openai/gpt-5.6-terra`); empty means the role's default model, then the platform's. A harness may use a provider only if it speaks the API that provider serves (D48): Claude Code reaches the `anthropic` provider only; opencode and pi reach every provider.
@@ -84,7 +84,7 @@ Every gate has:
 
 ### Built-in protections
 
-Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this. The gate comes after the definition's last step, so after `change-request.open` (D44).
+Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this. The gate comes after the definition's last step, so after `change-request.open` (D44), or, in a definition that enqueues, right before `merge-queue.enqueue`, so a protected change is approved before it can merge (D88).
 
 ### Validation (at save time)
 
@@ -152,7 +152,7 @@ The interpreter walks the top-level steps in order:
 - **Human gate** (FR-WF-3): `StartStep`, then `OpenHumanGate` writes an `approvals` row (reason, the last pushed commit, the change request if one is open, expiry) and the run waits for the `human-gate-decision` signal or the timeout. A decision for any other gate is ignored. `CloseHumanGate` records the decision on the approval, a `human` gate result (pass only when approved) and the StepRun's end; the first decision stands. Rejected fails the run; on timeout `onTimeout: fail` fails it and `extend` waits another period (`ExtendHumanGate`). A run canceled while waiting closes the approval as rejected.
 - **Protected changes** (invariant 6): once the definition's steps have passed, `DetectProtectedChanges` inspects the provider's diff from the snapshot's base commit to the last push against the snapshot's protected-path patterns (docs/spec/05). Any finding forces a `protected-changes` human gate (72 h, then fail), opened after any change request so the diff can be read there; the definition cannot turn it off. Behind `workflow.GetVersion("protected-changes")`.
 - **Escalation**: `onFail: escalate`, or a used-up loop, opens a human gate named `<gate>-escalation` (72 h, then fail) explaining what failed. Approving accepts the change despite the failure and continues after the gate; rejecting fails the run.
-- **Action**: `change-request.open` opens (or finds) the change request for the last pushed commit.
+- **Action**: `change-request.open` opens (or finds) the change request for the last pushed commit. `merge-queue.enqueue` moves the issue to `queued`, puts the change request on the repo's merge queue (D87) and waits for its outcome; merged ends the run with the issue `merged` (D88).
 - `FinishRun` ends the Run and the issue, without a StepRunID.
 
 Decisions come from the approvals inbox in the web UI (`#/approvals`; it also lists the agents' ask-human questions, docs/spec/04 and D55), through the API: `GET /api/approvals` lists pending approvals, and `POST /api/gates/{step-run-id}/decision` with `{"decision": "approve" | "reject", "comment", "by"}` checks that the approval is pending and signals the run's workflow (202). The workflow is the only writer of approvals; the API only reads them. The endpoint accepts JSON only, so a cross-site form cannot post a decision, and like every write it needs the API token (D58); who decided is still what the client says (open question 7).

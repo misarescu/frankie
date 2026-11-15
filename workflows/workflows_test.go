@@ -38,9 +38,13 @@ func TestDefaultBuildShape(t *testing.T) {
 	for _, s := range w.Steps {
 		kinds = append(kinds, s.Kind())
 	}
-	want := []config.StepKind{config.StepAgent, config.StepGate, config.StepParallel, config.StepAction}
+	want := []config.StepKind{config.StepAgent, config.StepGate, config.StepParallel, config.StepAction, config.StepAction}
 	if !slices.Equal(kinds, want) {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
+	}
+	// M6 (D88): the change request is opened, then merged by the queue.
+	if w.Steps[3].Action != config.ActionOpenChangeRequest || w.Steps[4].Action != config.ActionEnqueue {
+		t.Errorf("actions = %q, %q", w.Steps[3].Action, w.Steps[4].Action)
 	}
 	for _, i := range []int{1, 2} {
 		if o := w.Steps[i].Gate.OnFail; o.Action != config.OnFailGoto || o.Goto != "implement" {

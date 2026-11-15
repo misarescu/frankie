@@ -11,17 +11,15 @@ import (
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
-// Merge queue signals (D87). An issue's workflow enqueues its change request
-// on the repo's queue workflow, started with the signal if it is not running,
-// and waits for the outcome signal.
+// The merge queue's types live with the Activity that enqueues (activities
+// cannot import this package); these names keep the workflow's code short.
 const (
-	MergeQueueEnqueueSignal = "merge-queue-enqueue"
-	MergeQueueOutcomeSignal = "merge-queue-outcome"
+	MergeQueueEnqueueSignal = activities.MergeQueueEnqueueSignal
+	MergeQueueOutcomeSignal = activities.MergeQueueOutcomeSignal
 )
 
-// MergeQueueWorkflowID is the ID of repo's queue workflow: one per repo, so
-// merges into it are serialized without locks (FR-MQ-1).
-func MergeQueueWorkflowID(repo string) string { return "merge-queue/" + repo }
+// MergeQueueWorkflowID is the ID of repo's queue workflow.
+func MergeQueueWorkflowID(repo string) string { return activities.MergeQueueWorkflowID(repo) }
 
 const (
 	// maxQueueEntriesPerRun bounds a queue workflow's history: it continues
@@ -45,71 +43,25 @@ var updateOptions = workflow.ActivityOptions{
 	RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 }
 
-// MergeQueueInput is the queue's repo and the entries carried over from the
-// queue's previous run.
-type MergeQueueInput struct {
-	Repo    string
-	Pending []QueueEntry `json:",omitempty"`
-}
-
-// QueueEntry is one change request waiting to merge, with what the queue
-// needs to check it again: everything comes from the issue's run, which
-// snapshotted it at start (invariant 4).
-type QueueEntry struct {
-	Issue activities.IssueRunInput
-	RunID string
-	// WorkflowID is the issue's workflow, which waits for the outcome.
-	WorkflowID string
-	// StepID and Attempt are the enqueue step's execution; the queue's own
-	// steps are recorded on the issue's run under the step's ID.
-	StepID          string
-	Attempt         int
-	ChangeRequestID string
-	Number          int
-	Branch          string
-	HeadSHA         string // the commit the issue's gates passed
-	// Gates are the definition's command gates, re-run on the updated commit.
-	Gates  []QueueGate
-	Method domain.MergeMethod
-	Title  string // the merge commit's
-}
-
-// QueueGate is a command gate the queue re-runs.
-type QueueGate struct {
-	StepID   string
-	Commands []string
-	Timeout  time.Duration
-}
+type (
+	MergeQueueInput = activities.MergeQueueInput
+	QueueEntry      = activities.QueueEntry
+	QueueGate       = activities.QueueGate
+	QueueOutcome    = activities.QueueOutcome
+)
 
 // How a change request left the queue.
 const (
-	QueueOutcomeMerged   = "merged"   // merged by the queue, or on the provider by a person
-	QueueOutcomeConflict = "conflict" // its branch conflicts with the base branch
-	QueueOutcomeRed      = "red"      // a gate failed on the updated commit
-	QueueOutcomeMoved    = "moved"    // its branch moved while queued
-	QueueOutcomeRefused  = "refused"  // the provider refused the merge
-	QueueOutcomeClosed   = "closed"   // a person closed it while queued
-	QueueOutcomeDequeued = "dequeued" // its issue left the queue, e.g. canceled
-	QueueOutcomeBusy     = "busy"     // the base branch kept moving
-	QueueOutcomeError    = "error"    // the queue could not check or merge it
+	QueueOutcomeMerged   = activities.QueueOutcomeMerged
+	QueueOutcomeConflict = activities.QueueOutcomeConflict
+	QueueOutcomeRed      = activities.QueueOutcomeRed
+	QueueOutcomeMoved    = activities.QueueOutcomeMoved
+	QueueOutcomeRefused  = activities.QueueOutcomeRefused
+	QueueOutcomeClosed   = activities.QueueOutcomeClosed
+	QueueOutcomeDequeued = activities.QueueOutcomeDequeued
+	QueueOutcomeBusy     = activities.QueueOutcomeBusy
+	QueueOutcomeError    = activities.QueueOutcomeError
 )
-
-// QueueOutcome tells the issue's workflow how its change request left the queue.
-type QueueOutcome struct {
-	StepID   string
-	Attempt  int
-	Kind     string
-	MergeSHA string `json:",omitempty"`
-	Reason   string `json:",omitempty"`
-	// Feedback is what a failed gate found, for the coder.
-	Feedback  string   `json:",omitempty"`
-	Conflicts []string `json:",omitempty"`
-	// HeadSHA is the commit the queue last checked.
-	HeadSHA string `json:",omitempty"`
-}
-
-// Merged reports whether the change request reached the base branch.
-func (o QueueOutcome) Merged() bool { return o.Kind == QueueOutcomeMerged }
 
 // MergeQueue is a repo's merge queue (FR-MQ-1, FR-MQ-2, D87): it takes change
 // requests in the order they arrive and, one at a time, brings the branch up

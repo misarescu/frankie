@@ -2,7 +2,7 @@
 # Differences from the spec's full example until later milestones:
 # - no e2e-test-writer branch next to implement (the role arrives in M7);
 # - one reviewer, on Claude Code (opencode and pi arrive in M4);
-# - ends by opening the change request; the merge queue arrives in M6.
+# - opens the change request, then the repo's merge queue merges it (M6, D88).
 name: default-build
 version: 1
 steps:
@@ -22,3 +22,5 @@ steps:
       onFail: { goto: implement, maxLoops: 2 }
   - id: open-change-request
     action: change-request.open
+  - id: merge
+    action: merge-queue.enqueue

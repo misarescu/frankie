@@ -114,3 +114,32 @@ func TestFinishRunWithoutAStep(t *testing.T) {
 		t.Error("no run-level error event")
 	}
 }
+
+// M6 (D88): a run that enqueued ends from queued: merged when the queue
+// merged, failed otherwise.
+func TestFinishRunFromTheQueue(t *testing.T) {
+	for _, merged := range []bool{true, false} {
+		t.Run(map[bool]string{true: "merged", false: "not merged"}[merged], func(t *testing.T) {
+			st, in := readyIssue(t)
+			a := &Activities{Store: st, Log: quietLog()}
+			env := activityEnv(a)
+			var run StartRunResult
+			v, err := env.ExecuteActivity(a.StartRun, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = v.Get(&run)
+			if _, err := st.TransitionIssue(t.Context(), uuid.MustParse(in.IssueID), domain.IssueRunning, domain.IssueQueued); err != nil {
+				t.Fatal(err)
+			}
+			finish := FinishInput{IssueID: in.IssueID, RunID: run.RunID, Succeeded: merged, Merged: merged, Reason: "step merge: merge queue: conflict: x"}
+			if _, err := env.ExecuteActivity(a.FinishRun, finish); err != nil {
+				t.Fatalf("FinishRun: %v", err)
+			}
+			want := map[bool]domain.IssueStatus{true: domain.IssueMerged, false: domain.IssueFailed}[merged]
+			if issue, _ := st.GetIssueByKey(t.Context(), in.IssueKey); issue.Status != want {
+				t.Errorf("issue %s, want %s", issue.Status, want)
+			}
+		})
+	}
+}

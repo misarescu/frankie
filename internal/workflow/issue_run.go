@@ -14,6 +14,8 @@ type IssueRunResult struct {
 	Succeeded        bool
 	Reason           string
 	ChangeRequestURL string
+	// Merged is set when the merge queue merged the change request (D88).
+	Merged bool `json:",omitempty"`
 }
 
 // IssueRun is the M1/M2 workflow: one agent step that implements the issue in

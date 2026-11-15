@@ -47,7 +47,7 @@ func TestChooseWorkflow(t *testing.T) {
 		{"a runnable workflow runs on Interpret", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": runnableDefinition}, ""},
 		{"an invalid selection fails on the run", map[string]string{".factory/config.yaml": "workflow: nope\n"}, "neither in .factory/workflows nor built in"},
 		{"a definition with an action that does not exist yet fails on the run", map[string]string{".factory/config.yaml": "workflow: shipping\n",
-			".factory/workflows/shipping.yaml": strings.Replace(runnableDefinition, "name: fast", "name: shipping", 1) + "  - id: ship\n    action: merge-queue.enqueue\n"}, `"merge-queue.enqueue" is not available yet`},
+			".factory/workflows/shipping.yaml": strings.Replace(runnableDefinition, "name: fast", "name: shipping", 1) + "  - id: ship\n    action: release.create\n"}, `"release.create" is not available yet`},
 		{"a model the gateway does not serve fails on the run", map[string]string{".factory/config.yaml": "workflow: fast\n",
 			".factory/workflows/fast.yaml": strings.Replace(runnableDefinition, "{role: coder}", "{role: coder, model: anthropic/claude-opus-5-5}", 1)},
 			"the platform does not serve this workflow's models: steps[0].agent: model anthropic/claude-opus-5-5 is not served"},

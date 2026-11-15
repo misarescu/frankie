@@ -87,8 +87,13 @@ type interpretFixture struct {
 	left     int // LeaveQueue calls
 	// closedCR records CloseChangeRequest comments.
 	closedCR []string
-	// findings is what an investigating session answers.
-	findings string
+	// findings is what an investigating session answers; findingsFor, when
+	// set, answers per investigation (from 1).
+	findings    string
+	findingsFor func(n int) string
+	// preserved records preserve gate requests; preserve decides them (nil passes).
+	preserved []activities.PreserveRequest
+	preserve  func(req activities.PreserveRequest) activities.GateOutcome
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -122,7 +127,17 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
 		}
 		if run.Step.Contract == config.ContractBugFindings { // an investigator reads and pushes nothing
-			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, Result: f.findings}, nil
+			result := f.findings
+			if f.findingsFor != nil {
+				investigations := 0
+				for _, s := range f.sessions {
+					if s.Step.Contract == config.ContractBugFindings {
+						investigations++
+					}
+				}
+				result = f.findingsFor(investigations)
+			}
+			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, Result: result}, nil
 		}
 		if run.Step.Contract != "" { // a reviewer checks out the head and pushes nothing
 			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head,
@@ -197,6 +212,13 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 			return activities.FindingsResult{Error: err.Error()}, nil
 		}
 		return activities.FindingsResult{Findings: found}, nil
+	})
+	f.env.OnActivity(a.CheckPreserved, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, req activities.PreserveRequest) (activities.GateOutcome, error) {
+		f.preserved = append(f.preserved, req)
+		if f.preserve != nil {
+			return f.preserve(req), nil
+		}
+		return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true}, nil
 	})
 	f.env.OnActivity(a.CloseChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, _, comment string) error {
 		f.closedCR = append(f.closedCR, comment)
@@ -391,6 +413,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_merge_approval_changes_requested.json", "M6: merge-approval version, changes requested, then approved and merged"},
 	{"testdata/interpret_image_build_events.json", "M6: image-build-events version, agent steps resolve their image as themselves"},
 	{"testdata/interpret_investigate_testable.json", "M6: bug-findings version, a testable bug is investigated, reproduced and fixed"},
+	{"testdata/interpret_bug_testable.json", "M6: bug-gates version, a test that must fail, then a fix that keeps it"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -725,4 +748,128 @@ func TestInterpretInvestigates(t *testing.T) {
 			t.Fatalf("result = %+v, sessions %d", out, len(f.sessions))
 		}
 	})
+}
+
+// bugDefinition is the bug-fix shape (D95): a person decides on an untestable
+// bug, a testable one gets a test that must fail, and the fix must keep it.
+const bugDefinition = `
+name: bugs
+version: 1
+steps:
+  - id: investigate
+    agent: {role: bug-investigator}
+  - id: decide
+    gate: {type: human, sendBack: {goto: investigate, maxLoops: 2}}
+    when: {step: investigate, field: testable, equals: false}
+  - id: reproduce
+    agent: {role: coder}
+    when: {step: investigate, field: testable, equals: true}
+  - id: shows-bug
+    gate: {type: command, run: ["mise run test"], expect: fail, onFail: {goto: reproduce, maxLoops: 2}}
+    when: {step: investigate, field: testable, equals: true}
+  - id: fix
+    agent: {role: coder}
+  - id: keeps-test
+    gate: {type: preserve, step: reproduce, onFail: {goto: fix, maxLoops: 2}}
+    when: {step: investigate, field: testable, equals: true}
+  - id: checks
+    gate: {type: command, onFail: {goto: fix, maxLoops: 2}}
+  - id: open
+    action: change-request.open
+`
+
+func bugSnapshot(t *testing.T) snapshot.Snapshot {
+	t.Helper()
+	s := investigateSnapshot(t)
+	w, err := config.ParseWorkflow([]byte(bugDefinition))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Workflow = w
+	return s
+}
+
+// M6 (D95): a testable bug gets a test that must fail before the fix, and the
+// fix must leave that test as it was.
+func TestInterpretBugGates(t *testing.T) {
+	t.Run("testable", func(t *testing.T) {
+		f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, true) })
+		f.gate = func(req activities.GateRequest) activities.GateOutcome {
+			// The new test fails before the fix, as it must; checks pass after it.
+			return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true}
+		}
+		out := f.run(t, bugSnapshot(t))
+		if !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); got != "investigate/1 reproduce/1 shows-bug/1 fix/1 keeps-test/1 checks/1 open/1" {
+			t.Errorf("steps = %s", got)
+		}
+		if g := f.gates[0]; g.StepID != "shows-bug" || !g.ExpectFail || g.CommitSHA != "sha2" || f.gates[1].ExpectFail {
+			t.Errorf("gates = %+v", f.gates)
+		}
+		if len(f.preserved) != 1 || f.preserved[0] != (activities.PreserveRequest{RunID: testRun.RunID, StepRunID: "sr-keeps-test-1",
+			Step: "reproduce", From: "base", To: "sha2", Head: "sha3"}) {
+			t.Errorf("preserve = %+v", f.preserved)
+		}
+	})
+	t.Run("the fix touched the test", func(t *testing.T) {
+		f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, true) })
+		f.preserve = func(req activities.PreserveRequest) activities.GateOutcome {
+			if req.Head == "sha3" {
+				return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "changed what reproduce wrote: a_test.go (modified)", Feedback: "Restore a_test.go"}
+			}
+			return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true}
+		}
+		if out := f.run(t, bugSnapshot(t)); !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); !strings.Contains(got, "keeps-test/1 fix/2 keeps-test/2 checks/1") {
+			t.Errorf("steps = %s", got)
+		}
+		if fb := f.sessions[3].Step.Feedback; !strings.Contains(fb, "Restore a_test.go") {
+			t.Errorf("second fix feedback = %q", fb)
+		}
+	})
+	t.Run("the test does not fail", func(t *testing.T) {
+		f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, true) })
+		f.gate = func(req activities.GateRequest) activities.GateOutcome {
+			if req.ExpectFail && req.CommitSHA == "sha2" {
+				return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "every command passed, but this gate expects them to fail", Feedback: "make it fail"}
+			}
+			return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true}
+		}
+		if out := f.run(t, bugSnapshot(t)); !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); !strings.HasPrefix(got, "investigate/1 reproduce/1 shows-bug/1 reproduce/2 shows-bug/2 fix/1") {
+			t.Errorf("steps = %s", got)
+		}
+	})
+	t.Run("untestable: a person sends the investigation back, then approves", func(t *testing.T) {
+		f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, false) })
+		f.requestChanges(t, time.Minute, 0, "look at the cache layer too")
+		f.decide(t, 2*time.Hour, 1, true, "")
+		if out := f.run(t, bugSnapshot(t)); !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); got != "investigate/1 decide/1 investigate/2 decide/2 fix/1 checks/1 open/1" {
+			t.Errorf("steps = %s", got)
+		}
+		if !f.opened[0].CanRequestChanges || !strings.Contains(f.opened[0].Reason, "**Root cause**") {
+			t.Errorf("decision asked = %+v", f.opened[0])
+		}
+		if fb := f.sessions[1].Step.Feedback; !strings.Contains(fb, "ana sent your work back at the `decide` gate") || !strings.Contains(fb, "cache layer") {
+			t.Errorf("second investigation feedback = %q", fb)
+		}
+	})
+}
+
+// The merge queue re-checks the fixed change, never a gate that must fail.
+func TestQueueGatesSkipGatesExpectingFailure(t *testing.T) {
+	it := &interpreter{in: InterpretInput{Snapshot: bugSnapshot(t)}}
+	gates := it.queueGates()
+	if len(gates) != 1 || gates[0].StepID != "checks" {
+		t.Errorf("queue gates = %+v", gates)
+	}
 }

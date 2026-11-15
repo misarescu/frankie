@@ -18,12 +18,33 @@ const (
 	// GateProviderChecks is the repo's own CI on the provider, which the merge
 	// queue waits for (D90). Definitions do not declare it.
 	GateProviderChecks GateType = "provider-checks"
+	// GatePreserve keeps what an earlier step changed (D95): none of the
+	// files that step changed may change again, e.g. a reproducing test.
+	GatePreserve GateType = "preserve"
 )
 
 // Valid reports whether t is a known gate type.
 func (t GateType) Valid() bool {
-	return t == GateCommand || t == GateAgentVerdict || t == GateHuman || t == GateProviderChecks
+	return t == GateCommand || t == GateAgentVerdict || t == GateHuman || t == GateProviderChecks || t == GatePreserve
 }
+
+// PreserveDetails is the Details of a preserve gate result (D95): the files
+// an earlier step changed, and those that changed again since.
+type PreserveDetails struct {
+	Step    string         `json:"step"`
+	Files   []string       `json:"files"`
+	Changed []ChangedAgain `json:"changed,omitempty"`
+	Error   string         `json:"error,omitempty"` // why the gate could not tell
+}
+
+// ChangedAgain is a kept file a later change touched.
+type ChangedAgain struct {
+	File   string `json:"file"`
+	Status string `json:"status"` // modified, removed or renamed
+}
+
+// Passed reports whether every file the step changed is as it left it.
+func (d PreserveDetails) Passed() bool { return d.Error == "" && len(d.Changed) == 0 }
 
 // ProviderChecksDetails is the Details of a provider-checks result: the
 // repo's CI on the commit the merge queue is about to merge (D90).
@@ -90,11 +111,24 @@ type CommandGateDetails struct {
 	Image    string          `json:"image"`
 	Commands []CommandResult `json:"commands"`
 	Error    string          `json:"error,omitempty"` // why the gate could not run the commands
+	// ExpectFail: the gate passes when a command fails, e.g. a test that
+	// shows a bug before it is fixed (D95).
+	ExpectFail bool `json:"expect_fail,omitempty"`
 }
 
-// Passed reports whether every command ran and exited 0 (docs/spec/03: pass = all exit 0).
+// Passed reports whether every command ran and exited 0 (docs/spec/03: pass =
+// all exit 0); for a gate that expects failure, whether a command ran and
+// failed (D95).
 func (d CommandGateDetails) Passed() bool {
 	if d.Error != "" || len(d.Commands) == 0 {
+		return false
+	}
+	if d.ExpectFail {
+		for _, c := range d.Commands {
+			if c.ExitCode != nil && *c.ExitCode != 0 {
+				return true
+			}
+		}
 		return false
 	}
 	for _, c := range d.Commands {

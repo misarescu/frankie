@@ -68,6 +68,10 @@ func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil 
 func (s *stubActivities) CloseChangeRequest(context.Context, activities.IssueRunInput, string, string) error {
 	return nil
 }
+func (s *stubActivities) CheckPreserved(_ context.Context, _ activities.IssueRunInput, req activities.PreserveRequest) (activities.GateOutcome, error) {
+	return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "the 1 files reproduce changed are as it left them"}, nil
+}
+
 func (s *stubActivities) RecordFindings(_ context.Context, req activities.FindingsRequest) (activities.FindingsResult, error) {
 	f, err := domain.ParseBugFindings([]byte(req.Result))
 	if err != nil {
@@ -298,6 +302,9 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// bug-findings version: an investigation finds a testable bug, the
 		// reproduce step runs, then the fix.
 		{"interpret_investigate_testable.json", investigateSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
+		// bug-gates version: a testable bug's test must fail before the fix,
+		// and the fix keeps it.
+		{"interpret_bug_testable.json", bugSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {

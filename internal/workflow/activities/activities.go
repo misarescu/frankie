@@ -167,6 +167,8 @@ type GateRequest struct {
 	Timeout   time.Duration // 0: the platform's gate deadline
 	Branch    string
 	CommitSHA string
+	// ExpectFail: the gate passes when a command fails (D95).
+	ExpectFail bool `json:",omitempty"`
 }
 
 // AgentPod is a launched agent pod.

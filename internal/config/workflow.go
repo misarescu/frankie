@@ -133,7 +133,26 @@ type Gate struct {
 	Timeout Duration `json:"timeout,omitempty"`
 	// OnTimeout is what a human gate does when nobody decided in time.
 	OnTimeout OnTimeout `json:"onTimeout,omitempty"`
+	// Expect is what a command gate's commands must do to pass: pass (the
+	// default) or fail, for a test that must show a bug before it is fixed
+	// (D95).
+	Expect Expect `json:"expect,omitempty"`
+	// Step is the earlier agent step whose changes a preserve gate keeps:
+	// none of the files it changed may change again (D95).
+	Step string `json:"step,omitempty"`
+	// SendBack lets a person send the change back to an earlier step from a
+	// human gate, with their comment as that step's feedback (D95).
+	SendBack *OnFail `json:"sendBack,omitempty"`
 }
+
+// Expect is what a command gate's commands must do for the gate to pass.
+type Expect string
+
+// Expectations of a command gate.
+const (
+	ExpectPass Expect = "pass"
+	ExpectFail Expect = "fail"
+)
 
 // Require combines several reviewers' verdicts.
 type Require string
@@ -322,6 +341,9 @@ func (s *Step) applyDefaults() {
 	case domain.GateCommand:
 		if len(g.Run) == 0 {
 			g.Run = []string{defaultCommandLint, defaultCommandTest}
+		}
+		if g.Expect == "" {
+			g.Expect = ExpectPass
 		}
 	case domain.GateAgentVerdict:
 		if g.Require == "" {
@@ -533,6 +555,27 @@ func (v *validator) gate(path string, g Gate, trailing bool) {
 	}
 	if g.Type != domain.GateHuman && g.OnTimeout != "" {
 		v.errf(path+".onTimeout", "applies to human gates only")
+	}
+	if g.Type != domain.GateCommand && g.Expect != "" {
+		v.errf(path+".expect", "applies to command gates only")
+	} else if g.Expect != "" && g.Expect != ExpectPass && g.Expect != ExpectFail {
+		v.errf(path+".expect", "%q must be pass or fail", g.Expect)
+	}
+	if g.Type != domain.GatePreserve && g.Step != "" {
+		v.errf(path+".step", "applies to preserve gates only")
+	}
+	if g.Type == domain.GatePreserve && v.seen[g.Step] != StepAgent {
+		v.errf(path+".step", "%q is not an earlier agent step", g.Step)
+	}
+	if g.SendBack != nil {
+		switch {
+		case g.Type != domain.GateHuman:
+			v.errf(path+".sendBack", "applies to human gates only")
+		case g.SendBack.Action != OnFailGoto:
+			v.errf(path+".sendBack", "must be {goto, maxLoops}")
+		default:
+			v.onFail(path+".sendBack", *g.SendBack)
+		}
 	}
 	if g.Type == domain.GateAgentVerdict && g.Timeout != 0 {
 		v.errf(path+".timeout", "an agent-verdict gate is bounded by its reviewers' timeouts")

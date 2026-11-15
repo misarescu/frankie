@@ -152,10 +152,33 @@ func (it *interpreter) beforeMerge(ctx workflow.Context, pc int, s config.Step) 
 func (it *interpreter) humanGate(ctx workflow.Context, pc int, s config.Step) (int, string) {
 	g := s.Gate
 	reason := fmt.Sprintf("The %s workflow asks for a human decision at its `%s` gate.", it.in.Snapshot.Workflow.Name, s.ID)
-	if why := it.awaitHuman(ctx, s.ID, reason, time.Duration(g.Timeout), g.OnTimeout); why != "" {
+	if g.SendBack == nil {
+		if why := it.awaitHuman(ctx, s.ID, reason, time.Duration(g.Timeout), g.OnTimeout); why != "" {
+			return 0, why
+		}
+		return pc + 1, ""
+	}
+	// A person may also send the change back to an earlier step (D95).
+	if f, ok := it.findings[g.SendBack.Goto]; ok {
+		reason += "\n\n" + f.Markdown()
+	}
+	reason += fmt.Sprintf("\n\nApprove to continue, request changes to send it back to `%s` with your comment, or reject to fail the run.", g.SendBack.Goto)
+	out, why := it.awaitDecision(ctx, s.ID, reason, time.Duration(g.Timeout), g.OnTimeout, true)
+	if why != "" {
 		return 0, why
 	}
-	return pc + 1, ""
+	switch out.verdict {
+	case verdictApproved:
+		return pc + 1, ""
+	case verdictChangesRequested:
+		feedback := fmt.Sprintf("%s sent your work back at the `%s` gate:\n\n%s", out.by, s.ID, out.comment)
+		return it.sendBackTo(ctx, s.ID, g.SendBack, fmt.Sprintf("changes requested by %s: %s", out.by, out.comment), feedback, false)
+	}
+	why = "rejected by " + out.by
+	if out.comment != "" {
+		why += ": " + out.comment
+	}
+	return 0, why
 }
 
 // escalate routes a failed blocking gate to a person (FR-WF-4): approving

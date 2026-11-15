@@ -69,13 +69,14 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 
 ### Gates
 
-One concept, three types:
+One concept, four types a definition declares (the merge queue also records `provider-checks`, D90):
 
 | Type | Evaluation | Notes |
 |---|---|---|
-| `command` | Run commands in a **fresh pod** from the pushed commit with the project's toolchain image. Pass = all exit 0, as recorded by the kubelet per command (D33). | Deterministic gates always run before LLM gates. Agent-reported results are never accepted. |
+| `command` | Run commands in a **fresh pod** from the pushed commit with the project's toolchain image. Pass = all exit 0, as recorded by the kubelet per command (D33); with `expect: fail`, pass = a command ran and failed (D95). | Deterministic gates always run before LLM gates. Agent-reported results are never accepted. A gate that expects failure shows a bug before its fix; the merge queue never re-runs it. |
 | `agent-verdict` | A reviewer agent returns JSON validated against a schema (`verdict: pass|fail`, `findings[]` with severity, file, line, message). | `require: all|any|majority` for multiple reviewers. Only on a parallel group (its branches are the reviewers), and only after a `command` gate. |
-| `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|extend` (`escalate` needs a notification channel; not yet). Always blocking; a rejection fails the run. Used for protected paths and production; spec approval is part of the issue lifecycle instead (D64). |
+| `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|extend` (`escalate` needs a notification channel; not yet). Always blocking; a rejection fails the run; `sendBack: {goto, maxLoops}` adds request changes, which loops back with the comment (D95). Used for protected paths and production; spec approval is part of the issue lifecycle instead (D64). |
+| `preserve` | `step: <earlier agent step>`: the files that step's last execution added or changed must be as it left them at the current head, compared on the provider (D95). | Keeps a reproducing test through the fix. |
 
 Every gate has:
 

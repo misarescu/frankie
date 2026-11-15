@@ -89,9 +89,16 @@ function gateSummary(p: Record<string, unknown>): string {
   const head = `${str(p.type)} gate ${verdicts[str(p.verdict)] ?? str(p.verdict)}`;
   const d = (p.details ?? {}) as { error?: string; commands?: { command: string; exitCode?: number | null; reason?: string }[];
     reviews?: { role?: string; step?: string; verdict?: string; summary?: string; error?: string }[];
-    checks?: { name: string; state: string; summary?: string; url?: string }[]; state?: string };
+    checks?: { name: string; state: string; summary?: string; url?: string }[]; state?: string;
+    expect_fail?: boolean; step?: string; files?: string[]; changed?: { file: string; status: string }[] };
   const lines: string[] = [];
   if (d.error) lines.push(d.error);
+  // D95: a gate that expects its commands to fail, and one that keeps a step's files.
+  if (d.expect_fail) lines.push("expects the commands to fail (a test that shows the bug)");
+  if (p.type === "preserve") {
+    if ((d.changed ?? []).length === 0) lines.push(`keeps the ${(d.files ?? []).length} files ${d.step ?? "the step"} changed`);
+    for (const c of d.changed ?? []) lines.push(`${c.file}: ${c.status} after ${d.step ?? "the step"} wrote it`);
+  }
   for (const c of d.commands ?? []) {
     lines.push(`${c.command}: ${c.exitCode === undefined || c.exitCode === null ? "did not run" : `exit ${c.exitCode}`}${c.reason ? ` (${c.reason})` : ""}`);
   }

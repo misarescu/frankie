@@ -89,7 +89,7 @@ func TestLoadConfigFileToolchains(t *testing.T) {
 	t.Run("configured", func(t *testing.T) {
 		cfg, err := load(t, `{"toolchains": {
 		  "registryURL": "http://frankie-registry.frankie.svc:5000", "pushHost": "frankie-registry.frankie.svc:5000",
-		  "pullHost": "localhost:30500", "namespace": "frankie-build", "buildkitImage": "moby/buildkit:v0.35.0",
+		  "pullHost": "localhost:30500", "namespace": "frankie-build",
 		  "runtimeClass": "kata", "serviceAccount": "frankie-build", "egressProxyURL": "http://proxy:3128",
 		  "cpu": "2", "memory": "3Gi", "scratchSize": "10Gi", "deadline": "30m"}}`)
 		if err != nil {

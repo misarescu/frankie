@@ -116,11 +116,53 @@ includes = ["tasks"]
 	}
 
 	// The image is built from exactly what was hashed.
-	ctx, err := a.Context("", nil)
+	r, err := a.Recipe("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(ctx["mise.toml"]) != stripped {
-		t.Errorf("build context mise.toml =\n%s\nwant ToolsToml", ctx["mise.toml"])
+	if string(r.Files["mise.toml"]) != stripped {
+		t.Errorf("build context mise.toml =\n%s\nwant ToolsToml", r.Files["mise.toml"])
+	}
+}
+
+// M5.2 (D81): a toolchain image is the base image plus what mise installs,
+// with the environment the agent finds its tools by; the base is mirrored
+// into the cluster's registry once.
+func TestInputsRecipe(t *testing.T) {
+	r, err := testInputsSpec().Recipe("frankie-registry.frankie.svc:5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "ghcr.io/misarescu/frankie-runner:sha-abc"
+	if r.Image != base || r.Base != base || r.Mirror != "base/frankie-runner" {
+		t.Errorf("image %q, base %q, mirror %q", r.Image, r.Base, r.Mirror)
+	}
+	if r.Dir != "/home/agent/toolchain" || r.Run != "mise trust && mise install" || string(r.Files["mise.lock"]) != "lock" {
+		t.Errorf("dir %q, run %q, files %v", r.Dir, r.Run, r.Files)
+	}
+	if r.ImageEnv["MISE_DATA_DIR"] != "/home/agent/.local/share/mise" || r.ImageEnv["MISE_TRUSTED_CONFIG_PATHS"] != "/workspace" ||
+		r.PrependPath != "/home/agent/.local/share/mise/shims" {
+		t.Errorf("image env %v, path %q", r.ImageEnv, r.PrependPath)
+	}
+	// The download cache is scratch, outside the layer.
+	if !strings.HasPrefix(r.RunEnv["MISE_CACHE_DIR"], "/tmp/") {
+		t.Errorf("run env %v", r.RunEnv)
+	}
+	if _, err := (Inputs{Base: base}).Recipe(""); err == nil {
+		t.Error("a recipe without mise.toml")
+	}
+}
+
+func TestMirrorRepository(t *testing.T) {
+	for ref, want := range map[string]string{
+		"ghcr.io/misarescu/frankie-runner:sha-abc":                           "base/frankie-runner",
+		"ghcr.io/misarescu/Frankie-Runner@sha256:" + strings.Repeat("a", 64): "base/frankie-runner",
+		"localhost:5000/runner":                                              "base/runner",
+		"registry:5000/team/factory-base:v1":                                 "base/factory-base",
+		"weird/Name With Spaces:1":                                           "base/runner",
+	} {
+		if got := mirrorRepository(ref); got != want {
+			t.Errorf("mirrorRepository(%q) = %q, want %q", ref, got, want)
+		}
 	}
 }

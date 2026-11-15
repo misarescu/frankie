@@ -93,7 +93,6 @@ type fileConfig struct {
 		PushHost       string   `json:"pushHost"`    // as build pods reach it
 		PullHost       string   `json:"pullHost"`    // as nodes reach it
 		Namespace      string   `json:"namespace"`
-		BuildKitImage  string   `json:"buildkitImage"`
 		RuntimeClass   string   `json:"runtimeClass"`
 		ServiceAccount string   `json:"serviceAccount"`
 		EgressProxyURL string   `json:"egressProxyURL"`
@@ -239,7 +238,7 @@ func (fc fileConfig) toolchain() (ToolchainConfig, error) {
 	cfg := ToolchainConfig{
 		RegistryURL: t.RegistryURL, PullHost: t.PullHost,
 		Build: images.BuildConfig{
-			Namespace: t.Namespace, BuildKitImage: t.BuildKitImage, RuntimeClassName: t.RuntimeClass,
+			Namespace: t.Namespace, RuntimeClassName: t.RuntimeClass,
 			ServiceAccountName: t.ServiceAccount, PushHost: t.PushHost, EgressProxyURL: t.EgressProxyURL, NoProxy: t.NoProxy,
 			Deadline: deadline, ScratchSize: scratch,
 			Limits: corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: mem},

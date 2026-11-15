@@ -24,8 +24,6 @@ import (
 // mise.toml on top of the platform base image, pushed to the in-cluster registry,
 // pulled by the node, and reused for an unchanged mise.toml. Since D45 it is
 // pushed by digest, recorded, tagged by the control plane and run by digest.
-//
-//	FRANKIE_E2E_BUILDKIT_IMAGE  default moby/buildkit:v0.35.0
 var _ = Describe("Toolchain images", Ordered, Label("toolchain"), func() {
 	var (
 		ensurer  images.Ensurer
@@ -48,7 +46,7 @@ var _ = Describe("Toolchain images", Ordered, Label("toolchain"), func() {
 			Builder: images.KubeBuilder{
 				Kube: cs,
 				Config: images.BuildConfig{
-					Namespace: "frankie-build", BuildKitImage: envOr("FRANKIE_E2E_BUILDKIT_IMAGE", "moby/buildkit:v0.35.0"),
+					Namespace:        "frankie-build",
 					RuntimeClassName: "kata", ServiceAccountName: "frankie-build",
 					PushHost:       "frankie-registry." + platformNS + ".svc:5000",
 					EgressProxyURL: proxyURL, Deadline: 25 * time.Minute,

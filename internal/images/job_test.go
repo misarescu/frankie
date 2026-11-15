@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 func testConfig() BuildConfig {
 	return BuildConfig{
-		Namespace: "frankie-build", BuildKitImage: "moby/buildkit:v0.35.0", RuntimeClassName: "kata",
+		Namespace: "frankie-build", RuntimeClassName: "kata",
 		ServiceAccountName: "frankie-build", PushHost: "frankie-registry.frankie.svc:5000",
 		EgressProxyURL: "http://egress.frankie.svc:3128", Deadline: 30 * time.Minute,
 		Limits:      corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("3Gi")},
@@ -29,6 +30,35 @@ func testInputsSpec() Inputs {
 
 func testRequest() BuildRequest {
 	return BuildRequest{Repository: "toolchains/misarescu/repo", Spec: testInputsSpec()}
+}
+
+// flagValue is the argument after flag in a command line.
+func flagValue(cmd []string, flag string) string {
+	i := slices.Index(cmd, flag)
+	if i < 0 || i+1 >= len(cmd) {
+		return ""
+	}
+	return cmd[i+1]
+}
+
+// flagValues are the arguments after every occurrence of flag.
+func flagValues(cmd []string, flag string) []string {
+	var out []string
+	for i, a := range cmd {
+		if a == flag && i+1 < len(cmd) {
+			out = append(out, cmd[i+1])
+		}
+	}
+	return out
+}
+
+func envValue(env []corev1.EnvVar, name string) (string, bool) {
+	for _, e := range env {
+		if e.Name == name {
+			return e.Value, true
+		}
+	}
+	return "", false
 }
 
 // contextFiles unpacks the build context a ConfigMap carries.
@@ -56,20 +86,69 @@ func TestBuildResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("context holds the recipe and the repo files", func(t *testing.T) {
+	t.Run("context holds the repo files", func(t *testing.T) {
 		files := contextFiles(t, cm)
-		if !strings.HasPrefix(files["Dockerfile"], "FROM ghcr.io/misarescu/frankie-runner:sha-abc\n") {
-			t.Errorf("Dockerfile does not start from the base image:\n%s", files["Dockerfile"])
-		}
-		if !strings.Contains(files["Dockerfile"], "mise install") {
-			t.Errorf("Dockerfile does not install the toolchain:\n%s", files["Dockerfile"])
-		}
-		if files["mise.toml"] != string(testInputsSpec().MiseToml) || files["mise.lock"] != "lock" {
+		if files["mise.toml"] != string(testInputsSpec().MiseToml) || files["mise.lock"] != "lock" || len(files) != 2 {
 			t.Errorf("repo files not carried into the context: %v", files)
 		}
-		// The in-cluster registry is plain HTTP, for builds FROM a recorded image.
-		if !strings.Contains(cm.Data["buildkitd.toml"], `[registry."frankie-registry.frankie.svc:5000"]`) || !strings.Contains(cm.Data["buildkitd.toml"], "http = true") {
-			t.Errorf("buildkitd.toml = %q", cm.Data["buildkitd.toml"])
+	})
+
+	// D81: the install runs in the base image itself, and the push appends
+	// its layer to the base mirrored into the cluster's registry.
+	t.Run("install and push run the base image", func(t *testing.T) {
+		spec := job.Spec.Template.Spec
+		if len(spec.InitContainers) != 1 || len(spec.Containers) != 1 {
+			t.Fatalf("containers: %d init, %d", len(spec.InitContainers), len(spec.Containers))
+		}
+		install, push := spec.InitContainers[0], spec.Containers[0]
+		base := "ghcr.io/misarescu/frankie-runner:sha-abc"
+		if install.Image != base || push.Image != base {
+			t.Errorf("images %q, %q; want the base image", install.Image, push.Image)
+		}
+		if install.Command[0] != "/usr/local/bin/frankie-imagebuild" || install.Command[1] != "layer" ||
+			push.Command[0] != "/usr/local/bin/frankie-imagebuild" || push.Command[1] != "push" {
+			t.Errorf("commands %v, %v", install.Command, push.Command)
+		}
+		for flag, want := range map[string]string{
+			"--context": "/ctx/context.tar", "--dir": "/home/agent/toolchain",
+			"--run": "mise trust && mise install", "--out": "/out/layer.tar",
+		} {
+			if got := flagValue(install.Command, flag); got != want {
+				t.Errorf("install %s = %q, want %q", flag, got, want)
+			}
+		}
+		if got := flagValues(install.Command, "--exclude"); !slices.Equal(got, []string{"/ctx", "/out"}) {
+			t.Errorf("install excludes %v, want the mounts", got)
+		}
+		for flag, want := range map[string]string{
+			"--base": base, "--layer": "/out/layer.tar",
+			"--mirror":       "frankie-registry.frankie.svc:5000/base/frankie-runner",
+			"--target":       "frankie-registry.frankie.svc:5000/toolchains/misarescu/repo",
+			"--insecure":     "frankie-registry.frankie.svc:5000",
+			"--prepend-path": "/home/agent/.local/share/mise/shims",
+		} {
+			if got := flagValue(push.Command, flag); got != want {
+				t.Errorf("push %s = %q, want %q", flag, got, want)
+			}
+		}
+		if got := flagValues(push.Command, "--env"); !slices.Equal(got, []string{"MISE_DATA_DIR=/home/agent/.local/share/mise", "MISE_TRUSTED_CONFIG_PATHS=/workspace"}) {
+			t.Errorf("push env %v", got)
+		}
+		// D45: the build pushes by digest; only the control plane tags.
+		if strings.Contains(strings.Join(push.Command, " "), req.Spec.Tag()) {
+			t.Errorf("the build names its tag: %v", push.Command)
+		}
+		if v, _ := envValue(install.Env, "MISE_CACHE_DIR"); !strings.HasPrefix(v, "/tmp/") {
+			t.Errorf("MISE_CACHE_DIR = %q", v)
+		}
+		if v, _ := envValue(install.Env, "HOME"); v != "/home/agent" {
+			t.Errorf("HOME = %q", v)
+		}
+		mounted := func(c corev1.Container, path string) bool {
+			return slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool { return m.MountPath == path })
+		}
+		if !mounted(install, "/out") || !mounted(push, "/out") || !mounted(install, "/ctx") || mounted(push, "/ctx") {
+			t.Errorf("mounts: install %v, push %v", install.VolumeMounts, push.VolumeMounts)
 		}
 	})
 
@@ -88,47 +167,35 @@ func TestBuildResources(t *testing.T) {
 		}
 	})
 
-	t.Run("pod has no cluster access and builds through the proxy", func(t *testing.T) {
+	t.Run("pod has no cluster access, no privileges and builds through the proxy", func(t *testing.T) {
 		spec := job.Spec.Template.Spec
 		if *spec.AutomountServiceAccountToken || *spec.RuntimeClassName != "kata" {
 			t.Errorf("token automount or runtime class wrong: %v %v", *spec.AutomountServiceAccountToken, *spec.RuntimeClassName)
 		}
-		c := spec.Containers[0]
-		args := strings.Join(c.Args, " ")
-		for _, want := range []string{
-			"name=frankie-registry.frankie.svc:5000/toolchains/misarescu/repo,push=true,push-by-digest=true",
-			"build-arg:HTTPS_PROXY=http://egress.frankie.svc:3128",
-			"build-arg:NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local",
-			// D45: the digest is reported through the kubelet, never a tag pushed.
-			"--metadata-file /tmp/build-metadata.json",
-		} {
-			if !strings.Contains(args, want) {
-				t.Errorf("args missing %q:\n%s", want, args)
+		// D81: Pod Security "restricted", as the agent user, without fsGroup
+		// (it would set the setgid bit on the install's directories).
+		ps := spec.SecurityContext
+		if ps == nil || !*ps.RunAsNonRoot || *ps.RunAsUser != 10001 || *ps.RunAsGroup != 10001 || ps.FSGroup != nil ||
+			ps.SeccompProfile == nil || ps.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+			t.Errorf("pod security context %+v", ps)
+		}
+		for _, c := range append(slices.Clone(spec.InitContainers), spec.Containers...) {
+			sc := c.SecurityContext
+			if sc == nil || sc.Privileged != nil || *sc.AllowPrivilegeEscalation || !slices.Equal(sc.Capabilities.Drop, []corev1.Capability{"ALL"}) {
+				t.Errorf("%s security context %+v", c.Name, sc)
 			}
-		}
-		cmd := strings.Join(c.Command, " ")
-		if !strings.Contains(cmd, `buildctl-daemonless.sh "$@" && cat /tmp/build-metadata.json > /dev/termination-log`) {
-			t.Errorf("the build does not report its result in the termination message: %s", cmd)
-		}
-		// The context is unpacked from a tar, never read through the ConfigMap's symlinks.
-		if !strings.Contains(cmd, "tar -xf /ctx/context.tar -C /tmp/context") || !strings.Contains(args, "--local context=/tmp/context") ||
-			!strings.Contains(args, "--local dockerfile=/tmp/context") || strings.Contains(args, "=/ctx") {
-			t.Errorf("command %q, args %q", cmd, args)
-		}
-		if strings.Contains(args, ":"+req.Spec.Tag()) {
-			t.Errorf("the build pushes a tag; only the control plane tags:\n%s", args)
-		}
-		// D31: rootless BuildKit does not work on Kata (no file capabilities on virtiofs), and
-		// an unprivileged rootful one cannot create cgroups.
-		if sc := c.SecurityContext; !*sc.Privileged || *sc.RunAsUser != 0 {
-			t.Errorf("build container must be privileged root inside the Kata VM: %+v", sc)
-		}
-		if spec.SecurityContext != nil {
-			t.Errorf("pod-level security context would conflict with root: %+v", spec.SecurityContext)
-		}
-		for _, e := range c.Env {
-			if strings.Contains(strings.ToLower(e.Name), "token") || strings.Contains(strings.ToLower(e.Name), "key") {
-				t.Errorf("credential-like env var %s on a build pod", e.Name)
+			for name, want := range map[string]string{
+				"HTTPS_PROXY": "http://egress.frankie.svc:3128", "https_proxy": "http://egress.frankie.svc:3128",
+				"NO_PROXY": "localhost,127.0.0.1,.svc,.cluster.local",
+			} {
+				if v, _ := envValue(c.Env, name); v != want {
+					t.Errorf("%s %s = %q, want %q", c.Name, name, v, want)
+				}
+			}
+			for _, e := range c.Env {
+				if strings.Contains(strings.ToLower(e.Name), "token") || strings.Contains(strings.ToLower(e.Name), "key") {
+					t.Errorf("credential-like env var %s on a build pod", e.Name)
+				}
 			}
 		}
 		if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != 1800 {
@@ -181,19 +248,16 @@ func TestRepository(t *testing.T) {
 	}
 }
 
-// D37: the sandbox environment (e.g. GOPROXY) reaches the build's RUN step.
+// D37: the sandbox environment (e.g. GOPROXY) reaches the install.
 func TestBuildResourcesPassesSandboxEnv(t *testing.T) {
 	cfg := testConfig()
 	cfg.Env = map[string]string{"GOPROXY": "http://frankie-athens.frankie.svc:3000"}
-	cm, job, err := BuildResources(cfg, testRequest())
+	_, job, err := BuildResources(cfg, testRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if df := contextFiles(t, cm)["Dockerfile"]; !strings.Contains(df, "\nARG GOPROXY\n") || strings.Index(df, "ARG GOPROXY") < strings.Index(df, "FROM ") {
-		t.Errorf("Dockerfile does not declare the build arg after FROM:\n%s", df)
-	}
-	if args := strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "); !strings.Contains(args, "build-arg:GOPROXY=http://frankie-athens.frankie.svc:3000") {
-		t.Errorf("args = %s", args)
+	if v, _ := envValue(job.Spec.Template.Spec.InitContainers[0].Env, "GOPROXY"); v != "http://frankie-athens.frankie.svc:3000" {
+		t.Errorf("install GOPROXY = %q", v)
 	}
 	// Where downloads come from does not change what the image is.
 	if _, plain, _ := BuildResources(testConfig(), testRequest()); plain.Name != job.Name {
@@ -210,12 +274,14 @@ func TestBuildResourcesCPURequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := job.Spec.Template.Spec.Containers[0].Resources
-	if r.Requests.Cpu().String() != "250m" || r.Limits.Cpu().String() != "2" {
-		t.Errorf("cpu request/limit = %s/%s, want 250m/2", r.Requests.Cpu(), r.Limits.Cpu())
-	}
-	if !r.Requests.Memory().Equal(*r.Limits.Memory()) {
-		t.Errorf("memory request %s, want its limit %s", r.Requests.Memory(), r.Limits.Memory())
+	for _, c := range []corev1.Container{job.Spec.Template.Spec.InitContainers[0], job.Spec.Template.Spec.Containers[0]} {
+		r := c.Resources
+		if r.Requests.Cpu().String() != "250m" || r.Limits.Cpu().String() != "2" {
+			t.Errorf("%s cpu request/limit = %s/%s, want 250m/2", c.Name, r.Requests.Cpu(), r.Limits.Cpu())
+		}
+		if !r.Requests.Memory().Equal(*r.Limits.Memory()) {
+			t.Errorf("%s memory request %s, want its limit %s", c.Name, r.Requests.Memory(), r.Limits.Memory())
+		}
 	}
 	c.CPURequest = resource.MustParse("3")
 	if _, _, err := BuildResources(c, testRequest()); err == nil {
@@ -232,13 +298,11 @@ func TestBuildResourcesEgressProxyURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := job.Spec.Template.Spec.Containers[0]
-	if args := strings.Join(c.Args, " "); !strings.Contains(args, "build-arg:HTTPS_PROXY="+r.EgressProxyURL) {
-		t.Errorf("args = %s", args)
-	}
-	for _, e := range c.Env {
-		if strings.EqualFold(e.Name, "https_proxy") && e.Value != r.EgressProxyURL {
-			t.Errorf("%s = %q, want the request's proxy", e.Name, e.Value)
+	for _, c := range []corev1.Container{job.Spec.Template.Spec.InitContainers[0], job.Spec.Template.Spec.Containers[0]} {
+		for _, e := range c.Env {
+			if strings.EqualFold(e.Name, "https_proxy") && e.Value != r.EgressProxyURL {
+				t.Errorf("%s %s = %q, want the request's proxy", c.Name, e.Name, e.Value)
+			}
 		}
 	}
 	if _, plain, _ := BuildResources(testConfig(), testRequest()); plain.Name != job.Name {

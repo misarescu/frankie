@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -43,6 +42,9 @@ func (d Dependencies) Validate() error {
 	var errs []error
 	if !repositoryRE.MatchString(d.Toolchain.Repository) || !digestRE.MatchString(d.Toolchain.Digest) {
 		errs = append(errs, fmt.Errorf("toolchain image %q@%q is not a recorded image", d.Toolchain.Repository, d.Toolchain.Digest))
+	}
+	if !strings.HasSuffix(d.Toolchain.Ref, "@"+d.Toolchain.Digest) {
+		errs = append(errs, fmt.Errorf("toolchain image reference %q is not its recorded digest", d.Toolchain.Ref))
 	}
 	switch {
 	case len(d.Files) == 0:
@@ -88,27 +90,21 @@ func (d Dependencies) Hash() string {
 // Tag implements Spec.
 func (d Dependencies) Tag() string { return "dp-" + d.Hash()[:32] }
 
-// Context implements Spec: the declared files under deps/ and a Dockerfile
-// that runs the warm-up on the toolchain image, pulled by digest.
-func (d Dependencies) Context(pushHost string, args []string) (map[string][]byte, error) {
+// Recipe implements Spec: the declared files go to /workspace/deps and the
+// warm-up runs there in the toolchain image, whose recorded digest the layer
+// is appended to.
+func (d Dependencies) Recipe(pushHost string) (Recipe, error) {
 	if err := d.Validate(); err != nil {
-		return nil, err
+		return Recipe{}, err
 	}
-	run, err := json.Marshal([]string{"/bin/sh", "-c", "cd " + dependencyDir + " && " + d.Run})
-	if err != nil {
-		return nil, fmt.Errorf("images: warm-up command: %w", err)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "FROM %s/%s@%s\n", pushHost, d.Toolchain.Repository, d.Toolchain.Digest)
-	for _, a := range args {
-		fmt.Fprintf(&b, "ARG %s\n", a)
-	}
-	fmt.Fprintf(&b, "COPY --chown=%[1]d:%[1]d deps/ %[2]s/\nRUN %[3]s\n", agentUID, dependencyDir, run)
-	files := map[string][]byte{dockerfileName: []byte(b.String())}
-	for p, content := range d.Files {
-		files["deps/"+p] = content
-	}
-	return files, nil
+	return Recipe{
+		Image:     d.Toolchain.Ref,
+		Base:      fmt.Sprintf("%s/%s@%s", pushHost, d.Toolchain.Repository, d.Toolchain.Digest),
+		Dir:       dependencyDir,
+		Files:     maps.Clone(d.Files),
+		Run:       d.Run,
+		CreatedBy: "frankie dependencies: " + d.Run,
+	}, nil
 }
 
 // DependencyRepository maps a factory repo to its registry repository for

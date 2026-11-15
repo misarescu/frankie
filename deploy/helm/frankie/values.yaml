@@ -44,8 +44,8 @@ agents:
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted
 
-# Toolchain images (D15, D30, docs/spec/05): built in-cluster by a one-off BuildKit
-# Job per image, pushed to a plain registry:2 (docs/spec/09).
+# Toolchain images (D15, D30, docs/spec/05): built in-cluster by a one-off Job
+# per image that appends a layer (D81), pushed to a plain registry:2 (docs/spec/09).
 toolchains:
   registry:
     image: registry:2.8.3
@@ -54,20 +54,20 @@ toolchains:
     # Nodes pull toolchain images as localhost:<nodePort>/...; containerd treats
     # loopback registries as plain HTTP, so nodes need no registry configuration.
     nodePort: 30500
+    # 128Mi was OOM-killed receiving a dependency image's push (M5.2).
     resources:
-      requests: { cpu: 10m, memory: 32Mi }
-      limits: { cpu: 500m, memory: 128Mi }
+      requests: { cpu: 10m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
   build:
     namespace: frankie-build
-    # BuildKit runs as a privileged root container (D31), which Pod Security
-    # refuses below "privileged". The Kata VM is the boundary: build pods have no
+    # Builds append a layer as the unprivileged agent user (D81), so the
+    # namespace enforces "restricted" like the agents'. Build pods also have no
     # token, no secrets and egress only to the proxy and registry.
-    podSecurity: privileged
+    podSecurity: restricted
     serviceAccountName: frankie-build
-    buildkitImage: moby/buildkit:v0.35.0
-    # A dependency image build (M3.1) unpacks the whole toolchain image before
-    # the warm-up adds module and build caches: Frankie's went over 10Gi.
     deadline: 50m
+    # Bounds what a build writes: the install's files in the container, then
+    # again as the layer archive.
     scratchSize: 30Gi
     # Builds are I/O-bound (median 0.15 CPU) but reached 2.87Gi of a 3Gi limit in M5.1.
     requests: { cpu: 250m }

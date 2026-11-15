@@ -11,7 +11,7 @@ The same codebase supports two profiles: **full** and **concrete** (called "lapt
 | LLM gateway | LiteLLM | LiteLLM (kept: keeps API keys out of sandboxes) |
 | Registry | Harbor (scanning, proxy cache) or Zot | **Plain `registry:2`** for toolchain images; platform images come from GHCR (D23) |
 | Dependency proxies | Athens/Verdaccio/devpi or Nexus | **Egress to public registries + per-repo cache volumes** |
-| Image building | BuildKit as a service | **One-off Job when a toolchain image changes** |
+| Image building | BuildKit as a service | **One-off Job when a toolchain image changes**, appending a layer without BuildKit (D81) |
 | Preview environments | One per change request | **At most one at a time, or off** |
 | Observability | OTel + Tempo/Prometheus/Loki or Langfuse | **Temporal UI, factory run view, `kubectl logs`; VictoriaMetrics later** |
 | Concurrency | Configurable | `maxConcurrentIssues = 1`; reviewers sequential |
@@ -31,12 +31,12 @@ Memory budget, GiB:
 | Control plane API + UI | 0.3 | 0.3 | |
 | LiteLLM gateway | 0.5 | 0.5 | Kept: keeps API keys out of sandboxes |
 | Flux | 0.3 | 0.3 | |
-| Local registry | 0.1 | 0.1 | Plain registry:2 |
+| Local registry | 0.1 | 0.5 | Plain registry:2; 128 MiB was OOM-killed receiving a dependency image (M5.2) |
 | Egress proxy | 0.05 | 0.05 | D20; hostname allowlist for agent pods |
 | Go module proxy (Athens) | 0.06 | 0.25 | D37; Go modules for sandboxes |
-| **Platform total** | **4.31** | **5.0** | |
+| **Platform total** | **4.31** | **5.4** | |
 
-Available for agents, gates, previews: 16 - 5.0 = **11.0 GiB** (worst case).
+Available for agents, gates, previews: 16 - 5.4 = **10.6 GiB** (worst case).
 
 Concurrent pods:
 
@@ -46,7 +46,7 @@ Concurrent pods:
 | Reviewer, refiner | 3 | 0.25 / 2 | 0 | 0 | Run reviewers one after another, after the builders finish; same limits as a coder |
 | Command gate | 3 | 1 / 2 | 1 | 3 | Fresh build and tests from the pushed commit |
 | Image build | 4 | 0.25 / 2 | 0 | 0 | Only when a toolchain or dependency image changes; it takes a coder's place while the coder waits for it |
-| **Total** | | | **3** | **9** | Fits in 11.0 GiB with 2.0 GiB headroom |
+| **Total** | | | **3** | **9** | Fits in 10.6 GiB with 1.6 GiB headroom |
 
 Memory is requested at its limit; CPU is requested below it (D77), from the M5.1 samples (`docs/notes/m5.1-resource-samples.csv`): agents used a median 0.86 CPU (p90 1.81) and up to 2.6 GiB, reviewers under 0.2 CPU and 0.3 GiB, gates a median 1.81 CPU and under 1 GiB, builds a median 0.15 CPU and up to 2.87 GiB. With requests equal to limits, pods waited `Pending` on a node using 2.5 of its 4 CPUs.
 

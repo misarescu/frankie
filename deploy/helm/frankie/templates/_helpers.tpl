@@ -89,7 +89,6 @@ app.kubernetes.io/component: {{ index . 1 }}
     "pushHost" (printf "%s-registry.%s.svc:%v" $full .Release.Namespace $tc.registry.port)
     "pullHost" (printf "localhost:%v" $tc.registry.nodePort)
     "namespace" $tc.build.namespace
-    "buildkitImage" $tc.build.buildkitImage
     "runtimeClass" $.Values.agents.runtimeClassName
     "serviceAccount" $tc.build.serviceAccountName
     "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)

@@ -19,8 +19,8 @@ import (
 const builtDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
 // finishJobs makes every created Job finish the way a cluster would. A
-// completed Job leaves its pod, whose build container's termination message
-// is buildctl's metadata file (result).
+// completed Job leaves its pod, whose push container's termination message
+// is the build's result.
 func finishJobs(kube *fake.Clientset, cond batchv1.JobConditionType, msg string) {
 	finishJobsWithResult(kube, cond, msg, `{"containerimage.digest":"`+builtDigest+`","image.name":"frankie-registry:5000/toolchains/misarescu/repo"}`)
 }
@@ -43,7 +43,7 @@ func finishJobWithResult(kube *fake.Clientset, j *batchv1.Job, cond batchv1.JobC
 	if cond == batchv1.JobComplete {
 		_ = kube.Tracker().Add(&corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-x", Namespace: j.Namespace, Labels: map[string]string{"batch.kubernetes.io/job-name": j.Name}},
-			Status: corev1.PodStatus{Phase: corev1.PodSucceeded, ContainerStatuses: []corev1.ContainerStatus{{Name: buildContainer,
+			Status: corev1.PodStatus{Phase: corev1.PodSucceeded, ContainerStatuses: []corev1.ContainerStatus{{Name: pushContainer,
 				State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Message: result}}}}},
 		})
 	}
@@ -61,7 +61,7 @@ func TestKubeBuilderSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	if digest != builtDigest {
-		t.Errorf("digest = %q, want the one the build container reported", digest)
+		t.Errorf("digest = %q, want the one the push container reported", digest)
 	}
 	jobs, _ := kube.BatchV1().Jobs("frankie-build").List(context.Background(), metav1.ListOptions{})
 	cms, _ := kube.CoreV1().ConfigMaps("frankie-build").List(context.Background(), metav1.ListOptions{})
@@ -273,14 +273,22 @@ func TestKubeBuilderNeedsAReportedDigest(t *testing.T) {
 }
 
 // M5.2: a failed build's error carries the end of its log, so the run's
-// transcript says why the image did not build.
+// transcript says why the image did not build: the install's, unless the
+// install succeeded and the push failed (D81).
 func TestKubeBuilderFailureCarriesTheBuildLog(t *testing.T) {
+	installed := []corev1.ContainerStatus{{Name: installContainer,
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}}
+	installFailed := []corev1.ContainerStatus{{Name: installContainer,
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}}}
 	for name, tt := range map[string]struct {
-		pod  bool
-		want string
+		pod      bool
+		statuses []corev1.ContainerStatus
+		want     string
 	}{
-		"with its pod": {true, "last lines of the build log:\nfake logs"},
-		"pod gone":     {false, "(no build log: the build pod is gone)"},
+		"install failed":      {true, installFailed, "last lines of the build log (install):\nfake logs"},
+		"install not started": {true, nil, "last lines of the build log (install):\nfake logs"},
+		"push failed":         {true, installed, "last lines of the build log (push):\nfake logs"},
+		"pod gone":            {false, nil, "(no build log: the build pod is gone)"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			kube := fake.NewClientset()
@@ -289,7 +297,8 @@ func TestKubeBuilderFailureCarriesTheBuildLog(t *testing.T) {
 				finishJob(kube, j, batchv1.JobFailed, "BackoffLimitExceeded")
 				if tt.pod {
 					_ = kube.Tracker().Add(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-x", Namespace: j.Namespace,
-						Labels: map[string]string{"batch.kubernetes.io/job-name": j.Name}}})
+						Labels: map[string]string{"batch.kubernetes.io/job-name": j.Name}},
+						Status: corev1.PodStatus{InitContainerStatuses: tt.statuses}})
 				}
 				return false, j, nil
 			})

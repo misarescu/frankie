@@ -4,6 +4,10 @@
 # pre-compile (M3.1, `mise run deps:warm`). Written by `mise run generate`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The warm-up runs in linux/amd64 build pods, and a dependency's imports can
+# differ by platform (klauspost/compress/internal/cpuinfo is amd64 only): list
+# for that platform, so the file is the same whichever machine generates it.
+export GOOS=linux GOARCH=amd64
 
 out=go-packages.txt
 {

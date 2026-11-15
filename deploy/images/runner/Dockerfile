@@ -2,6 +2,7 @@
 # Agent pod image: the runner plus Claude Code, opencode, pi and mise (docs/spec/04, docs/spec/05).
 # This is the platform base image (factory-base, D30): toolchain images layer a
 # repo's mise.toml on top of it, so a new build of this image rebuilds them all.
+# A base image must contain /usr/local/bin/frankie-imagebuild, which builds them (D81).
 # Build from the repo root: docker build -f deploy/images/runner/Dockerfile .
 FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie AS build
 ARG TARGETOS TARGETARCH
@@ -10,7 +11,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/runner ./cmd/runner
+    go build -trimpath -ldflags="-s -w" -o /out/runner ./cmd/runner \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/frankie-imagebuild ./cmd/imagebuild
 
 FROM debian:trixie-slim
 ARG TARGETARCH
@@ -64,6 +67,9 @@ ENV PATH=/home/agent/.local/bin:$PATH \
     DISABLE_AUTOUPDATER=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 COPY --from=build /out/runner /usr/local/bin/runner
+# Builds toolchain and dependency images on this one by appending a layer
+# (D81). Root-owned, so an install running as the agent cannot replace it.
+COPY --from=build /out/frankie-imagebuild /usr/local/bin/frankie-imagebuild
 WORKDIR /workspace
 EXPOSE 7070
 ENTRYPOINT ["/usr/local/bin/runner", "--listen", ":7070", "--workdir", "/workspace", "--claude-bin", "/home/agent/.local/bin/claude", "--opencode-bin", "/usr/local/bin/opencode", "--pi-bin", "/opt/pi/pi"]

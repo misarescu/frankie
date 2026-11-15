@@ -69,6 +69,9 @@ func (q *Queries) GetChangeRequest(ctx context.Context, id uuid.UUID) (ChangeReq
 const listChangeRequestsAwaitingMerge = `-- name: ListChangeRequestsAwaitingMerge :many
 SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests
 WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awaiting_human')
+  -- An issue whose run is still going waits inside it (D91); its run, or the
+  -- merge queue, sees a merge made by hand.
+  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = change_requests.issue_id AND r.status IN ('pending', 'running'))
 ORDER BY created_at, id
 `
 

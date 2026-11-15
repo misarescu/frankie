@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/misarescu/frankie/internal/domain"
 )
@@ -221,5 +222,72 @@ func TestIssueNumbersUniqueUnderConcurrency(t *testing.T) {
 		if !seen[domain.IssueKey(p.KeyPrefix, i)] {
 			t.Errorf("number %d not allocated; keys %v", i, keys)
 		}
+	}
+}
+
+// M6 (D91): an issue shows awaiting_human while its run waits for a person,
+// a gate decision or an answer, and running again once it does not.
+func TestSyncIssueWaiting(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
+	run := mustRun(t, s, is.ID)
+	if _, err := s.TransitionRun(ctx, run.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	status := func() domain.IssueStatus {
+		t.Helper()
+		got, err := s.SyncIssueWaiting(ctx, is.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Status
+	}
+	if got := status(); got != domain.IssueRunning {
+		t.Fatalf("nothing pending: %s", got)
+	}
+
+	gate, _ := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: "approve", Attempt: 1, Kind: domain.StepGate})
+	if _, err := s.TransitionStepRun(ctx, gate.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenApproval(ctx, NewApproval{StepRunID: gate.ID, Reason: "r", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != domain.IssueAwaitingHuman {
+		t.Fatalf("pending approval: %s", got)
+	}
+	if got := status(); got != domain.IssueAwaitingHuman {
+		t.Fatalf("synced twice: %s", got)
+	}
+	if _, err := s.DecideApproval(ctx, gate.ID, domain.ApprovalApproved, "ana", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != domain.IssueRunning {
+		t.Fatalf("decided: %s", got)
+	}
+
+	agent, _ := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: "implement", Attempt: 1, Kind: domain.StepAgent})
+	if _, err := s.TransitionStepRun(ctx, agent.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenQuestion(ctx, NewQuestion{StepRunID: agent.ID, QuestionID: "q1", Question: "which port?"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != domain.IssueAwaitingHuman {
+		t.Fatalf("pending question: %s", got)
+	}
+	// The session ended without an answer: its step is no longer running.
+	if _, err := s.TransitionStepRun(ctx, agent.ID, domain.ExecRunning, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != domain.IssueRunning {
+		t.Fatalf("question of a finished step: %s", got)
+	}
+
+	// Without a running run, or in another status, the issue keeps its status.
+	queued := mustIssue(t, s, mustProject(t, s).ID, domain.IssueAwaitingHuman)
+	if got, err := s.SyncIssueWaiting(ctx, queued.ID); err != nil || got.Status != domain.IssueAwaitingHuman {
+		t.Errorf("issue without a run = %s, %v", got.Status, err)
 	}
 }

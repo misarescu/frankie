@@ -356,6 +356,28 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 	return i, err
 }
 
+const issueWaitsForPerson = `-- name: IssueWaitsForPerson :one
+SELECT (EXISTS (SELECT 1 FROM approvals a JOIN step_runs s ON s.id = a.step_run_id JOIN runs r ON r.id = a.run_id
+                WHERE r.issue_id = $1 AND r.status = 'running' AND s.status = 'running' AND a.status = 'pending')
+     OR EXISTS (SELECT 1 FROM questions q JOIN step_runs s ON s.id = q.step_run_id JOIN runs r ON r.id = q.run_id
+                WHERE r.issue_id = $1 AND r.status = 'running' AND s.status = 'running' AND q.status = 'pending'))::boolean AS waits,
+       EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = $1 AND r.status = 'running')::boolean AS running
+`
+
+type IssueWaitsForPersonRow struct {
+	Waits   bool
+	Running bool
+}
+
+// Whether the issue's running run waits for a person (D91): a pending human
+// gate decision or an unanswered ask-human question on a step still running.
+func (q *Queries) IssueWaitsForPerson(ctx context.Context, issueID uuid.UUID) (IssueWaitsForPersonRow, error) {
+	row := q.db.QueryRow(ctx, issueWaitsForPerson, issueID)
+	var i IssueWaitsForPersonRow
+	err := row.Scan(&i.Waits, &i.Running)
+	return i, err
+}
+
 const listAllDependencies = `-- name: ListAllDependencies :many
 SELECT issue_id, depends_on_id FROM issue_dependencies
 `

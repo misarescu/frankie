@@ -21,7 +21,7 @@ func (a *Activities) FinishStep(ctx context.Context, in StepEnd) error {
 		return err
 	}
 	if step.Status.Terminal() {
-		return nil
+		return a.syncWaiting(ctx, id)
 	}
 	to := domain.ExecFailed
 	if in.Succeeded {
@@ -34,6 +34,9 @@ func (a *Activities) FinishStep(ctx context.Context, in StepEnd) error {
 			step.Status = domain.ExecRunning
 		}
 	}
-	_, err = a.Store.TransitionStepRun(ctx, id, step.Status, to)
-	return err
+	if _, err := a.Store.TransitionStepRun(ctx, id, step.Status, to); err != nil {
+		return err
+	}
+	// A question the step left unanswered no longer holds the issue (D91).
+	return a.syncWaiting(ctx, id)
 }

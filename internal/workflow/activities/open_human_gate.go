@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
@@ -27,6 +28,9 @@ func (a *Activities) OpenHumanGate(ctx context.Context, req HumanGateRequest) er
 			return err
 		}
 	}
-	_, err = a.Store.TransitionStepRun(ctx, id, domain.ExecPending, domain.ExecRunning)
-	return err
+	if _, err := a.Store.TransitionStepRun(ctx, id, domain.ExecPending, domain.ExecRunning); err != nil && !errors.Is(err, domain.ErrInvalidTransition) {
+		return err
+	}
+	// The issue now waits for a person (D91).
+	return a.syncWaiting(ctx, id)
 }

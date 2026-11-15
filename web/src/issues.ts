@@ -173,7 +173,7 @@ export type IssueActions = {
 
 export function issueActions(
   is: Pick<IssueDetail, "status" | "children" | "start_requested_by" | "start_requested_via" | "spec_proposal" | "change_requests">
-    & Partial<Pick<IssueDetail, "spec_rejected_at">>,
+    & Partial<Pick<IssueDetail, "spec_rejected_at" | "runs">>,
 ): IssueActions {
   const finished = isFinished(is.status);
   const out: IssueActions = { retry: is.status === "failed", complete: canComplete(is), cancel: !finished };
@@ -211,6 +211,12 @@ export function issueActions(
       out.note = "In the merge queue";
       break;
     case "awaiting_human": {
+      // A run still going waits for a gate decision or an answer (D91); a
+      // finished one left its change request to a person.
+      if (is.runs?.some((r) => r.status === "running")) {
+        out.note = "Its run waits for a person: decide or answer in the approvals inbox";
+        break;
+      }
       out.note = "Waiting for a person: review the change request";
       out.changeRequest = is.change_requests.find((c) => c.status === "open")?.url;
       break;

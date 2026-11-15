@@ -17,6 +17,9 @@ SELECT * FROM change_requests WHERE id = @id;
 -- name: ListChangeRequestsAwaitingMerge :many
 SELECT * FROM change_requests
 WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awaiting_human')
+  -- An issue whose run is still going waits inside it (D91); its run, or the
+  -- merge queue, sees a merge made by hand.
+  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = change_requests.issue_id AND r.status IN ('pending', 'running'))
 ORDER BY created_at, id;
 
 -- Compare-and-set from open to merged or closed.

@@ -42,13 +42,20 @@ func (a *Activities) FinishRun(ctx context.Context, in FinishInput) error {
 	if in.Merged {
 		issueStatus = domain.IssueMerged
 	}
-	// A run that enqueued its change request ends with the issue queued (D88).
+	// A run that enqueued its change request ends with the issue queued
+	// (D88); one canceled while it waited for a person, awaiting_human (D91).
 	from := domain.IssueRunning
-	if is, err := a.Store.GetIssue(ctx, issueID); err == nil && is.Status == domain.IssueQueued {
-		from = domain.IssueQueued
-	}
-	if _, err := a.Store.TransitionIssue(ctx, issueID, from, issueStatus); err != nil {
+	is, err := a.Store.GetIssue(ctx, issueID)
+	if err != nil {
 		return err
+	}
+	if is.Status == domain.IssueQueued || is.Status == domain.IssueAwaitingHuman {
+		from = is.Status
+	}
+	if is.Status != issueStatus { // a retry finds it there already
+		if _, err := a.Store.TransitionIssue(ctx, issueID, from, issueStatus); err != nil {
+			return err
+		}
 	}
 	if !in.Succeeded {
 		a.Log.Warn("run failed", "run", in.RunID, "reason", in.Reason)

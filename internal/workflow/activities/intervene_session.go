@@ -85,13 +85,19 @@ func (a *Activities) InterveneSession(ctx context.Context, pod AgentPod, in Inte
 // question someone else answered first keeps that answer.
 func (a *Activities) recordAnswer(ctx context.Context, stepRunID uuid.UUID, in Intervention, delivered bool) error {
 	if !delivered {
-		_, err := a.Store.ExpireQuestion(ctx, stepRunID, in.QuestionID)
-		return err
+		if _, err := a.Store.ExpireQuestion(ctx, stepRunID, in.QuestionID); err != nil {
+			return err
+		}
+		return a.syncWaiting(ctx, stepRunID)
 	}
 	_, err := a.Store.AnswerQuestion(ctx, stepRunID, in.QuestionID, in.Text, in.By)
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
 		a.Log.Warn("answer the runner took is not the question's", "step", stepRunID, "question", in.QuestionID, "error", err)
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// The issue no longer waits for this answer (D91).
+	return a.syncWaiting(ctx, stepRunID)
 }

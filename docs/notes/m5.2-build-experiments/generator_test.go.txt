@@ -1,0 +1,67 @@
+package images
+
+// Throwaway generator for the M5.2 build measurements; not committed.
+
+import (
+	"encoding/json"
+	"os"
+	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/misarescu/frankie/internal/egress"
+)
+
+func TestZZBuildExp(t *testing.T) {
+	out := os.Getenv("BUILDEXP_OUT")
+	if out == "" {
+		t.Skip()
+	}
+	toml, err := os.ReadFile(os.Getenv("BUILDEXP_TOML"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := egress.NewSigner([]byte(os.Getenv("FRANKIE_EGRESS_KEY")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := signer.Issue(egress.Grant{Repo: "misarescu/Goodreads-Clone", Hosts: []string{"nodejs.org"}}, 6*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := BuildConfig{
+		Namespace: "frankie-build", BuildKitImage: "moby/buildkit:v0.35.0", RuntimeClassName: "kata",
+		ServiceAccountName: "frankie-build", PushHost: "frankie-registry.frankie.svc:5000",
+		EgressProxyURL: "http://frankie-egress-proxy.frankie.svc:3128", Deadline: 50 * time.Minute,
+		Limits:      corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("4Gi")},
+		CPURequest:  resource.MustParse("250m"),
+		ScratchSize: resource.MustParse("30Gi"),
+		Env:         map[string]string{"GOPROXY": "http://frankie-athens.frankie.svc:3000"},
+	}
+	r := BuildRequest{Repository: "experiments/goodreads-clone",
+		Spec:           Inputs{Base: "ghcr.io/misarescu/frankie-runner:sha-a717546", MiseToml: toml},
+		EgressProxyURL: "http://frankie:" + token + "@frankie-egress-proxy.frankie.svc:3128"}
+	if dir := os.Getenv("BUILDEXP_DEPS"); dir != "" {
+		files := map[string][]byte{"mise.toml": toml}
+		for _, f := range []string{"go.mod", "go.sum", "go-packages.txt", "frontend/package.json", "frontend/bun.lock"} {
+			b, err := os.ReadFile(dir + "/" + f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files[f] = b
+		}
+		r.Repository = "experiments/goodreads-clone-deps"
+		r.Spec = Dependencies{Toolchain: Image{Repository: "experiments/goodreads-clone", Digest: os.Getenv("BUILDEXP_TOOLCHAIN")},
+			Files: files, Run: "mise run deps:warm"}
+	}
+	cm, job, err := BuildResources(c, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.MarshalIndent(map[string]any{"configMap": cm, "job": job, "proxy": r.EgressProxyURL}, "", " ")
+	if err := os.WriteFile(out, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

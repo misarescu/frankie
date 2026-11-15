@@ -1,0 +1,47 @@
+=== warm
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+[deps:frontend] $ bun install --frozen-lockfile
+bun install v1.4.4 (38afee6c8)
+
++ @eslint/js@9.39.2
++ @testing-library/dom@10.4.2
++ @testing-library/react@16.3.3
++ @types/react@19.2.7
++ @types/react-dom@19.2.3
++ @vitejs/plugin-react@5.1.2
++ babel-plugin-react-compiler@1.0.0
++ eslint@9.39.2
++ eslint-plugin-react-hooks@7.0.1
++ eslint-plugin-react-refresh@0.4.26
++ globals@16.5.0
++ jsdom@31.0.1
++ vite@7.2.5
++ vitest@5.1.0
++ react@19.2.3
++ react-dom@19.2.3
+
+221 packages installed [6.77s]
+[deps:warm] $ go mod download
+Finished in 65.34s
+STEP warm 66s
+STEP tar 14s 24935 entries 672M
+405M	/home/agent/go
+145M	/home/agent/.cache/go-build
+153M	/home/agent/.bun
+=== push
+2026/11/15 07:19:30 existing blob: sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f
+2026/11/15 07:19:30 existing blob: sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898
+2026/11/15 07:19:30 existing blob: sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41
+2026/11/15 07:19:30 existing blob: sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a
+2026/11/15 07:19:30 existing blob: sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+2026/11/15 07:19:30 mounted blob: sha256:f0c4241f648c40d0765d7488b216fa444ff8dfe76ba9ff4a08bf8b4ffb2fb3ae
+2026/11/15 07:19:30 pushed blob: sha256:ddf059b260ed6979d40a958fc50d5cc67cd54985540b065befc4cf057219035f
+2026/11/15 07:19:37 pushed blob: sha256:d71b1d8dd7c136b3222e7f31ce256a6bc381493695c1d14da68a2bae06953873
+2026/11/15 07:19:37 frankie-registry.frankie.svc:5000/experiments/goodreads-clone-deps:bx-deps-append: digest: sha256:5a6054c98cd2efd75ce118416a51861fc0d23b90962c1b17ed5d71d0b4be1967 size: 1358
+frankie-registry.frankie.svc:5000/experiments/goodreads-clone-deps@sha256:5a6054c98cd2efd75ce118416a51861fc0d23b90962c1b17ed5d71d0b4be1967
+STEP append 14s

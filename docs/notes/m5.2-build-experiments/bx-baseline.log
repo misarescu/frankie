@@ -1,0 +1,155 @@
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 363B done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for ghcr.io/misarescu/frankie-runner:sha-a717546
+#2 DONE 2.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.1s
+
+#4 [1/3] FROM ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5
+#4 resolve ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5 0.1s done
+#4 DONE 0.3s
+
+#5 [internal] load build context
+#5 transferring context: 137B 0.0s done
+#5 DONE 0.1s
+
+#4 [1/3] FROM ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5
+#4 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0B / 32B 0.2s
+#4 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 0.2s done
+#4 sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898 0B / 5.47MB 0.3s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 0B / 168.92MB 0.2s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 0B / 363.10MB 0.2s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 0B / 29.86MB 0.2s
+#4 sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898 3.15MB / 5.47MB 0.8s
+#4 sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898 5.47MB / 5.47MB 0.9s done
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 2.10MB / 29.86MB 0.8s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 5.24MB / 29.86MB 1.1s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 9.44MB / 168.92MB 1.5s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 7.34MB / 29.86MB 1.2s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 9.44MB / 29.86MB 1.4s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 11.53MB / 29.86MB 1.5s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 14.68MB / 29.86MB 1.7s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 18.87MB / 29.86MB 2.0s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 20.97MB / 168.92MB 2.3s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 20.97MB / 29.86MB 2.1s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 24.12MB / 29.86MB 2.3s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 28.31MB / 29.86MB 2.6s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 39.85MB / 168.92MB 3.2s
+#4 sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 29.86MB / 29.86MB 2.7s done
+#4 extracting sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 52.43MB / 168.92MB 3.6s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 62.91MB / 168.92MB 3.9s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 19.92MB / 363.10MB 3.9s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 73.40MB / 168.92MB 4.4s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 85.98MB / 168.92MB 4.8s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 97.52MB / 168.92MB 5.3s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 38.80MB / 363.10MB 5.1s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 106.95MB / 168.92MB 5.6s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 118.49MB / 168.92MB 6.0s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 58.72MB / 363.10MB 6.2s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 130.02MB / 168.92MB 6.5s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 139.46MB / 168.92MB 6.9s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 79.69MB / 363.10MB 6.9s
+#4 extracting sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41 4.3s done
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 148.90MB / 168.92MB 7.7s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 99.61MB / 363.10MB 7.8s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 161.48MB / 168.92MB 8.1s
+#4 sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 168.92MB / 168.92MB 8.8s done
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 121.63MB / 363.10MB 8.9s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 140.51MB / 363.10MB 9.5s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 162.53MB / 363.10MB 10.4s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 184.55MB / 363.10MB 11.3s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 208.67MB / 363.10MB 12.2s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 230.69MB / 363.10MB 13.1s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 251.66MB / 363.10MB 13.8s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 272.63MB / 363.10MB 14.6s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 293.60MB / 363.10MB 15.3s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 314.57MB / 363.10MB 16.1s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 334.50MB / 363.10MB 16.8s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 356.52MB / 363.10MB 17.6s
+#4 sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 363.10MB / 363.10MB 18.8s done
+#4 extracting sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f
+#4 extracting sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f 34.5s done
+#4 DONE 53.7s
+
+#4 [1/3] FROM ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5
+#4 extracting sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a
+#4 extracting sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a 58.0s done
+#4 DONE 111.7s
+
+#4 [1/3] FROM ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5
+#4 extracting sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898
+#4 extracting sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898 102.9s done
+#4 DONE 214.6s
+
+#4 [1/3] FROM ghcr.io/misarescu/frankie-runner:sha-a717546@sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5
+#4 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+#4 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 102.4s done
+#4 DONE 317.0s
+
+#6 [2/3] COPY --chown=10001:10001 mise.toml mise.lock* /home/agent/toolchain/
+#6 DONE 102.5s
+
+#7 [3/3] RUN cd /home/agent/toolchain && mise trust && mise install
+#7 104.3 mise trusted ~/toolchain
+#7 104.3 mise by @jdx – installing 6 tools
+#7 107.3 mise ████░░░░░░░░░░░░ 0/6 · 3.0s
+#7 107.3   bun@1.4.4            downloading  2.4s  2.4/51.8 MB · 1.3 MB/s
+#7 107.3   go@1.25.5            downloading  2.4s  36.7/59.8 MB · 17.6 MB/s
+#7 107.3   golangci-lint@2.8.0  downloading  2.4s  1.6/14.8 MB · 1.3 MB/s
+#7 107.3   mockery@3.6.1        downloading  2.4s  1.5/5.5 MB · 1.3 MB/s
+#7 107.3   node@24.22.3         downloading  2.4s  28.8/58.3 MB · 13.5 MB/s
+#7 107.3   sqlc@1.30.0          extracting   2.4s
+#7 107.6 mise ✓ sqlc@1.30.0          2.6s  sqlc_1.30.0_linux_amd64.tar.gz
+#7 109.5 mise ✓ mockery@3.6.1        4.6s  mockery_3.6.1_Linux_x86_64.tar.gz
+#7 110.3 mise ████████████░░░░ 2/6 · 6.0s
+#7 110.3   bun@1.4.4            downloading         5.4s  32.0/51.8 MB · 6.6 MB/s
+#7 110.3   go@1.25.5            extracting          5.4s
+#7 110.3   golangci-lint@2.8.0  verifying           5.4s
+#7 110.3   node@24.22.3         verifying checksum  5.4s  47.2/58.3 MB · 63.6 MB/s
+#7 113.3 mise ██████████████░░ 2/6 · 9.0s
+#7 113.3   bun@1.4.4            extracting  8.4s
+#7 113.3   go@1.25.5            extracting  8.4s
+#7 113.3   golangci-lint@2.8.0  verifying   8.4s
+#7 113.3   node@24.22.3         extracting  8.4s
+#7 114.6 mise ✓ golangci-lint@2.8.0  9.7s  golangci-lint-2.8.0-linux-amd64.tar.gz
+#7 116.3 mise ██████████████░░ 3/6 · 12.0s
+#7 116.3   bun@1.4.4            extracting  11.4s
+#7 116.3   go@1.25.5            extracting  11.4s
+#7 116.3   node@24.22.3         extracting  11.4s
+#7 117.4 mise bun@1.4.4 1.4.4
+#7 117.5 mise ✓ bun@1.4.4            12.6s  bun-linux-x64.zip
+#7 119.3 mise ███████████████░ 4/6 · 15.0s
+#7 119.3   go@1.25.5            extracting  14.4s
+#7 119.3   node@24.22.3         extracting  14.4s
+#7 121.2 mise node@24.22.3 v24.22.3
+#7 121.9 mise node@24.22.3 11.19.1
+#7 122.0 mise ✓ node@24.22.3         17.1s  node-v24.22.3-linux-x64.tar.gz
+#7 122.3 mise ███████████████░ 5/6 · 18.0s
+#7 122.3   go@1.25.5            extracting  17.4s
+#7 125.3 mise ███████████████░ 5/6 · 21.0s
+#7 125.3   go@1.25.5            extracting  20.4s
+#7 126.1 mise go@1.25.5 go version go1.25.5 linux/amd64
+#7 126.2 mise ✓ go@1.25.5            21.3s  go1.25.5.linux-amd64.tar.gz
+#7 126.2 mise ████████████████ 6/6 · installed 6 tools in 21.9s
+#7 DONE 126.4s
+
+#8 exporting to image
+#8 exporting layers
+#8 exporting layers 109.1s done
+#8 exporting manifest sha256:f9f981d173dcd4bfadd7c4291d0bba303640854d287f40778550e1945d16ce99 0.1s done
+#8 exporting config sha256:ee35eef059d1c0fb7ddfe9d46df43c6e2f2ee50d95b73facd4373f4900d8e0b6 0.1s done
+#8 DONE 109.3s
+
+#8 exporting to image
+#8 pushing layers
+#8 pushing layers 28.9s done
+#8 pushing manifest for frankie-registry.frankie.svc:5000/experiments/goodreads-clone
+#8 pushing manifest for frankie-registry.frankie.svc:5000/experiments/goodreads-clone 0.0s done
+#8 DONE 138.2s
+BUILDKIT-STATE: cache.db history.db runc-native
+none                    914.8G     84.2G    784.0G  10% /var/lib/buildkit

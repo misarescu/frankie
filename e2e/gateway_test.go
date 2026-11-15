@@ -92,7 +92,8 @@ var _ = Describe("LLM gateway", Ordered, ContinueOnFailure, Label("gateway"), fu
 		Expect(results["other_model"]).To(BeElementOf("401", "403"))
 	})
 	It("keeps agents away from the provider API itself", func() {
-		Expect(results).To(HaveKeyWithValue("direct_provider", "403"))
+		// No egress token, so the proxy refuses with its D80 challenge.
+		Expect(results).To(HaveKeyWithValue("direct_provider", "407"))
 	})
 })
 

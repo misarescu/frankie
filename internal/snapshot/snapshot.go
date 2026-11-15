@@ -11,6 +11,7 @@ import (
 	"path"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/roles"
 	"github.com/misarescu/frankie/workflows"
 )
@@ -40,6 +41,9 @@ type Snapshot struct {
 	// EgressAllow are the hosts the project adds to the platform's egress
 	// list (D80), as the base branch declared them when the run started.
 	EgressAllow []string `json:"egressAllow,omitempty"`
+	// MergeMethod is how the merge queue merges the run's change request
+	// (D88); empty in snapshots taken before it, which never enqueue.
+	MergeMethod domain.MergeMethod `json:"mergeMethod,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -83,7 +87,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 		project.Workflow = workflows.Default
 	}
 
-	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow}
+	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow, MergeMethod: project.MergeMethod()}
 	raw, found, err := rd.read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)

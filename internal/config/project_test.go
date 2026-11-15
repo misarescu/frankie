@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 func TestParseProjectServices(t *testing.T) {
@@ -178,6 +180,24 @@ func TestParseProjectSpecApproval(t *testing.T) {
 }
 
 // M5.2 (D80): a project adds plain hostnames to the platform's egress list.
+// M6 (D88): a project picks how the merge queue merges; squash by default.
+func TestParseProjectMerge(t *testing.T) {
+	for raw, want := range map[string]domain.MergeMethod{
+		"": domain.MergeSquash, "merge: {method: squash}\n": domain.MergeSquash,
+		"merge: {method: rebase}\n": domain.MergeRebase, "merge: {method: merge}\n": domain.MergeCommit,
+	} {
+		p, err := ParseProject([]byte(raw), 2)
+		if err != nil || p.MergeMethod() != want {
+			t.Errorf("%q: %s, %v; want %s", raw, p.MergeMethod(), err, want)
+		}
+	}
+	for _, raw := range []string{"merge: {method: fast-forward}\n", "merge: {strategy: squash}\n"} {
+		if _, err := ParseProject([]byte(raw), 2); err == nil {
+			t.Errorf("%q accepted", raw)
+		}
+	}
+}
+
 func TestParseProjectEgress(t *testing.T) {
 	p, err := ParseProject([]byte("egress:\n  allow: [nodejs.org, registry.npmjs.org]\n"), 0)
 	if err != nil {

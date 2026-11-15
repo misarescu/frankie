@@ -47,6 +47,14 @@ type stubActivities struct {
 	// answered, when set with started, makes the first coder session wait
 	// for an answer to its question instead of an abort, then succeed.
 	answered chan struct{}
+	// enqueued receives each enqueue request, for the recording to answer
+	// with the queue's outcome.
+	enqueued chan activities.EnqueueRequest
+}
+
+func (s *stubActivities) EnqueueChangeRequest(_ context.Context, req activities.EnqueueRequest) error {
+	s.enqueued <- req
+	return nil
 }
 
 func (s *stubActivities) InterveneSession(_ context.Context, _ activities.AgentPod, in activities.Intervention) (bool, error) {
@@ -210,31 +218,36 @@ func TestRecordInterpretHistories(t *testing.T) {
 		protected  bool
 		intervene  bool // steer, then abort, the first agent session
 		answer     bool // answer a question of the first agent session
+		merge      bool // the merge queue merges the change request
 	}{
 		// The first command gate fails, the loop back to implement fixes it.
 		{"interpret_loop_then_success.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool {
 			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
-		}, nil, false, false, false, false},
+		}, nil, false, false, false, false, false},
 		// The command gate keeps failing until maxLoops is used up (recorded before
 		// escalation existed, so the run failed there).
-		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false, false, false},
+		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false, false, false, false},
 		// default-build: the reviewer fails the first commit, the loop back to
 		// implement fixes it.
 		{"interpret_default_build_review_loop.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false },
-			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false, false, false},
+			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false, false, false, false},
 		// A definition's human gate after the change request opened, approved.
-		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false, false, false},
+		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false, false, false, false},
 		// maxLoops used up: the gate escalates to a human, who approves.
 		{"interpret_loops_exhausted_escalated.json", loopSnapshot(t, loopDefinition),
-			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false, false, false},
+			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false, false, false, false},
 		// default-build on a change to a protected path: the forced human gate, approved.
-		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false},
+		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, false},
 		// step-interventions version: a person steers the implement session,
 		// then aborts it, which fails the run.
-		{"interpret_steer_then_abort.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, true, false},
+		{"interpret_steer_then_abort.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, true, false, false},
 		// step-answers version: the implement session asks a question, a
 		// person answers it, and the run succeeds.
-		{"interpret_question_answered.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, true},
+		{"interpret_question_answered.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, true, false},
+		// merge-queue version: default-build enqueues its change request on a
+		// protected change: the forced gate first, approved, then the queue
+		// merges it.
+		{"interpret_default_build_merged.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, true},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -244,7 +257,8 @@ func TestRecordInterpretHistories(t *testing.T) {
 			queue := fmt.Sprintf("record-%d-%d", time.Now().UnixNano(), i)
 			w := worker.New(c, queue, worker.Options{})
 			w.RegisterWorkflow(Interpret)
-			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4), protected: sc.protected}
+			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4), protected: sc.protected,
+				enqueued: make(chan activities.EnqueueRequest, 1)}
 			if sc.intervene {
 				stub.started, stub.abort = make(chan string, 1), make(chan struct{})
 			}
@@ -273,6 +287,13 @@ func TestRecordInterpretHistories(t *testing.T) {
 				go func() { // a person answers the running session's question
 					id := <-stub.started
 					_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), AnswerSignal, StepIntervention{StepRunID: id, By: "ana", Text: "8080", QuestionID: "q1"})
+				}()
+			}
+			if sc.merge {
+				go func() { // the merge queue answers the enqueue
+					req := <-stub.enqueued
+					_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), MergeQueueOutcomeSignal,
+						QueueOutcome{StepID: req.StepID, Attempt: req.Attempt, Kind: QueueOutcomeMerged, MergeSHA: "m3rge", HeadSHA: req.HeadSHA})
 				}()
 			}
 			go func() { // a person decides each human gate the run opens

@@ -22,8 +22,11 @@ type InterpretInput struct {
 	Snapshot snapshot.Snapshot
 }
 
-// actionOpenChangeRequest is the only action implemented so far (D39).
-const actionOpenChangeRequest = "change-request.open"
+// The actions the interpreter runs (D39, D88).
+const (
+	actionOpenChangeRequest = config.ActionOpenChangeRequest
+	actionEnqueue           = config.ActionEnqueue
+)
 
 // CheckSupported reports the parts of a valid definition this interpreter
 // cannot run yet, so a project selecting one fails before its run starts work.
@@ -32,7 +35,7 @@ const actionOpenChangeRequest = "change-request.open"
 func CheckSupported(w config.Workflow) error {
 	var errs []error
 	for i, s := range w.Steps {
-		if s.Kind() == config.StepAction && s.Action != actionOpenChangeRequest {
+		if s.Kind() == config.StepAction && s.Action != actionOpenChangeRequest && s.Action != actionEnqueue {
 			errs = append(errs, fmt.Errorf("steps[%d]: action %q is not supported yet", i, s.Action))
 		}
 	}
@@ -63,11 +66,13 @@ func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) 
 		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}}
 		out.Reason = it.execute(ctx)
 		out.Succeeded, out.ChangeRequestURL = out.Reason == "", it.changeRequest
+		out.Merged = it.merged
 	}
 
 	cleanup, _ := workflow.NewDisconnectedContext(ctx)
 	cleanup = workflow.WithActivityOptions(cleanup, shortOptions)
-	finish := activities.FinishInput{IssueID: in.Issue.IssueID, RunID: run.RunID, Succeeded: out.Succeeded, Reason: out.Reason}
+	finish := activities.FinishInput{IssueID: in.Issue.IssueID, RunID: run.RunID, Succeeded: out.Succeeded, Reason: out.Reason,
+		Merged: out.Merged && out.Succeeded}
 	if err := workflow.ExecuteActivity(cleanup, a.FinishRun, finish).Get(cleanup, nil); err != nil {
 		return out, err
 	}
@@ -90,6 +95,11 @@ type interpreter struct {
 	// only is the branch a loop back targets: the next parallel group runs
 	// just that branch, then the run continues after the group.
 	only string
+	// guarded is set once the forced protected-changes check ran, before the
+	// change request was enqueued (D88); the run then does not check again.
+	guarded bool
+	// merged is set when the merge queue merged the change request (D88).
+	merged bool
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -104,6 +114,14 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 		case config.StepGate:
 			next, reason = it.gate(ctx, pc, s)
 		case config.StepAction:
+			if s.Action == actionEnqueue {
+				// A protected change needs a person before it merges, so the
+				// forced gate comes before the queue, not after the last step.
+				if why := it.guardChanges(ctx); why != "" {
+					return why
+				}
+				it.guarded = true
+			}
 			reason = it.action(ctx, s)
 		case config.StepParallel:
 			only := it.only
@@ -116,6 +134,9 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 			return fmt.Sprintf("step %s: %s", s.ID, reason)
 		}
 		pc = next
+	}
+	if it.guarded {
+		return ""
 	}
 	return it.guardChanges(ctx)
 }
@@ -365,7 +386,11 @@ func (it *interpreter) locate(id string) (int, string) {
 }
 
 func (it *interpreter) action(ctx workflow.Context, s config.Step) string {
-	if s.Action != actionOpenChangeRequest {
+	switch s.Action {
+	case actionOpenChangeRequest:
+	case actionEnqueue:
+		return it.enqueue(ctx, s)
+	default:
 		return fmt.Sprintf("action %q is not supported yet", s.Action)
 	}
 	if !it.session.Pushed {
@@ -381,4 +406,82 @@ func (it *interpreter) action(ctx workflow.Context, s config.Step) string {
 		return "opening the change request failed: " + err.Error()
 	}
 	return ""
+}
+
+// queueOutcomeTimeout bounds the wait for the merge queue's outcome.
+const queueOutcomeTimeout = 7 * 24 * time.Hour
+
+// enqueue puts the run's change request on its repo's merge queue and waits
+// for the queue's outcome (D88): the run succeeds once the change request
+// merged, and fails with the queue's reason otherwise.
+func (it *interpreter) enqueue(ctx workflow.Context, s config.Step) string {
+	if workflow.GetVersion(ctx, "merge-queue", workflow.DefaultVersion, 1) < 1 {
+		return "this run cannot enqueue its change request"
+	}
+	if it.changeRequest == "" {
+		return "no change request was opened to enqueue"
+	}
+	stepRunID, err := it.startStep(ctx, s.ID, domain.StepAction)
+	if err != nil {
+		return err.Error()
+	}
+	attempt := it.attempts[s.ID]
+	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.EnqueueChangeRequest, activities.EnqueueRequest{
+		Issue: it.in.Issue, RunID: it.run.RunID, StepRunID: stepRunID, WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID,
+		StepID: s.ID, Attempt: attempt, Branch: it.session.Branch, HeadSHA: it.session.CommitSHA,
+		Gates: it.queueGates(), Method: cmp.Or(it.in.Snapshot.MergeMethod, domain.MergeSquash),
+	}).Get(ctx, nil)
+	if err != nil {
+		it.finishStep(ctx, stepRunID, false)
+		return "enqueueing the change request failed: " + err.Error()
+	}
+
+	out, why := it.awaitQueue(ctx, s.ID, attempt)
+	it.finishStep(ctx, stepRunID, why == "" && out.Merged())
+	switch {
+	case why != "":
+		return why
+	case !out.Merged():
+		return fmt.Sprintf("merge queue: %s: %s", out.Kind, out.Reason)
+	}
+	it.merged = true
+	return ""
+}
+
+// awaitQueue waits for the queue's outcome for this execution of the step,
+// ignoring outcomes for earlier ones.
+func (it *interpreter) awaitQueue(ctx workflow.Context, stepID string, attempt int) (QueueOutcome, string) {
+	ch := workflow.GetSignalChannel(ctx, MergeQueueOutcomeSignal)
+	timer := workflow.NewTimer(ctx, queueOutcomeTimeout)
+	for {
+		var out QueueOutcome
+		received, expired := false, false
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(ch, func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, &out); received = true })
+		sel.AddFuture(timer, func(workflow.Future) { expired = true })
+		sel.AddReceive(ctx.Done(), func(workflow.ReceiveChannel, bool) {})
+		sel.Select(ctx)
+		switch {
+		case ctx.Err() != nil:
+			return QueueOutcome{}, "canceled while queued"
+		case expired:
+			return QueueOutcome{}, fmt.Sprintf("the merge queue gave no outcome within %s", queueOutcomeTimeout)
+		case received && out.StepID == stepID && out.Attempt == attempt:
+			return out, ""
+		}
+	}
+}
+
+// queueGates are the definition's blocking command gates, which the queue
+// re-runs on a commit its update changed (FR-MQ-2).
+func (it *interpreter) queueGates() []QueueGate {
+	var gates []QueueGate
+	for _, s := range it.in.Snapshot.Workflow.Steps {
+		g := s.Gate
+		if g == nil || g.Type != domain.GateCommand || g.Policy == domain.GateAdvisory {
+			continue
+		}
+		gates = append(gates, QueueGate{StepID: s.ID, Commands: g.Run, Timeout: time.Duration(g.Timeout)})
+	}
+	return gates
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 const baseSHA = "1111111111111111111111111111111111111111"
@@ -215,6 +216,17 @@ func TestResolveIssueBudget(t *testing.T) {
 	}
 	if s, err := Resolve(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main"); err != nil || s.IssueBudgetUSD != 0 {
 		t.Fatalf("no budgets: %+v, %v", s.IssueBudgetUSD, err)
+	}
+}
+
+// M6 (D88): the merge method is read at the base commit with the rest.
+func TestResolveMergeMethod(t *testing.T) {
+	r := &repo{files: map[string]string{".factory/config.yaml": "merge: {method: rebase}\n"}}
+	if s, err := Resolve(t.Context(), r, "acme/app", "main"); err != nil || s.MergeMethod != domain.MergeRebase {
+		t.Fatalf("snapshot = %+v, %v", s.MergeMethod, err)
+	}
+	if s, err := Resolve(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main"); err != nil || s.MergeMethod != domain.MergeSquash {
+		t.Fatalf("default: %+v, %v", s.MergeMethod, err)
 	}
 }
 

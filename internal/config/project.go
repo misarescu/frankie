@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
 
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/egress"
 )
 
@@ -44,6 +45,22 @@ type Project struct {
 	// before it runs, or "off" (the default, also when empty) (D64). Issue labels
 	// override it per issue: LabelNeedsSpecApproval and LabelNoSpecApproval.
 	SpecApproval string `json:"specApproval,omitempty"`
+	// Merge says how the merge queue lands the project's change requests (D88).
+	Merge Merge `json:"merge,omitempty"`
+}
+
+// Merge is how the merge queue merges a project's change requests.
+type Merge struct {
+	// Method is squash (the default, also when empty), rebase or merge.
+	Method domain.MergeMethod `json:"method,omitempty"`
+}
+
+// MergeMethod is the project's merge method, squash unless it chose another.
+func (p Project) MergeMethod() domain.MergeMethod {
+	if p.Merge.Method == "" {
+		return domain.MergeSquash
+	}
+	return p.Merge.Method
 }
 
 // Spec approval settings and the issue labels that override them (D64).
@@ -214,6 +231,11 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if p.SpecApproval != "" && p.SpecApproval != SpecApprovalRequired && p.SpecApproval != SpecApprovalOff {
 		errs = append(errs, fmt.Errorf("specApproval: %q must be %q or %q", p.SpecApproval, SpecApprovalRequired, SpecApprovalOff))
+	}
+	if m := p.Merge.Method; m != "" {
+		if err := m.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("merge.method: %w", err))
+		}
 	}
 	if b := p.Budgets.IssueUSD; b < 0 || b > MaxIssueBudgetUSD {
 		errs = append(errs, fmt.Errorf("budgets.issueUSD: %v must be between 0 (the platform's default) and %d", b, MaxIssueBudgetUSD))

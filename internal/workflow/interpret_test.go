@@ -78,6 +78,12 @@ type interpretFixture struct {
 	sessionTime   time.Duration
 	sessionStatus string
 	interventions []activities.Intervention
+	// enqueued records the enqueue requests; queue answers each with an
+	// outcome signal an hour later (nil: merged). stale, when set, is
+	// signaled first, for an earlier execution of the step.
+	enqueued []activities.EnqueueRequest
+	queue    func(req activities.EnqueueRequest) QueueOutcome
+	stale    *QueueOutcome
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -162,6 +168,20 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		return nil
 	})
 	f.env.OnActivity(a.OpenChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return("https://github.com/acme/app/pull/9", nil)
+	f.env.OnActivity(a.EnqueueChangeRequest, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.EnqueueRequest) error {
+		f.enqueued = append(f.enqueued, req)
+		out := QueueOutcome{Kind: QueueOutcomeMerged, MergeSHA: "m3rge"}
+		if f.queue != nil {
+			out = f.queue(req)
+		}
+		out.StepID, out.Attempt = req.StepID, req.Attempt
+		if f.stale != nil {
+			stale := *f.stale
+			f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, stale) }, 30*time.Minute)
+		}
+		f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, out) }, time.Hour)
+		return nil
+	})
 	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.FinishInput) error {
 		f.finished = &in
 		return nil
@@ -342,6 +362,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_protected_changes_approved.json", "M3: protected-changes version, forced human gate approved"},
 	{"testdata/interpret_steer_then_abort.json", "M4: step-interventions version, a steer then an abort fail the run"},
 	{"testdata/interpret_question_answered.json", "M4: step-answers version, a question answered by signal"},
+	{"testdata/interpret_default_build_merged.json", "M6: merge-queue version, protected change approved, then merged by the queue"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -377,8 +398,11 @@ func TestInterpretDefaultBuild(t *testing.T) {
 	if !out.Succeeded {
 		t.Fatalf("result = %+v", out)
 	}
-	if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1" {
+	if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 merge/1" {
 		t.Errorf("steps = %s", got)
+	}
+	if !out.Merged || f.finished == nil || !f.finished.Merged || !f.ended["sr-merge-1"] {
+		t.Errorf("result %+v, finished %+v: the queue merged, so the issue is merged", out, f.finished)
 	}
 	rev := f.sessions[1].Step
 	if rev.StepID != "code-reviewer" || rev.Contract != "review-verdict" || !slices.Contains(rev.AllowedTools, "bash:readonly") || rev.Feedback != "" {
@@ -417,7 +441,7 @@ func TestInterpretReviewLoopsBackToImplement(t *testing.T) {
 	if !out.Succeeded {
 		t.Fatalf("result = %+v", out)
 	}
-	want := "implement/1 checks/1 code-reviewer/1 review/1 implement/2 checks/2 code-reviewer/2 review/2 open-change-request/1"
+	want := "implement/1 checks/1 code-reviewer/1 review/1 implement/2 checks/2 code-reviewer/2 review/2 open-change-request/1 merge/1"
 	if got := f.stepIDs(); got != want {
 		t.Errorf("steps = %s\nwant    %s", got, want)
 	}
@@ -487,4 +511,53 @@ func TestAgentStepsCarryTheIssueBudget(t *testing.T) {
 			t.Errorf("session %s: issue budget %v", s.Step.StepID, s.Step.IssueBudgetUSD)
 		}
 	}
+}
+
+// M6 (D88): the run enqueues the commit its gates passed, with the
+// definition's blocking command gates and the project's merge method, and
+// waits for its own outcome; anything but a merge fails the run.
+func TestInterpretEnqueue(t *testing.T) {
+	t.Run("what the queue gets", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		snap := defaultBuildSnapshot(t)
+		snap.MergeMethod = domain.MergeRebase
+		if out := f.run(t, snap); !out.Succeeded || !out.Merged {
+			t.Fatalf("result = %+v", out)
+		}
+		req := f.enqueued[0]
+		if req.StepID != "merge" || req.Attempt != 1 || req.HeadSHA != "sha1" || req.Branch != testRun.Branch || req.Method != domain.MergeRebase ||
+			req.StepRunID != "sr-merge-1" || req.RunID != testRun.RunID || req.WorkflowID == "" {
+			t.Errorf("enqueue = %+v", req)
+		}
+		if len(req.Gates) != 1 || req.Gates[0].StepID != "checks" || strings.Join(req.Gates[0].Commands, ";") != "mise run lint;mise run test" {
+			t.Errorf("gates = %+v; want the blocking command gate only", req.Gates)
+		}
+	})
+	t.Run("squash unless the snapshot says otherwise", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.run(t, defaultBuildSnapshot(t))
+		if f.enqueued[0].Method != domain.MergeSquash {
+			t.Errorf("method = %q", f.enqueued[0].Method)
+		}
+	})
+	t.Run("a stale outcome is ignored", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.stale = &QueueOutcome{StepID: "merge", Attempt: 0, Kind: QueueOutcomeConflict, Reason: "old"}
+		if out := f.run(t, defaultBuildSnapshot(t)); !out.Succeeded || !out.Merged {
+			t.Fatalf("result = %+v", out)
+		}
+	})
+	t.Run("a conflict fails the run", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.queue = func(activities.EnqueueRequest) QueueOutcome {
+			return QueueOutcome{Kind: QueueOutcomeConflict, Reason: "agent/gc-1/add-search conflicts with main", Conflicts: []string{"a.go"}}
+		}
+		out := f.run(t, defaultBuildSnapshot(t))
+		if out.Succeeded || out.Merged || out.Reason != "step merge: merge queue: conflict: agent/gc-1/add-search conflicts with main" {
+			t.Fatalf("result = %+v", out)
+		}
+		if f.ended["sr-merge-1"] || f.finished.Merged {
+			t.Errorf("merge step ended %v, finished %+v", f.ended, f.finished)
+		}
+	})
 }

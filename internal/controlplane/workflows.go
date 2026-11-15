@@ -208,7 +208,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		}
 	}
 	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
-		Egress: egressSigner, Log: log.With("component", "activities")})
+		Egress: egressSigner, Queue: c, TaskQueue: workflow.TaskQueue, Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()
 		return nil, nil, fmt.Errorf("controlplane: worker: %w", err)

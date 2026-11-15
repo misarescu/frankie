@@ -143,8 +143,12 @@ func TestProtectedChangesForceAHumanGate(t *testing.T) {
 		if !out.Succeeded {
 			t.Fatalf("result = %+v", out)
 		}
-		if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 protected-changes/1" {
+		// M6 (D88): the forced gate comes before the merge queue.
+		if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 protected-changes/1 merge/1" {
 			t.Errorf("steps = %s", got)
+		}
+		if len(f.guarded) != 1 || len(f.enqueued) != 1 {
+			t.Errorf("guarded %d times, enqueued %d times; want once each", len(f.guarded), len(f.enqueued))
 		}
 		o := f.opened[0]
 		if o.StepID != "protected-changes" || !strings.Contains(o.Reason, "mise.toml") || !strings.Contains(o.Reason, "deleted test file") ||
@@ -163,6 +167,9 @@ func TestProtectedChangesForceAHumanGate(t *testing.T) {
 		out := f.run(t, defaultBuildSnapshot(t))
 		if out.Succeeded || out.Reason != "step protected-changes: rejected by web: do not touch the toolchain" {
 			t.Fatalf("result = %+v", out)
+		}
+		if len(f.enqueued) != 0 {
+			t.Errorf("a rejected protected change was enqueued: %+v", f.enqueued)
 		}
 	})
 	t.Run("the snapshot's patterns are used", func(t *testing.T) {

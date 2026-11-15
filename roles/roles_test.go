@@ -14,7 +14,7 @@ import (
 
 func TestEveryBuiltInIsValid(t *testing.T) {
 	names := Names()
-	for _, want := range []string{"coder", "code-reviewer", "refiner"} {
+	for _, want := range []string{"coder", "code-reviewer", "refiner", "bug-investigator", "bug-reproducer", "bug-reviewer"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("Names() = %v, missing %q", names, want)
 		}
@@ -187,5 +187,61 @@ func TestRefinedSpecSchemaMatchesParser(t *testing.T) {
 		if _, err := domain.ParseRefinedSpec(at(tt.field, tt.limit+1, "")); err == nil {
 			t.Errorf("%s over the schema's limit %d is accepted", tt.field, tt.limit)
 		}
+	}
+}
+
+// M6 (D96): the investigator only reads and returns findings; the reproducer
+// writes code; the bug reviewer returns a verdict.
+func TestBugRoles(t *testing.T) {
+	inv, err := Get("bug-investigator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.OutputContract != config.ContractBugFindings || slices.ContainsFunc(inv.AllowedTools, func(t string) bool { return t == "edit" || t == "write" || t == "bash" }) {
+		t.Errorf("investigator = %+v", inv)
+	}
+	schema, _ := ContractSchema(config.ContractBugFindings)
+	if !strings.HasSuffix(inv.SystemPrompt, string(schema)) {
+		t.Error("the findings schema is not appended to the investigator's prompt")
+	}
+	rep, _ := Get("bug-reproducer")
+	if rep.OutputContract != "" || len(rep.AllowedTools) != 0 || !strings.Contains(rep.SystemPrompt, "Do not change the code under test") {
+		t.Errorf("reproducer = %+v", rep)
+	}
+	rev, _ := Get("bug-reviewer")
+	if rev.OutputContract != config.ContractReviewVerdict || !strings.Contains(rev.SystemPrompt, "root cause") {
+		t.Errorf("reviewer = %+v", rev)
+	}
+}
+
+// The findings schema shown to investigators and the parser must agree.
+func TestBugFindingsSchemaMatchesParser(t *testing.T) {
+	raw, err := ContractSchema(config.ContractBugFindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Required   []string `json:"required"`
+		Properties struct {
+			Confidence struct{ Enum []string } `json:"confidence"`
+			Evidence   struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"evidence"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.Required, []string{"root_cause", "evidence", "reproduce", "testable", "confidence"}) {
+		t.Errorf("required = %v", s.Required)
+	}
+	want := []string{string(domain.ConfidenceHigh), string(domain.ConfidenceMedium), string(domain.ConfidenceLow)}
+	if !slices.Equal(s.Properties.Confidence.Enum, want) {
+		t.Errorf("confidence enum = %v", s.Properties.Confidence.Enum)
+	}
+	ev := `{"file":"a.go","note":"x"},`
+	tooMany := `{"root_cause":"x","evidence":[` + strings.Repeat(ev, s.Properties.Evidence.MaxItems) + `{"file":"a.go","note":"x"}],"reproduce":"x","testable":true,"test_plan":"x","confidence":"high"}`
+	if _, err := domain.ParseBugFindings([]byte(tooMany)); err == nil {
+		t.Errorf("the parser accepts more evidence than the schema's maxItems (%d)", s.Properties.Evidence.MaxItems)
 	}
 }

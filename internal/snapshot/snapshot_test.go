@@ -145,9 +145,14 @@ func TestResolveForIssueType(t *testing.T) {
 			t.Errorf("%q: workflow %q, %v; want %q", typ, s.Workflow.Name, err, want)
 		}
 	}
+	// D96: without a project setting, a bug runs the built-in bug-fix with
+	// its built-in roles, and a task the default.
 	s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "bug")
-	if err != nil || s.Workflow.Name != "default-build" {
-		t.Errorf("no project setting: %q, %v", s.Workflow.Name, err)
+	if err != nil || s.Workflow.Name != "bug-fix" || s.Roles["bug-investigator"].OutputContract != config.ContractBugFindings {
+		t.Errorf("a bug without a project setting: %q, %v", s.Workflow.Name, err)
+	}
+	if s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "task"); err != nil || s.Workflow.Name != "default-build" {
+		t.Errorf("a task without a project setting: %q, %v", s.Workflow.Name, err)
 	}
 }
 

@@ -1,0 +1,54 @@
+# The platform's workflow for bugs (M6, D96), which issues of type bug run
+# unless their project names another: understand the bug, show it with a
+# test, then fix it without touching that test.
+name: bug-fix
+version: 1
+steps:
+  # Reads the code and returns the root cause, evidence, how to reproduce it,
+  # and whether a test can show it (bug-findings).
+  - id: investigate
+    agent: { role: bug-investigator }
+  # No test can show the bug: a person decides from the findings to fix it
+  # without a reproducing test, sends the investigation back, or rejects.
+  - id: decide
+    gate:
+      type: human
+      sendBack: { goto: investigate, maxLoops: 2 }
+    when: { step: investigate, field: testable, equals: false }
+  - id: reproduce
+    agent: { role: bug-reproducer }
+    when: { step: investigate, field: testable, equals: true }
+  # The new test must fail before the fix, in a fresh pod.
+  - id: shows-bug
+    gate:
+      type: command
+      run: ["mise run test"]
+      expect: fail
+      onFail: { goto: reproduce, maxLoops: 2 }
+    when: { step: investigate, field: testable, equals: true }
+  - id: fix
+    agent: { role: coder }
+  # The fix must leave the reproducing test as it was.
+  - id: keeps-test
+    gate:
+      type: preserve
+      step: reproduce
+      onFail: { goto: fix, maxLoops: 2 }
+    when: { step: investigate, field: testable, equals: true }
+  - id: checks
+    gate:
+      type: command
+      run: ["mise run lint", "mise run test"]
+      onFail: { goto: fix, maxLoops: 3 }
+  - id: review
+    parallel:
+      - agent: { role: bug-reviewer }
+    gate:
+      type: agent-verdict
+      require: all
+      onFail: { goto: fix, maxLoops: 2 }
+  - id: open-change-request
+    action: change-request.open
+  - id: merge
+    action: merge-queue.enqueue
+    onFail: { goto: fix, maxLoops: 2 }

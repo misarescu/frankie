@@ -1,0 +1,3 @@
+name: bug-reproducer
+version: 1
+system_prompt_file: prompts/bug-reproducer.md

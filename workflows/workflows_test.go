@@ -62,3 +62,55 @@ func TestGetUnknown(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// M6 (D96): bugs run bug-fix unless their project names another workflow.
+func TestBugFixIsTheDefaultForBugs(t *testing.T) {
+	if DefaultFor("bug") != "bug-fix" || DefaultFor("task") != Default || DefaultFor("") != Default {
+		t.Errorf("defaults: bug %q, task %q, none %q", DefaultFor("bug"), DefaultFor("task"), DefaultFor(""))
+	}
+	w, err := Get("bug-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, s := range w.Steps {
+		ids = append(ids, s.ID)
+	}
+	want := []string{"investigate", "decide", "reproduce", "shows-bug", "fix", "keeps-test", "checks", "review", "open-change-request", "merge"}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("steps = %v", ids)
+	}
+	rs, err := config.ResolveRoles(w, roles.Get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs["bug-investigator"].OutputContract != config.ContractBugFindings || rs["bug-reviewer"].OutputContract != config.ContractReviewVerdict {
+		t.Errorf("roles = %+v", rs)
+	}
+	byID := map[string]config.Step{}
+	for _, s := range w.Steps {
+		byID[s.ID] = s
+	}
+	for id, testable := range map[string]bool{"decide": false, "reproduce": true, "shows-bug": true, "keeps-test": true} {
+		if c := byID[id].When; c == nil || c.Step != "investigate" || c.Field != "testable" || c.Equals != testable {
+			t.Errorf("%s runs when %+v, want testable=%v", id, c, testable)
+		}
+	}
+	for _, id := range []string{"investigate", "fix", "checks", "review", "merge"} {
+		if byID[id].When != nil {
+			t.Errorf("%s is conditional", id)
+		}
+	}
+	if g := byID["shows-bug"].Gate; g.Expect != config.ExpectFail || g.OnFail.Goto != "reproduce" {
+		t.Errorf("shows-bug = %+v", g)
+	}
+	if g := byID["keeps-test"].Gate; g.Step != "reproduce" || g.OnFail.Goto != "fix" {
+		t.Errorf("keeps-test = %+v", g)
+	}
+	if g := byID["decide"].Gate; g.SendBack == nil || g.SendBack.Goto != "investigate" {
+		t.Errorf("decide = %+v", g)
+	}
+	if o := byID["merge"].OnFail; o == nil || o.Goto != "fix" {
+		t.Errorf("merge onFail = %+v", o)
+	}
+}

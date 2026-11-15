@@ -39,3 +39,4 @@ table.issues td { vertical-align: top; } select { font: inherit; color: var(--fg
 .timeline li.upcoming { opacity: .45; border-left-style: dashed; }
 table.issues tr.finished td { opacity: .7; }
 
+.timeline li.st-awaiting_human { border-left-color: var(--accent); border-left-style: double; border-left-width: 3px; }

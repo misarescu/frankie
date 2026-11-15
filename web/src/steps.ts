@@ -21,7 +21,22 @@ export type Step = {
   harness?: string;
   model?: string;
   gate?: string;
+  // What a running step waits for from a person (M5.1): a human gate's
+  // decision, or an answer to the agent's question.
+  waits_for?: "approval" | "answer";
 };
+
+// shownStatus is the status to show for a step: a running step that waits for
+// a person shows as awaiting a human, like an issue does.
+export const shownStatus = (s: Step): string => (s.status === "running" && s.waits_for ? "awaiting_human" : s.status);
+
+// waitNote says where a person acts for a waiting step.
+export function waitNote(s: Step): { text: string; href: string } | undefined {
+  if (s.status !== "running") return undefined;
+  if (s.waits_for === "approval") return { text: "decide it in Approvals", href: "#/approvals" };
+  if (s.waits_for === "answer") return { text: "answer it in Approvals", href: "#/approvals" };
+  return undefined;
+}
 
 // PlanStep is a step a run's workflow executes, in order (GET /api/runs/{id}/plan).
 export type PlanStep = { step_id: string; kind: string; role?: string; harness?: string; model?: string; gate?: string };

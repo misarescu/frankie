@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -281,5 +282,35 @@ func TestStepRunUsageAddsUpPerRunAndIssue(t *testing.T) {
 	}
 	if _, err := s.AddStepRunUsage(ctx, impl.ID, domain.Usage{CostUSD: -5}); err == nil {
 		t.Error("a negative cost was accepted")
+	}
+}
+
+// M5.1: a run's steps report what they wait for from a person, until it is given.
+func TestListRunWaits(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	run, _, agent := runningAgentStep(t, s)
+	gate, err := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: "protected-changes", Attempt: 1, Kind: domain.StepGate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenApproval(ctx, NewApproval{StepRunID: gate.ID, Reason: "protected paths changed", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenQuestion(ctx, NewQuestion{StepRunID: agent.ID, QuestionID: "q1", Question: "Which port?"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListRunWaits(ctx, run.ID)
+	if err != nil || len(got) != 2 || got[gate.ID] != WaitsForApproval || got[agent.ID] != WaitsForAnswer {
+		t.Fatalf("waits = %v, %v; want the gate waiting for an approval and the agent for an answer", got, err)
+	}
+	if _, err := s.DecideApproval(ctx, gate.ID, domain.ApprovalApproved, "ana", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AnswerQuestion(ctx, agent.ID, "q1", "8080", "ana"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ListRunWaits(ctx, run.ID); err != nil || len(got) != 0 {
+		t.Errorf("after the decision and the answer: waits = %v, %v; want none", got, err)
 	}
 }

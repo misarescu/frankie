@@ -425,6 +425,42 @@ func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRece
 	return items, nil
 }
 
+const listRunWaits = `-- name: ListRunWaits :many
+SELECT a.step_run_id, 'approval'::text AS waits_for
+FROM approvals a WHERE a.run_id = $1 AND a.status = 'pending'
+UNION ALL
+SELECT q.step_run_id, 'answer'::text AS waits_for
+FROM questions q JOIN step_runs s ON s.id = q.step_run_id
+WHERE s.run_id = $1 AND q.status = 'pending'
+`
+
+type ListRunWaitsRow struct {
+	StepRunID uuid.UUID
+	WaitsFor  string
+}
+
+// What a run's steps wait for from a person (M5.1): a pending human gate
+// decision ('approval') or a pending ask-human answer ('answer').
+func (q *Queries) ListRunWaits(ctx context.Context, runID uuid.UUID) ([]ListRunWaitsRow, error) {
+	rows, err := q.db.Query(ctx, listRunWaits, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRunWaitsRow
+	for rows.Next() {
+		var i ListRunWaitsRow
+		if err := rows.Scan(&i.StepRunID, &i.WaitsFor); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStepRuns = `-- name: ListStepRuns :many
 SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens FROM step_runs WHERE run_id = $1 ORDER BY created_at, id
 `

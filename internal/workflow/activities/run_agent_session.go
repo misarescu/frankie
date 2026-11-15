@@ -177,8 +177,46 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			return SessionResult{}, err
 		}
 		reason := cmp.Or(budgetReason(done.Status, spend, progress.KeyBudget), done.Reason)
-		return SessionResult{Status: done.Status, Reason: reason, Result: done.Result, Branch: done.Branch, CommitSHA: done.CommitSHA, Pushed: done.Pushed}, nil
+		pushed := done.Pushed
+		if !pushed && !set.readOnly && done.Status == "succeeded" {
+			carried, err := a.carriedOver(ctx, in, runID, stepID, done.CommitSHA)
+			if err != nil {
+				return SessionResult{}, err
+			}
+			if carried {
+				a.Log.Info("agent step continues the branch's earlier work", "run", run.RunID, "step", run.StepRunID, "commit", done.CommitSHA)
+				pushed = true
+			}
+		}
+		return SessionResult{Status: done.Status, Reason: reason, Result: done.Result, Branch: done.Branch, CommitSHA: done.CommitSHA, Pushed: pushed}, nil
 	}
+}
+
+// carriedOver reports whether a coding session that pushed nothing ended on
+// work an earlier run of the issue left on its branch: no other step of this
+// run recorded the commit, and the commit changes files over the base branch.
+// A retried run then reviews and gates that work instead of failing because
+// its agent found it already done (M5.2). A session that adds nothing to its
+// own run's earlier push, after a loop back, still made no changes; a session
+// that started from the base branch ends on it, which changes nothing.
+func (a *Activities) carriedOver(ctx context.Context, in IssueRunInput, runID, stepID uuid.UUID, sha string) (bool, error) {
+	if sha == "" {
+		return false, nil
+	}
+	steps, err := a.Store.ListStepRuns(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	for _, s := range steps {
+		if s.ID != stepID && s.CommitSHA == sha {
+			return false, nil
+		}
+	}
+	files, _, err := a.GitHub.Compare(ctx, in.Repo, in.BaseBranch, sha)
+	if err != nil {
+		return false, err
+	}
+	return len(files) > 0, nil
 }
 
 // sessionSettings is how one agent session runs: the definition's step when

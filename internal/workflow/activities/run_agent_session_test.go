@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/connectors/github"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -203,5 +204,55 @@ func TestIssueAnswersReadsTheIssuesAnswers(t *testing.T) {
 	}
 	if _, err := a.issueAnswers(t.Context(), "not-a-uuid"); err == nil {
 		t.Error("a bad issue id was accepted")
+	}
+}
+
+// M5.2: a retried run whose coder finds the branch's earlier work done goes on
+// to review and gate it; a coder that adds nothing to its own run's push, or
+// to the base branch, still made no changes.
+func TestCarriedOver(t *testing.T) {
+	const earlier = "1111111111111111111111111111111111111111"
+	changed := []github.ChangedFile{{Filename: ".factory/config.yaml", Status: "modified", Patch: "+egress:"}}
+	for name, tt := range map[string]struct {
+		files       []github.ChangedFile
+		thisRunHad  string // a commit an earlier step of this run recorded
+		sha         string
+		wantCarried bool
+		wantCompare bool
+	}{
+		"an earlier run's work":         {files: changed, sha: earlier, wantCarried: true, wantCompare: true},
+		"this run's own push, again":    {files: changed, thisRunHad: earlier, sha: earlier},
+		"nothing over the base branch":  {sha: earlier, wantCompare: true},
+		"no commit reported":            {files: changed},
+		"another commit earlier in run": {files: changed, thisRunHad: pushedSHA, sha: earlier, wantCarried: true, wantCompare: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gh, asked := compareServer(t, tt.files)
+			st, in := readyIssue(t)
+			a := &Activities{GitHub: gh, Store: st, Log: quietLog()}
+			run := startedRun(t, a, in)
+			if tt.thisRunHad != "" {
+				first := uuid.MustParse(runningAgentStep(t, a, run))
+				if _, err := st.SetStepRunCommit(t.Context(), first, tt.thisRunHad); err != nil {
+					t.Fatal(err)
+				}
+			}
+			step := uuid.MustParse(startStep(t, a, StepStart{RunID: run.RunID, StepID: "implement", Attempt: 2, Kind: domain.StepAgent}))
+			if tt.sha != "" {
+				if _, err := st.SetStepRunCommit(t.Context(), step, tt.sha); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := a.carriedOver(t.Context(), in, uuid.MustParse(run.RunID), step, tt.sha)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.wantCarried {
+				t.Errorf("carried over = %v, want %v", got, tt.wantCarried)
+			}
+			if wantPath := "/repos/" + in.Repo + "/compare/" + in.BaseBranch + "..." + tt.sha; tt.wantCompare && *asked != wantPath {
+				t.Errorf("compared %q, want %q", *asked, wantPath)
+			}
+		})
 	}
 }

@@ -1,12 +1,17 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misarescu/frankie/internal/domain"
 )
@@ -210,5 +215,85 @@ func TestChangeRequestStatus(t *testing.T) {
 		if _, err := c.ChangeRequestStatus(t.Context(), "o/r", n); err == nil {
 			t.Errorf("#%d: no error", n)
 		}
+	}
+}
+
+// failingTransport fails its first `fail` requests with err, then sends.
+type failingTransport struct {
+	fail  int
+	err   error
+	calls int
+}
+
+func (f *failingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.calls++
+	if f.calls <= f.fail {
+		return nil, f.err
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func retryingClient(url string, rt http.RoundTripper) *Client {
+	c := NewClient("pat", url)
+	c.http = &http.Client{Transport: rt}
+	c.retryWaits = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	return c
+}
+
+// M5.2: a request that never reached GitHub (DNS, refused connection) is
+// retried, so a short network outage does not fail a run; one that may have
+// reached it is not, so a write is never sent twice.
+func TestClientRetriesRequestsThatNeverReachedGitHub(t *testing.T) {
+	dnsErr := &net.DNSError{Err: "server misbehaving", Name: "api.github.com", Server: "10.43.0.10:53"}
+	dialErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	readErr := &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}
+	for name, tt := range map[string]struct {
+		fail      int
+		err       error
+		wantCalls int
+		wantOK    bool
+	}{
+		"dns failure then success": {fail: 2, err: dnsErr, wantCalls: 3, wantOK: true},
+		"refused then success":     {fail: 1, err: dialErr, wantCalls: 2, wantOK: true},
+		"dns failure throughout":   {fail: 10, err: dnsErr, wantCalls: 4},
+		"reset after sending":      {fail: 1, err: readErr, wantCalls: 1},
+		"other error":              {fail: 1, err: errors.New("tls: bad certificate"), wantCalls: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var bodies []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				bodies = append(bodies, string(b))
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(`{"number":9,"html_url":"u","head":{"sha":"abc"}}`))
+			}))
+			defer srv.Close()
+			rt := &failingTransport{fail: tt.fail, err: tt.err}
+			_, err := retryingClient(srv.URL, rt).OpenPullRequest(t.Context(), "o/r", "agent/gc-1/x", "main", "t", "b")
+			if (err == nil) != tt.wantOK {
+				t.Fatalf("err = %v, want ok %v", err, tt.wantOK)
+			}
+			if rt.calls != tt.wantCalls {
+				t.Errorf("calls = %d, want %d", rt.calls, tt.wantCalls)
+			}
+			// The body is sent whole on the attempt that gets through.
+			if tt.wantOK && (len(bodies) != 1 || !strings.Contains(bodies[0], `"head":"agent/gc-1/x"`)) {
+				t.Errorf("bodies = %q", bodies)
+			}
+		})
+	}
+}
+
+func TestClientStopsRetryingWhenCanceled(t *testing.T) {
+	rt := &failingTransport{fail: 10, err: &net.DNSError{Err: "no such host", Name: "api.github.com"}}
+	c := retryingClient("http://api.invalid", rt)
+	c.retryWaits = []time.Duration{time.Hour}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := c.ResolveRef(ctx, "o/r", "main"); err == nil {
+		t.Fatal("resolved without GitHub")
+	}
+	if rt.calls != 1 {
+		t.Errorf("calls = %d, want 1", rt.calls)
 	}
 }

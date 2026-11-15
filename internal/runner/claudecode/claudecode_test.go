@@ -96,6 +96,20 @@ func fakeClaude(mode string) int {
 		emit(map[string]any{"type": "result", "subtype": subtype, "is_error": isErr, "result": "final " + text,
 			"num_turns": n, "session_id": "fake-session", "usage": map[string]int{"input_tokens": 10 * n, "output_tokens": n}})
 	}
+	switch mode {
+	case "linger":
+		// Like Claude Code waiting for a background task that never ends:
+		// stdin is closed, the result is in, and nothing more comes.
+		time.Sleep(time.Hour)
+	case "linger_turn":
+		// The background task finishes after a while and Claude Code takes
+		// one more turn to report it, then waits for another task.
+		time.Sleep(200 * time.Millisecond)
+		emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{{"type": "text", "text": "tests passed"}}}})
+		emit(map[string]any{"type": "result", "subtype": "success", "result": "final after the task",
+			"num_turns": n + 1, "session_id": "fake-session", "usage": map[string]int{"input_tokens": 1, "output_tokens": 1}})
+		time.Sleep(time.Hour)
+	}
 	return 0
 }
 
@@ -145,8 +159,14 @@ func (r *recorder) texts() []string {
 
 func startFake(t *testing.T, mode string, cfg runner.SessionConfig) (runner.Session, *recorder) {
 	t.Helper()
+	// Long enough for the fake to exit on its own, also under the race detector.
+	return startFakeWithExitGrace(t, mode, cfg, time.Minute)
+}
+
+func startFakeWithExitGrace(t *testing.T, mode string, cfg runner.SessionConfig, exitGrace time.Duration) (runner.Session, *recorder) {
+	t.Helper()
 	t.Setenv("FAKE_CLAUDE_MODE", mode)
-	h := &Harness{Binary: os.Args[0], KillGrace: 300 * time.Millisecond,
+	h := &Harness{Binary: os.Args[0], KillGrace: 300 * time.Millisecond, ExitGrace: exitGrace,
 		prefixArgs: []string{"-test.run=^TestFakeClaude$", "--"}}
 	rec := &recorder{}
 	s, err := h.Start(t.Context(), cfg, rec.emit)
@@ -340,5 +360,38 @@ func TestArgsMCP(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(args, " "), "mcp__frankie__ask_human") {
 		t.Errorf("the ask tool is not allowed in a restricted role: %v", args)
+	}
+}
+
+// M5.2: a session whose result is in but whose claude stays alive, waiting
+// for a background task the agent started, ends with that result once claude
+// stays silent, instead of failing at the idle timeout. A turn Claude Code
+// takes when the task finishes restarts the wait and gives the last result.
+func TestSessionEndsWhenClaudeLingersAfterItsResult(t *testing.T) {
+	for mode, want := range map[string]string{"linger": "final task", "linger_turn": "final after the task"} {
+		t.Run(mode, func(t *testing.T) {
+			s, rec := startFakeWithExitGrace(t, mode, runner.SessionConfig{Workdir: t.TempDir()}, 500*time.Millisecond)
+			start := time.Now()
+			if err := s.Send("task"); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			waitDone(t, s, 10*time.Second)
+			done := rec.done(t)
+			if done["status"] != "succeeded" || done["result"] != want {
+				t.Fatalf("done = %v", done)
+			}
+			if took := time.Since(start); took < 500*time.Millisecond {
+				t.Errorf("ended after %s, before the exit grace", took)
+			}
+			var stopped bool
+			for _, e := range rec.all() {
+				if e.typ == domain.EventError && e.payload["message"] == "harness stopped after its result" {
+					stopped = true
+				}
+			}
+			if !stopped {
+				t.Error("the transcript does not say claude was stopped")
+			}
+		})
 	}
 }

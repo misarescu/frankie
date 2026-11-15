@@ -35,6 +35,8 @@ type queueFixture struct {
 	updateErr func(req activities.BranchUpdateRequest) error
 	gate      func(req activities.GateRequest) activities.GateOutcome
 	merge     func(n int, req activities.QueueMergeRequest) activities.QueueMergeResult
+	ci        func(req activities.ProviderChecksRequest) activities.GateOutcome
+	cis       []activities.ProviderChecksRequest
 }
 
 const (
@@ -101,6 +103,13 @@ func newQueueFixture(t *testing.T, opts ...func(*queueFixture)) *queueFixture {
 		}
 		return activities.QueueMergeResult{Outcome: activities.QueueMerged, MergeSHA: "merge-" + req.Issue.IssueKey}, nil
 	})
+	f.env.OnActivity(a.AwaitProviderChecks, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ProviderChecksRequest) (activities.GateOutcome, error) {
+		f.cis = append(f.cis, req)
+		if f.ci != nil {
+			return f.ci(req), nil
+		}
+		return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "the repo's CI passed (3 checks)"}, nil
+	})
 	f.env.OnActivity(a.ConflictContext, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ConflictRequest) (string, error) {
 		return "### " + strings.Join(req.Files, ", ") + " at " + req.BaseSHA, nil
 	})
@@ -157,7 +166,10 @@ func TestMergeQueueMergesInOrder(t *testing.T) {
 		f.merges[1].Method != domain.MergeSquash || f.merges[1].Title != "gc-2: Add search (#9)" {
 		t.Errorf("merges = %+v", f.merges)
 	}
-	if got := strings.Join(f.steps, ","); got != "enqueue-update#1,enqueue-merge#1,enqueue-update#1,enqueue-checks#1,enqueue-merge#1" {
+	if len(f.cis) != 2 || f.cis[0].HeadSHA != shaA || f.cis[1].HeadSHA != shaB {
+		t.Errorf("CI waited for %+v; want each commit about to merge", f.cis)
+	}
+	if got := strings.Join(f.steps, ","); got != "enqueue-update#1,enqueue-ci#1,enqueue-merge#1,enqueue-update#1,enqueue-checks#1,enqueue-ci#1,enqueue-merge#1" {
 		t.Errorf("steps = %s", got)
 	}
 }
@@ -170,6 +182,7 @@ func TestMergeQueueOutcomes(t *testing.T) {
 		update     func(int, activities.BranchUpdateRequest) activities.BranchUpdateResult
 		gate       func(activities.GateRequest) activities.GateOutcome
 		merge      func(int, activities.QueueMergeRequest) activities.QueueMergeResult
+		ci         func(activities.ProviderChecksRequest) activities.GateOutcome
 		want       QueueOutcome
 		wantMerges int
 	}{
@@ -189,6 +202,20 @@ func TestMergeQueueOutcomes(t *testing.T) {
 				return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "mise run test failed (exit 1)", Feedback: "FAIL TestShelves"}
 			},
 			want: QueueOutcome{Kind: QueueOutcomeRed, Feedback: "FAIL TestShelves", HeadSHA: shaB},
+		},
+		{
+			name: "the repo's CI fails where Frankie's checks passed",
+			ci: func(req activities.ProviderChecksRequest) activities.GateOutcome {
+				return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "the repo's CI failed: test (node 22)", Feedback: "- test (node 22): 2 failed"}
+			},
+			want: QueueOutcome{Kind: QueueOutcomeRed, Feedback: "- test (node 22): 2 failed", HeadSHA: shaA},
+		},
+		{
+			name: "the repo's CI does not finish",
+			ci: func(req activities.ProviderChecksRequest) activities.GateOutcome {
+				return activities.GateOutcome{StepRunID: req.StepRunID, Inconclusive: true, Summary: "the repo's CI did not finish within 1h0m0s"}
+			},
+			want: QueueOutcome{Kind: QueueOutcomeError, HeadSHA: shaA},
 		},
 		{
 			name: "a branch pushed to while queued",
@@ -235,7 +262,9 @@ func TestMergeQueueOutcomes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newQueueFixture(t, func(f *queueFixture) { f.state, f.update, f.gate, f.merge = tt.state, tt.update, tt.gate, tt.merge })
+			f := newQueueFixture(t, func(f *queueFixture) {
+				f.state, f.update, f.gate, f.merge, f.ci = tt.state, tt.update, tt.gate, tt.merge, tt.ci
+			})
 			f.run(t, MergeQueueInput{Repo: "r", Pending: []QueueEntry{queueEntry("gc-1", 1)}})
 			got := f.outcomes["issue-gc-1"]
 			if got.Kind != tt.want.Kind || got.Feedback != tt.want.Feedback || got.HeadSHA != tt.want.HeadSHA ||
@@ -277,7 +306,7 @@ func TestMergeQueueUpdatesAgainWhenTheBaseMoved(t *testing.T) {
 	if f.merges[1].HeadSHA != fmt.Sprintf("%040d", 2) || f.merges[1].BaseSHA != fmt.Sprintf("m%039d", 2) {
 		t.Errorf("second merge = %+v", f.merges[1])
 	}
-	want := "enqueue-update#4,enqueue-checks#4,enqueue-merge#4,enqueue-update#5,enqueue-checks#5,enqueue-merge#5"
+	want := "enqueue-update#4,enqueue-checks#4,enqueue-ci#4,enqueue-merge#4,enqueue-update#5,enqueue-checks#5,enqueue-ci#5,enqueue-merge#5"
 	if got := strings.Join(f.steps, ","); got != want {
 		t.Errorf("steps = %s\nwant    %s", got, want)
 	}
@@ -336,7 +365,7 @@ func TestMergeQueueContinuesAsNew(t *testing.T) {
 func TestMergeQueueReplaysRecordedHistories(t *testing.T) {
 	r := worker.NewWorkflowReplayer()
 	r.RegisterWorkflow(MergeQueue)
-	for _, f := range []string{"merge_queue_base_moved_then_merged.json", "merge_queue_conflict.json"} {
+	for _, f := range []string{"merge_queue_base_moved_then_merged.json", "merge_queue_conflict.json", "merge_queue_ci_failed.json"} {
 		if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/"+f); err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}

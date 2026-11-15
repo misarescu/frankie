@@ -184,6 +184,7 @@ func TestParseWorkflowRejects(t *testing.T) {
 		{"onFail on an agent step", head + "  - id: x\n    agent: {role: coder}\n    onFail: fail\n", "applies to merge-queue.enqueue only"},
 		{"step after enqueue", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n" + checks, "must be the last step"},
 		{"unknown gate type", head + "  - id: g\n    gate: {type: vibes}\n", `unknown gate type "vibes"`},
+		{"provider checks are the queue's", head + "  - id: g\n    gate: {type: provider-checks}\n", `unknown gate type "provider-checks"`},
 		{"unknown policy", head + "  - id: g\n    gate: {type: command, policy: maybe}\n", `unknown policy "maybe"`},
 		{"run on a human gate", head + "  - id: g\n    gate: {type: human, run: [make]}\n", "run: applies to command gates only"},
 		{"empty command", head + "  - id: g\n    gate: {type: command, run: [\"mise run lint\", \" \"]}\n", "run[1]: is empty"},

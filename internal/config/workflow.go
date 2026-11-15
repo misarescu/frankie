@@ -481,7 +481,7 @@ func (v *validator) agent(path string, s Step) {
 }
 
 func (v *validator) gate(path string, g Gate, trailing bool) {
-	if !g.Type.Valid() {
+	if !g.Type.Valid() || g.Type == domain.GateProviderChecks {
 		v.errf(path+".type", "unknown gate type %q", g.Type)
 		return
 	}

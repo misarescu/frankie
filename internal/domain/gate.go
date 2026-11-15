@@ -15,11 +15,29 @@ const (
 	GateCommand      GateType = "command"
 	GateAgentVerdict GateType = "agent-verdict"
 	GateHuman        GateType = "human"
+	// GateProviderChecks is the repo's own CI on the provider, which the merge
+	// queue waits for (D90). Definitions do not declare it.
+	GateProviderChecks GateType = "provider-checks"
 )
 
 // Valid reports whether t is a known gate type.
 func (t GateType) Valid() bool {
-	return t == GateCommand || t == GateAgentVerdict || t == GateHuman
+	return t == GateCommand || t == GateAgentVerdict || t == GateHuman || t == GateProviderChecks
+}
+
+// ProviderChecksDetails is the Details of a provider-checks result: the
+// repo's CI on the commit the merge queue is about to merge (D90).
+type ProviderChecksDetails struct {
+	SHA    string     `json:"sha"`
+	State  CheckState `json:"state"`
+	Checks []Check    `json:"checks,omitempty"`
+	Error  string     `json:"error,omitempty"` // why the checks gave no verdict, e.g. a timeout
+}
+
+// Passed reports whether nothing failed: every check passed, or the repo has
+// none.
+func (d ProviderChecksDetails) Passed() bool {
+	return d.Error == "" && (d.State == CheckSuccess || d.State == CheckNone)
 }
 
 // GatePolicy says whether a failed gate stops the run.

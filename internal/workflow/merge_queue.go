@@ -33,8 +33,16 @@ const (
 // The queue's step IDs are the enqueue step's, plus these suffixes.
 const (
 	queueUpdateStep = "-update"
+	queueChecksStep = "-ci"
 	queueMergeStep  = "-merge"
 )
+
+// checksOptions cover waiting for the repo's CI (60 minutes at most, D90).
+var checksOptions = workflow.ActivityOptions{
+	StartToCloseTimeout: 75 * time.Minute,
+	HeartbeatTimeout:    time.Minute,
+	RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+}
 
 // updateOptions cover a branch update pod: it runs only git, within 10 minutes.
 var updateOptions = workflow.ActivityOptions{
@@ -175,6 +183,29 @@ func processQueueEntry(ctx workflow.Context, e QueueEntry) QueueOutcome {
 			if o, failed := runQueueGates(ctx, e, head, attempt); failed {
 				o.StepID, o.Attempt = out.StepID, out.Attempt
 				return o
+			}
+		}
+
+		// The repo's own CI must pass on the commit too (D90): in M5.1 a
+		// repo's CI failed where Frankie's gate passed.
+		if workflow.GetVersion(ctx, "provider-checks", workflow.DefaultVersion, 1) >= 1 {
+			ciID, err := start(queueChecksStep, domain.StepGate)
+			if err != nil {
+				return end(QueueOutcomeError, err.Error())
+			}
+			var ci activities.GateOutcome
+			err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, checksOptions), a.AwaitProviderChecks, activities.ProviderChecksRequest{
+				Issue: e.Issue, StepRunID: ciID, HeadSHA: head,
+			}).Get(ctx, &ci)
+			switch {
+			case err != nil:
+				endStep(ctx, ciID, false)
+				return end(QueueOutcomeError, "waiting for the repo's CI failed: "+err.Error())
+			case ci.Inconclusive:
+				return end(QueueOutcomeError, ci.Summary)
+			case !ci.Passed:
+				out.Feedback = ci.Feedback
+				return end(QueueOutcomeRed, fmt.Sprintf("Frankie's checks passed on %s, but %s", head, ci.Summary))
 			}
 		}
 

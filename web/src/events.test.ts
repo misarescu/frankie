@@ -57,6 +57,12 @@ test("M5.1: summarizes gate results by command and by reviewer", () => {
   expect(summary(ev("gate_result", { type: "agent-verdict", verdict: "pass",
     details: { reviews: [{ role: "code-reviewer", verdict: "pass", summary: "looks right" }, { step: "b", error: "no JSON" }] } })))
     .toBe("agent-verdict gate passed\ncode-reviewer pass: looks right\nb no verdict: no JSON");
+  // M6 (D90): the repo's own CI, failed checks first.
+  expect(summary(ev("gate_result", { type: "provider-checks", verdict: "fail", details: { sha: "abc", state: "failure",
+    checks: [{ name: "lint", state: "success" }, { name: "test", state: "failure", summary: "2 tests failed", url: "https://ci/1" }] } })))
+    .toBe("provider-checks gate failed\ntest: failure (2 tests failed) https://ci/1\nlint: success");
+  expect(summary(ev("gate_result", { type: "provider-checks", verdict: "pass", details: { sha: "abc", state: "none" } })))
+    .toBe("provider-checks gate passed\nthe repo has no CI checks on this commit");
   expect(summary(ev("gate_result", { type: "human", verdict: "escalated" }))).toBe("human gate escalated to a person");
 });
 

@@ -103,6 +103,7 @@ github.com/json-iterator/go
 github.com/klauspost/compress
 github.com/klauspost/compress/fse
 github.com/klauspost/compress/huff0
+github.com/klauspost/compress/internal/cpuinfo
 github.com/klauspost/compress/internal/le
 github.com/klauspost/compress/internal/regmask
 github.com/klauspost/compress/internal/snapref

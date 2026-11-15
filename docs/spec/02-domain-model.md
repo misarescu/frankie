@@ -101,8 +101,10 @@ type GitProvider interface {
     UpstreamCredential(ctx context.Context, repo RepoRef) (Token, error)
     OpenChangeRequest(ctx context.Context, in OpenCR) (ChangeRequest, error)
     UpdateChangeRequest(ctx context.Context, id CRID, in UpdateCR) error
-    Merge(ctx context.Context, id CRID) error
-    CommitStatus(ctx context.Context, repo RepoRef, sha string) (Status, error)
+    // Merge merges only if the change request still points to in.HeadSHA (D85).
+    Merge(ctx context.Context, id CRID, in MergeRequest) (mergeSHA string, err error)
+    Close(ctx context.Context, id CRID, comment string) error
+    CommitStatus(ctx context.Context, repo RepoRef, sha string) (CommitStatus, error)
 }
 
 type IssueSource interface {
@@ -117,6 +119,8 @@ type IssueSource interface {
 Intake (D27): the control plane polls `List` (with `since`) and, once webhooks are reachable, also accepts `Webhook` deliveries; both go through one idempotent intake keyed by `source_ref`, so a delivery and a poll that see the same issue create it once.
 
 Issues carry a start request (`start_requested_at`, `start_requested_by`, D62), which the scheduler reads; intake never starts issues. `file_hints[]` come from the paths the issue's text names in backticks while the text follows the source, and `changed_paths[]` are the files its latest change touched (D63). Since D60 intake syncs trees: the labeled issues with their open sub-issues and their open same-repo blockers, with parents and dependencies, applied atomically per project. The source is authoritative for the links of the issues it reports and for a draft's text; refined or started issues keep the factory's copy. Intake uses the narrower provider-neutral `IssueSource` methods `ListLabeledIssues`, `SubIssues` and `BlockedBy` (`domain.ExternalIssue`) so far. The first write-back (D71) uses `Get`, `UpdateStatus` and `Comment`: when a person completes or cancels an issue (D70), the control plane comments on its provider issue naming who closed it and why, and closes it as completed or not planned.
+
+The merge queue's provider calls (D85) are implemented by the GitHub connector as `MergeChangeRequest`, `CloseChangeRequest` and `CommitStatus`, with the provider-neutral `domain.MergeRequest` and `domain.CommitStatus`.
 
 `ReleaseDriver` is specified in `06-delivery.md`.
 

@@ -123,8 +123,10 @@ controlPlane:
     workspaceSize: 10Gi
     authorName: frankie-agent
     authorEmail: frankie-agent@users.noreply.github.com
-  # Secret with key "token": fine-grained PAT for the repos (D26). Optional
-  # until created; without it the git proxy can only read public repos.
+  # Secret with key "token": fine-grained PAT for the repos (D26), with
+  # Contents, Issues and Pull requests read/write, and Actions and Commit
+  # statuses read for the merge queue (D85, D86). Optional until created; without
+  # it the git proxy can only read public repos.
   githubSecret: frankie-github
   resources:
     requests: { cpu: 50m, memory: 64Mi }

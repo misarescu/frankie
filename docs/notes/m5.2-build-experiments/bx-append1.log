@@ -1,0 +1,86 @@
+=== install
+mise trusted ~/toolchain
+mise by @jdx – installing 6 tools
+mise ████░░░░░░░░░░░░ 0/6 · 3.0s
+  go@1.25.5            downloading  2.2s  29.0/59.8 MB · 15.3 MB/s
+  bun@1.4.4            downloading  2.2s  2.4/51.8 MB · 1.6 MB/s
+  node@24.22.3         downloading  2.2s  28.2/58.3 MB · 14.6 MB/s
+  golangci-lint@2.8.0  downloading  2.2s  2.1/14.8 MB · 1.5 MB/s
+  mockery@3.6.1        downloading  2.2s  2.1/5.5 MB · 1.4 MB/s
+  sqlc@1.30.0          downloading  2.2s  15.2/15.3 MB · 8.5 MB/s
+mise ✓ sqlc@1.30.0          3.2s  sqlc_1.30.0_linux_amd64.tar.gz
+mise ✓ mockery@3.6.1        4.8s  mockery_3.6.1_Linux_x86_64.tar.gz
+mise ███████████░░░░░ 2/6 · 6.0s
+  go@1.25.5            extracting          5.2s
+  bun@1.4.4            downloading         5.2s  12.5/51.8 MB · 2.8 MB/s
+  node@24.22.3         verifying checksum  5.2s  53.8/58.3 MB
+  golangci-lint@2.8.0  downloading         5.2s  12.4/14.8 MB · 2.8 MB/s
+mise █████████████░░░ 2/6 · 9.0s
+  go@1.25.5            extracting   8.2s
+  bun@1.4.4            downloading  8.2s  48.8/51.8 MB · 6.5 MB/s
+  node@24.22.3         extracting   8.2s
+  golangci-lint@2.8.0  extracting   8.2s
+mise ✓ golangci-lint@2.8.0  8.6s  golangci-lint-2.8.0-linux-amd64.tar.gz
+mise ██████████████░░ 3/6 · 12.0s
+  go@1.25.5            extracting  11.2s
+  bun@1.4.4            extracting  11.2s
+  node@24.22.3         extracting  11.2s
+mise ██████████████░░ 3/6 · 15.0s
+  go@1.25.5            extracting  14.2s
+  bun@1.4.4            extracting  14.2s
+  node@24.22.3         extracting  14.2s
+mise bun@1.4.4 1.4.4
+mise ✓ bun@1.4.4            16.1s  bun-linux-x64.zip
+mise ███████████████░ 4/6 · 18.0s
+  go@1.25.5            extracting  17.2s
+  node@24.22.3         extracting  17.2s
+mise node@24.22.3 v24.22.3
+mise node@24.22.3 11.19.1
+mise ✓ node@24.22.3         19.6s  node-v24.22.3-linux-x64.tar.gz
+mise ███████████████░ 5/6 · 21.0s
+  go@1.25.5            extracting  20.2s
+mise ███████████████░ 5/6 · 24.0s
+  go@1.25.5            extracting  23.2s
+mise go@1.25.5 go version go1.25.5 linux/amd64
+mise ✓ go@1.25.5            25.9s  go1.25.5.linux-amd64.tar.gz
+mise ████████████████ 6/6 · installed 6 tools in 26.6s
+STEP install 27s
+658M	/home/agent/.local/share/mise
+=== push
+2026/11/15 05:59:04 Copying from ghcr.io/misarescu/frankie-runner:sha-a717546 to frankie-registry.frankie.svc:5000/base/frankie-runner:sha-a717546
+2026/11/15 05:59:05 pushed blob: sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+2026/11/15 05:59:06 pushed blob: sha256:8e84b3e4314f31ac0e3d4d85686949cf46b19373109290600e55d97f533bcb2d
+2026/11/15 05:59:06 updating fallback tag sha256-68d58cef49d3f104a908cc13f7ba53f3290aa48daedca27640306dbbb4a4b3ed with new referrer
+2026/11/15 05:59:06 frankie-registry.frankie.svc:5000/base/frankie-runner:sha256-68d58cef49d3f104a908cc13f7ba53f3290aa48daedca27640306dbbb4a4b3ed: digest: sha256:ae6067ed076581b72190ca5c88d0b64e36da77c2060079538bdc64244cae2f1e size: 309
+2026/11/15 05:59:06 frankie-registry.frankie.svc:5000/base/frankie-runner@sha256:29895214e0f3e518d4f299fc38b532eca6385a9034853e60cd9e88cd3932c9ec: digest: sha256:29895214e0f3e518d4f299fc38b532eca6385a9034853e60cd9e88cd3932c9ec size: 838
+2026/11/15 05:59:07 pushed blob: sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898
+2026/11/15 05:59:08 pushed blob: sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41
+2026/11/15 05:59:08 pushed blob: sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+2026/11/15 05:59:09 pushed blob: sha256:69d63724ff890178ee0c1fccdeacb733c46d9e0dfaf426d9f9ad220a2edb3e55
+2026/11/15 05:59:17 pushed blob: sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a
+2026/11/15 05:59:23 pushed blob: sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f
+2026/11/15 05:59:23 frankie-registry.frankie.svc:5000/base/frankie-runner@sha256:68d58cef49d3f104a908cc13f7ba53f3290aa48daedca27640306dbbb4a4b3ed: digest: sha256:68d58cef49d3f104a908cc13f7ba53f3290aa48daedca27640306dbbb4a4b3ed size: 1249
+2026/11/15 05:59:23 frankie-registry.frankie.svc:5000/base/frankie-runner:sha-a717546: digest: sha256:3fc107be07ec62f40697c1f992e6b320a876cb5024aaed5f8b316a05cfce10f5 size: 856
+STEP copy-base 19s
+STEP tar 8s 618.7M
+2026/11/15 05:59:39 existing blob: sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898
+2026/11/15 05:59:39 existing blob: sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f
+2026/11/15 05:59:39 existing blob: sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a
+2026/11/15 05:59:39 existing blob: sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+2026/11/15 05:59:39 existing blob: sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41
+2026/11/15 05:59:39 pushed blob: sha256:f74efa4507f2a98bc61989f722a7c2a888a954f025ad16f3870d7b115a55425a
+2026/11/15 05:59:45 pushed blob: sha256:f0c4241f648c40d0765d7488b216fa444ff8dfe76ba9ff4a08bf8b4ffb2fb3ae
+frankie-registry.frankie.svc:5000/experiments/goodreads-clone@sha256:56aa4af962d094cf95637056fee3c0a86684e8909ea04a4ecdee2bd000e20ecd
+2026/11/15 05:59:45 frankie-registry.frankie.svc:5000/experiments/goodreads-clone:bx-append1: digest: sha256:56aa4af962d094cf95637056fee3c0a86684e8909ea04a4ecdee2bd000e20ecd size: 1198
+STEP append 14s
+2026/11/15 05:59:45 existing blob: sha256:208be3b8d863fcad9ba5ceb78710da2a249c712e5feea74fcc5ff485d8b71898
+2026/11/15 05:59:45 existing blob: sha256:ac6bc1590f7dba4b61b3b68a33887b07f327bcbc6a5d59f35031186b91ac0d4f
+2026/11/15 05:59:45 existing blob: sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+2026/11/15 05:59:45 existing blob: sha256:fa7b0fafded197547ee8107260a832bb5168374dc5f653fe6f1ff4abe58b884a
+2026/11/15 05:59:45 existing blob: sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41
+2026/11/15 05:59:45 existing blob: sha256:f0c4241f648c40d0765d7488b216fa444ff8dfe76ba9ff4a08bf8b4ffb2fb3ae
+2026/11/15 05:59:45 pushed blob: sha256:0eb71979d7aa93c6d4c89957bda85ca270e2aeca03642cecabf8b5694cbef912
+2026/11/15 05:59:45 frankie-registry.frankie.svc:5000/experiments/goodreads-clone:bx-append1: digest: sha256:4b4c9f76b6f0f1a14180e1fbb05b29d0792eaf5c539f43de2c096a5721897020 size: 1198
+frankie-registry.frankie.svc:5000/experiments/goodreads-clone@sha256:4b4c9f76b6f0f1a14180e1fbb05b29d0792eaf5c539f43de2c096a5721897020
+STEP mutate 0s
+sha256:4b4c9f76b6f0f1a14180e1fbb05b29d0792eaf5c539f43de2c096a5721897020

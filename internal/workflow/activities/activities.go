@@ -208,6 +208,11 @@ type AgentConfig struct {
 	// Env is set in agent and gate pods, e.g. GOPROXY for the in-cluster Go
 	// module proxy (D37).
 	Env map[string]string
+	// CPURequest and ReviewerCPURequest are what an agent pod, or a read-only
+	// one (a reviewer or the refiner), requests of its CPU limit; zero means
+	// the limit (D77).
+	CPURequest         resource.Quantity
+	ReviewerCPURequest resource.Quantity
 }
 
 // GateConfig describes how command gates run (docs/spec/03). They share the
@@ -215,6 +220,7 @@ type AgentConfig struct {
 type GateConfig struct {
 	Commands      []string // default: mise run lint, mise run test
 	Limits        corev1.ResourceList
+	CPURequest    resource.Quantity // zero means the CPU limit (D77)
 	WorkspaceSize resource.Quantity
 	Deadline      time.Duration
 }

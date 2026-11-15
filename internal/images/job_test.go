@@ -200,3 +200,25 @@ func TestBuildResourcesPassesSandboxEnv(t *testing.T) {
 		t.Errorf("job name changed with the environment: %s vs %s", plain.Name, job.Name)
 	}
 }
+
+// M5.2 (D77): builds mostly wait on I/O, so they reserve little CPU but all
+// of their memory.
+func TestBuildResourcesCPURequest(t *testing.T) {
+	c := testConfig()
+	c.CPURequest = resource.MustParse("250m")
+	_, job, err := BuildResources(c, testRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := job.Spec.Template.Spec.Containers[0].Resources
+	if r.Requests.Cpu().String() != "250m" || r.Limits.Cpu().String() != "2" {
+		t.Errorf("cpu request/limit = %s/%s, want 250m/2", r.Requests.Cpu(), r.Limits.Cpu())
+	}
+	if !r.Requests.Memory().Equal(*r.Limits.Memory()) {
+		t.Errorf("memory request %s, want its limit %s", r.Requests.Memory(), r.Limits.Memory())
+	}
+	c.CPURequest = resource.MustParse("3")
+	if _, _, err := BuildResources(c, testRequest()); err == nil {
+		t.Error("a cpu request above the limit was accepted")
+	}
+}

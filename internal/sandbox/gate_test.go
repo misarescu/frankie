@@ -132,3 +132,28 @@ func TestGatePodEnvReachesEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+// M5.2 (D77): gate pods are CPU-bound but need not reserve their whole limit.
+func TestGatePodCPURequest(t *testing.T) {
+	s := gateSpec()
+	s.CPURequest = resource.MustParse("1")
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		if got := c.Resources.Requests.Cpu().String(); got != "1" {
+			t.Errorf("%s: cpu request = %s, want 1", c.Name, got)
+		}
+		if got := c.Resources.Requests.Memory().String(); got != "3Gi" {
+			t.Errorf("%s: memory request = %s, want the 3Gi limit", c.Name, got)
+		}
+		if got := c.Resources.Limits.Cpu().String(); got != "2" {
+			t.Errorf("%s: cpu limit = %s, want 2", c.Name, got)
+		}
+	}
+	s.CPURequest = resource.MustParse("4")
+	if _, err := GatePod(s); err == nil {
+		t.Error("a cpu request above the limit was accepted")
+	}
+}

@@ -81,3 +81,38 @@ func TestPodNameUsesTheDefinitionStep(t *testing.T) {
 		t.Errorf("stepPodName = %q (%d characters)", long, len(long))
 	}
 }
+
+// M5.2 (D77): read-only steps (reviewers, the refiner) request less CPU than
+// coding steps; both keep the same limits.
+func TestAgentPodSpecCPURequestByStep(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
+		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour, WorkspaceSize: resource.MustParse("1Gi"),
+		Limits:     corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("3Gi")},
+		CPURequest: resource.MustParse("500m"), ReviewerCPURequest: resource.MustParse("250m"),
+	}}
+	for name, tt := range map[string]struct {
+		step *AgentStep
+		want string
+	}{
+		"coding step": {&AgentStep{StepID: "implement"}, "500m"},
+		"reviewer":    {&AgentStep{StepID: "review", Contract: "review-verdict"}, "250m"},
+		"M2 run":      {nil, "500m"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			run := testRun
+			run.Step = tt.step
+			pod, err := a.agentPodSpec(testInput, run, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := pod.Spec.Containers[0].Resources
+			if got := r.Requests.Cpu().String(); got != tt.want {
+				t.Errorf("cpu request = %s, want %s", got, tt.want)
+			}
+			if r.Limits.Cpu().String() != "2" || r.Requests.Memory().String() != "3Gi" {
+				t.Errorf("limits %v, requests %v: want cpu limit 2 and memory requested at its limit", r.Limits, r.Requests)
+			}
+		})
+	}
+}

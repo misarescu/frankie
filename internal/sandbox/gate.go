@@ -68,6 +68,7 @@ type GatePodSpec struct {
 	StepRunID          string
 	IssueKey           string
 	Limits             corev1.ResourceList
+	CPURequest         resource.Quantity // zero means the CPU limit (D77)
 	WorkspaceSize      resource.Quantity
 	Deadline           time.Duration
 	EgressProxyURL     string
@@ -85,7 +86,7 @@ func (s GatePodSpec) validate() error {
 	base := PodSpec{
 		Name: s.Name, Namespace: s.Namespace, Image: s.Image, RuntimeClassName: s.RuntimeClassName,
 		ServiceAccountName: s.ServiceAccountName, RunID: s.RunID, StepRunID: s.StepRunID, IssueKey: s.IssueKey,
-		Limits: s.Limits, WorkspaceSize: s.WorkspaceSize, Deadline: s.Deadline, EgressProxyURL: s.EgressProxyURL,
+		Limits: s.Limits, CPURequest: s.CPURequest, WorkspaceSize: s.WorkspaceSize, Deadline: s.Deadline, EgressProxyURL: s.EgressProxyURL,
 	}
 	errs := []error{base.validate()}
 	if u, err := url.Parse(s.CloneURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -126,7 +127,7 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 	}
 	limits[corev1.ResourceEphemeralStorage] = s.WorkspaceSize
 	sidecars, sidecarVolumes := serviceContainers(s.Services)
-	resources := corev1.ResourceRequirements{Limits: limits, Requests: limits.DeepCopy()}
+	resources := corev1.ResourceRequirements{Limits: limits, Requests: requestsFor(limits, s.CPURequest)}
 	mounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}}
 	env := append(proxyEnv(s.EgressProxyURL, s.NoProxy),
 		// Toolchain images trust /workspace too; repeated so the base image does.

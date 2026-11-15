@@ -67,6 +67,8 @@ app.kubernetes.io/component: {{ index . 1 }}
     "serviceAccount" .Values.agents.serviceAccountName
     "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)
     "cpu" (toString $coder.cpu) "memory" (toString $coder.memory)
+    "cpuRequest" (toString (dig "requests" "cpu" "" .Values.podResources.coder))
+    "reviewerCPURequest" (toString (dig "reviewer" "requests" "cpu" "" .Values.podResources))
     "workspaceSize" $a.workspaceSize "podDeadline" $a.podDeadline
     "gitProxyURL" (printf "http://%s-controlplane.%s.svc:%v" $full .Release.Namespace .Values.controlPlane.gitProxyPort)
     "gatewayURL" (printf "http://%s-llm-gateway.%s.svc:%v" $full .Release.Namespace .Values.llmGateway.port)
@@ -75,7 +77,8 @@ app.kubernetes.io/component: {{ index . 1 }}
     "authorName" $a.authorName "authorEmail" $a.authorEmail)
   "gate" (dict
     "commands" $gate.commands "deadline" $gate.deadline "workspaceSize" $gate.workspaceSize
-    "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory))
+    "cpu" (toString $gateLimits.cpu) "memory" (toString $gateLimits.memory)
+    "cpuRequest" (toString (dig "requests" "cpu" "" .Values.podResources.commandGate)))
   "sandboxEnv" (include "frankie.sandboxEnv" . | fromJson)
   "services" (dict
     "maxPerPod" .Values.controlPlane.services.maxPerPod
@@ -90,6 +93,7 @@ app.kubernetes.io/component: {{ index . 1 }}
     "serviceAccount" $tc.build.serviceAccountName
     "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)
     "cpu" (toString $tc.build.limits.cpu) "memory" (toString $tc.build.limits.memory)
+    "cpuRequest" (toString (dig "requests" "cpu" "" $tc.build))
     "scratchSize" $tc.build.scratchSize "deadline" $tc.build.deadline)
 -}}
 {{- toPrettyJson $cfg -}}

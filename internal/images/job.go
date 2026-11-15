@@ -52,6 +52,9 @@ type BuildConfig struct {
 	NoProxy        []string
 	Deadline       time.Duration
 	Limits         corev1.ResourceList // cpu, memory
+	// CPURequest is what the scheduler reserves; zero means the CPU limit.
+	// Builds mostly wait on I/O, and memory is requested at its limit (D77).
+	CPURequest resource.Quantity
 	// ScratchSize bounds the BuildKit cache and layer storage (emptyDir).
 	ScratchSize resource.Quantity
 	// Env is set for the build's RUN steps, e.g. GOPROXY for the in-cluster Go
@@ -80,6 +83,9 @@ func (c BuildConfig) validate() error {
 		if _, ok := c.Limits[r]; !ok {
 			errs = append(errs, fmt.Errorf("%s limit is required", r))
 		}
+	}
+	if lim := c.Limits[corev1.ResourceCPU]; c.CPURequest.Sign() < 0 || c.CPURequest.Cmp(lim) > 0 {
+		errs = append(errs, fmt.Errorf("cpu request %s must be between 0 and the cpu limit %s", c.CPURequest.String(), lim.String()))
 	}
 	return errors.Join(errs...)
 }
@@ -171,6 +177,10 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, c.NoProxy...), ",")
 	limits := c.Limits.DeepCopy()
 	limits[corev1.ResourceEphemeralStorage] = c.ScratchSize
+	requests := limits.DeepCopy()
+	if !c.CPURequest.IsZero() {
+		requests[corev1.ResourceCPU] = c.CPURequest
+	}
 	args := []string{
 		"build",
 		"--frontend", "dockerfile.v0",
@@ -215,7 +225,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 							{Name: "NO_PROXY", Value: noProxy},
 							{Name: "no_proxy", Value: noProxy},
 						},
-						Resources: corev1.ResourceRequirements{Limits: limits, Requests: limits.DeepCopy()},
+						Resources: corev1.ResourceRequirements{Limits: limits, Requests: requests},
 						// D31: BuildKit runs as privileged root. Rootless mode needs
 						// newuidmap with file capabilities, which Kata's virtiofs root does
 						// not honor, and an unprivileged rootful BuildKit cannot create

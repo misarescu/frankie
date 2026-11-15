@@ -221,3 +221,61 @@ func TestLoadConfigFileSandboxEnv(t *testing.T) {
 		}
 	}
 }
+
+// M5.2 (D77): each pod type's CPU request is read with its limits; read-only
+// agent steps take the coder's request unless they have their own.
+func TestLoadConfigFileCPURequests(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	t.Run("configured", func(t *testing.T) {
+		cfg, err := load(t, `{
+		  "agent": {"cpu": "2", "memory": "3Gi", "cpuRequest": "500m", "reviewerCPURequest": "250m"},
+		  "gate": {"cpu": "2", "memory": "3Gi", "cpuRequest": "1"},
+		  "toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "2", "memory": "4Gi", "cpuRequest": "250m", "scratchSize": "1Gi", "deadline": "1m"}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, got := range map[string]string{
+			"agent": cfg.Agent.CPURequest.String(), "reviewer": cfg.Agent.ReviewerCPURequest.String(),
+			"gate": cfg.Gate.CPURequest.String(), "build": cfg.Toolchain.Build.CPURequest.String(),
+		} {
+			want := map[string]string{"agent": "500m", "reviewer": "250m", "gate": "1", "build": "250m"}[name]
+			if got != want {
+				t.Errorf("%s cpu request = %s, want %s", name, got, want)
+			}
+		}
+	})
+	t.Run("unset", func(t *testing.T) {
+		cfg, err := load(t, `{"agent": {"cpu": "2", "memory": "3Gi", "cpuRequest": "500m"}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.Agent.ReviewerCPURequest.String(); got != "500m" {
+			t.Errorf("reviewer cpu request = %s, want the coder's 500m", got)
+		}
+		if !cfg.Gate.CPURequest.IsZero() {
+			t.Errorf("gate cpu request = %s, want none (its limit)", cfg.Gate.CPURequest.String())
+		}
+	})
+	t.Run("invalid", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"above the limit":      `{"agent": {"cpu": "2", "memory": "3Gi", "cpuRequest": "3"}}`,
+			"reviewer above limit": `{"agent": {"cpu": "2", "memory": "3Gi", "reviewerCPURequest": "2500m"}}`,
+			"zero":                 `{"gate": {"cpu": "2", "memory": "3Gi", "cpuRequest": "0"}}`,
+			"not a quantity":       `{"gate": {"cpu": "2", "memory": "3Gi", "cpuRequest": "some"}}`,
+			"without a limit":      `{"agent": {"cpuRequest": "500m"}}`,
+			"build above limit":    `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "2", "memory": "4Gi", "cpuRequest": "4", "scratchSize": "1Gi", "deadline": "1m"}}`,
+		} {
+			if _, err := load(t, body); err == nil {
+				t.Errorf("%s: accepted", name)
+			}
+		}
+	})
+}

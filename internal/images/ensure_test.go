@@ -186,3 +186,20 @@ func TestEnsureErrors(t *testing.T) {
 		}
 	})
 }
+
+// M5.2 (D80): a build gets the proxy URL its caller passes, carrying the
+// project's egress token; the image is the same either way.
+func TestEnsureViaPassesTheProxyToTheBuild(t *testing.T) {
+	e, b, _, _ := newEnsurer()
+	const proxy = "http://frankie:feg1.x.y@egress:3128"
+	img, err := e.EnsureVia(context.Background(), "toolchains/misarescu/repo", testInputs, proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.builds) != 1 || b.builds[0].EgressProxyURL != proxy {
+		t.Fatalf("builds = %+v", b.builds)
+	}
+	if again, err := e.Ensure(context.Background(), "toolchains/misarescu/repo", testInputs); err != nil || again.Ref != img.Ref || again.Built {
+		t.Errorf("without the proxy: %+v, %v; want the same recorded image", again, err)
+	}
+}

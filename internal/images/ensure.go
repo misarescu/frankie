@@ -49,6 +49,14 @@ var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // Ensure resolves the image spec describes in the registry repository
 // (Repository or DependencyRepository of a factory repo).
 func (e Ensurer) Ensure(ctx context.Context, repository string, spec Spec) (Image, error) {
+	return e.EnsureVia(ctx, repository, spec, "")
+}
+
+// EnsureVia is Ensure with the egress proxy URL a build reaches the internet
+// through, e.g. carrying the project's egress token (D80); empty means the
+// build config's. The URL does not change the image's tag: it says where
+// downloads may come from, not what is installed.
+func (e Ensurer) EnsureVia(ctx context.Context, repository string, spec Spec, egressProxyURL string) (Image, error) {
 	if err := spec.Validate(); err != nil {
 		return Image{}, fmt.Errorf("image inputs for %s: %w", repository, err)
 	}
@@ -72,7 +80,7 @@ func (e Ensurer) Ensure(ctx context.Context, repository string, spec Spec) (Imag
 		// The registry lost the image (its storage was reset): build it again.
 	}
 
-	digest, err = e.Builder.Build(ctx, BuildRequest{Repository: repository, Spec: spec})
+	digest, err = e.Builder.Build(ctx, BuildRequest{Repository: repository, Spec: spec, EgressProxyURL: egressProxyURL})
 	if err != nil {
 		return Image{}, fmt.Errorf("build %s: %w", repo, err)
 	}

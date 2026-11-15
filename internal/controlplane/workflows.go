@@ -17,6 +17,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
+	"github.com/misarescu/frankie/internal/egress"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/images"
@@ -54,6 +55,8 @@ type temporalStarter struct {
 	c      client.Client
 	files  snapshot.FileReader
 	models Models
+	// egressAllowed says whether projects may add egress hosts (D80).
+	egressAllowed bool
 }
 
 // schedulerInterval is how often the scheduler looks for issues to start.
@@ -63,7 +66,7 @@ func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueR
 	if n, ok := github.IssueNumber(in.SourceURL); ok && in.SourceNumber == 0 {
 		in.SourceNumber = n // the change request then closes the GitHub issue
 	}
-	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, in)
+	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, t.egressAllowed, in)
 	if err != nil {
 		return err
 	}
@@ -87,6 +90,7 @@ func (t temporalStarter) StartRefinement(ctx context.Context, in activities.Issu
 	if err != nil {
 		return err
 	}
+	snap, in = withEgress(snap, in, t.egressAllowed)
 	_, err = t.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                       "refine-" + in.IssueKey,
 		TaskQueue:                workflow.TaskQueue,
@@ -103,7 +107,7 @@ func (t temporalStarter) StartRefinement(ctx context.Context, in activities.Issu
 // shows up on the run. A failure to read the repo returns an error, and intake
 // tries again on its next poll. IssueRun is no longer started; it stays
 // registered until its runs drain.
-func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, in activities.IssueRunInput) (any, any, error) {
+func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, egressAllowed bool, in activities.IssueRunInput) (any, any, error) {
 	snap, err := snapshot.Resolve(ctx, files, in.Repo, in.BaseBranch)
 	switch {
 	case errors.Is(err, snapshot.ErrInvalid):
@@ -117,7 +121,23 @@ func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Model
 			snap = snapshot.Snapshot{Error: "the platform does not serve this workflow's models: " + err.Error()}
 		}
 	}
+	snap, in = withEgress(snap, in, egressAllowed)
 	return workflow.Interpret, workflow.InterpretInput{Issue: in, Snapshot: snap}, nil
+}
+
+// withEgress hands the run's activities the hosts its project adds to the
+// egress list (D80), or fails the run with the reason when this deployment
+// does not let projects add any.
+func withEgress(snap snapshot.Snapshot, in activities.IssueRunInput, allowed bool) (snapshot.Snapshot, activities.IssueRunInput) {
+	if snap.Error != "" || len(snap.EgressAllow) == 0 {
+		return snap, in
+	}
+	if !allowed {
+		return snapshot.Snapshot{Error: "the project adds egress hosts (egress.allow in " + config.ProjectConfigPath +
+			"), which this deployment does not allow (egressProxy.projectAllow)"}, in
+	}
+	in.EgressAllow = snap.EgressAllow
+	return snap, in
 }
 
 // startWorkflows connects to Temporal, runs the worker and the intake loop. It
@@ -166,8 +186,14 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	w.RegisterWorkflow(workflow.IssueRun)
 	w.RegisterWorkflow(workflow.Interpret)
 	w.RegisterWorkflow(workflow.Refine)
+	var egressSigner *egress.Signer
+	if cfg.EgressProjectAllow {
+		if egressSigner, err = egress.NewSigner(cfg.EgressKey); err != nil {
+			return nil, nil, fmt.Errorf("controlplane: egress key: %w", err)
+		}
+	}
 	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
-		Log: log.With("component", "activities")})
+		Egress: egressSigner, Log: log.With("component", "activities")})
 	if err := w.Start(); err != nil {
 		c.Close()
 		return nil, nil, fmt.Errorf("controlplane: worker: %w", err)
@@ -188,7 +214,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)
 	}
-	sch := &scheduler.Scheduler{Store: st, Starter: temporalStarter{c: c, files: gh, models: cfg.Models},
+	sch := &scheduler.Scheduler{Store: st, Starter: temporalStarter{c: c, files: gh, models: cfg.Models, egressAllowed: egressSigner != nil},
 		Projects: make(map[uuid.UUID]scheduler.Project, len(projects)), Limit: cfg.MaxConcurrentIssues,
 		Interval: schedulerInterval, Log: log.With("component", "scheduler")}
 	for _, p := range projects {

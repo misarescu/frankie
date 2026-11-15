@@ -47,12 +47,16 @@ func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services
 	if a.sessionSettings(run).readOnly {
 		cpuRequest = a.Agent.ReviewerCPURequest
 	}
+	proxy, err := a.egressProxyURL(in, a.Agent.PodDeadline+10*time.Minute)
+	if err != nil {
+		return nil, err
+	}
 	return sandbox.AgentPod(sandbox.PodSpec{
 		Name: podName(in, run), Namespace: a.Agent.Namespace, Image: cmp.Or(run.ToolchainImage, a.Agent.RunnerImage),
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
 		Limits: a.Agent.Limits, CPURequest: cpuRequest, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
-		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env,
+		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env,
 	})
 }
 

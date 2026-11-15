@@ -2,7 +2,9 @@ package egress
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -124,5 +126,126 @@ func TestProxyHealthz(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("healthz status %d", resp.StatusCode)
+	}
+}
+
+// tokenProxy is a proxy allowing allowed.example, with egress tokens signed by
+// signer, that tunnels every allowed CONNECT to upstream.
+func tokenProxy(t *testing.T, signer *Signer, upstream string) string {
+	t.Helper()
+	policy, err := ParsePolicy([]string{"allowed.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := newProxy(policy, slog.New(slog.NewTextHandler(io.Discard, nil)), CheckPublic)
+	p.Tokens = signer
+	p.dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, upstream)
+	}
+	srv := httptest.NewServer(p)
+	t.Cleanup(srv.Close)
+	return srv.Listener.Addr().String()
+}
+
+func testSigner(t *testing.T, key string) *Signer {
+	t.Helper()
+	s, err := NewSigner([]byte(strings.Repeat(key, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// M5.2 (D80): a pod whose token grants its project's hosts reaches them
+// through a client that puts the token in the proxy URL, as pods do.
+func TestProxyAllowsProjectHostsWithAToken(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "hello project host")
+	}))
+	defer upstream.Close()
+	signer := testSigner(t, "k")
+	proxyAddr := tokenProxy(t, signer, upstream.Listener.Addr().String())
+	token, err := signer.Issue(Grant{Repo: "misarescu/Goodreads-Clone", Hosts: []string{"nodejs.org"}}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tr := upstream.Client().Transport.(*http.Transport).Clone()
+	tr.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: proxyAddr, User: url.UserPassword("frankie", token)})
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // test server certificate
+	client := &http.Client{Transport: tr, Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://nodejs.org/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET through proxy: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if got := bodyOf(resp); got != "hello project host" {
+		t.Errorf("body = %q", got)
+	}
+}
+
+// M5.2 (D80): a token adds only its own hosts, on 443, while it is valid and
+// signed with the proxy's key; without one, a pod gets the platform's list.
+func TestProxyProjectHostRefusals(t *testing.T) {
+	upstream := httptest.NewServer(http.NotFoundHandler()) // never reached when refused
+	defer upstream.Close()
+	signer := testSigner(t, "k")
+	proxyAddr := tokenProxy(t, signer, upstream.Listener.Addr().String())
+	issue := func(s *Signer, hosts ...string) string {
+		tok, err := s.Issue(Grant{Repo: "o/r", Hosts: hosts}, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	expired := testSigner(t, "k")
+	expired.now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
+	basic := func(token string) string {
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte("frankie:"+token))
+	}
+
+	tests := []struct {
+		name, target, auth string
+		wantCode           int
+	}{
+		{"no token", "nodejs.org:443", "", http.StatusProxyAuthRequired},
+		{"another project's host", "nodejs.org:443", basic(issue(signer, "registry.npmjs.org")), http.StatusForbidden},
+		{"granted host, other port", "nodejs.org:22", basic(issue(signer, "nodejs.org")), http.StatusForbidden},
+		{"subdomain of a granted host", "evil.nodejs.org:443", basic(issue(signer, "nodejs.org")), http.StatusForbidden},
+		{"expired token", "nodejs.org:443", basic(issue(expired, "nodejs.org")), http.StatusForbidden},
+		{"signed with another key", "nodejs.org:443", basic(issue(testSigner(t, "x"), "nodejs.org")), http.StatusForbidden},
+		{"not basic", "nodejs.org:443", "Bearer " + issue(signer, "nodejs.org"), http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+			req := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", tt.target, tt.target)
+			if tt.auth != "" {
+				req += "Proxy-Authorization: " + tt.auth + "\r\n"
+			}
+			if _, err := io.WriteString(conn, req+"\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != tt.wantCode {
+				t.Errorf("status %d, want %d (%s)", resp.StatusCode, tt.wantCode, bodyOf(resp))
+			}
+			if tt.wantCode == http.StatusProxyAuthRequired && resp.Header.Get("Proxy-Authenticate") == "" {
+				t.Error("407 without a Proxy-Authenticate challenge")
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
@@ -29,7 +30,7 @@ func (a *Activities) EnsureToolchainImage(ctx context.Context, in IssueRunInput)
 	if err != nil {
 		return "", err
 	}
-	ref, err := a.toolchainImage(ctx, in.Repo, start.FilesRef)
+	ref, err := a.toolchainImage(ctx, in, start.FilesRef)
 	if errors.Is(err, errInvalidProjectConfig) {
 		// The repo must fix it; retrying cannot.
 		return "", temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
@@ -37,14 +38,28 @@ func (a *Activities) EnsureToolchainImage(ctx context.Context, in IssueRunInput)
 	return ref, err
 }
 
-// toolchainImage resolves the image steps of repo at ref (a branch or a SHA)
-// run in: its dependency image when the repo declares dependencies (M3.1),
-// else its toolchain image; "" means the platform base image. Every file is
-// read at one commit, so a push in between cannot mix versions. A
+// buildEgressTTL is how long a build's egress token lasts: longer than a
+// build's deadline (toolchains.build.deadline, 50 minutes on the concrete
+// profile) and the activity that waits for it.
+const buildEgressTTL = 2 * time.Hour
+
+// toolchainImage resolves the image steps of the run's repo at ref (a branch
+// or a SHA) run in: its dependency image when the repo declares dependencies
+// (M3.1), else its toolchain image; "" means the platform base image. Every
+// file is read at one commit, so a push in between cannot mix versions. A
 // configuration the repo got wrong is wrapped in errInvalidProjectConfig.
-func (a *Activities) toolchainImage(ctx context.Context, repo, ref string) (string, error) {
+// Builds reach the project's egress hosts (D80).
+func (a *Activities) toolchainImage(ctx context.Context, in IssueRunInput, ref string) (string, error) {
 	if a.Toolchain == nil {
 		return "", nil
+	}
+	repo := in.Repo
+	proxy := ""
+	if len(in.EgressAllow) > 0 {
+		var err error
+		if proxy, err = a.egressProxyURL(in, buildEgressTTL); err != nil {
+			return "", err
+		}
 	}
 	sha, err := a.GitHub.ResolveRef(ctx, repo, ref)
 	if err != nil {
@@ -78,7 +93,7 @@ func (a *Activities) toolchainImage(ctx context.Context, repo, ref string) (stri
 		return "", temporal.NewNonRetryableApplicationError("invalid repo", "config", err)
 	}
 	activity.RecordHeartbeat(ctx, "resolving toolchain image")
-	img, err := a.Toolchain.Ensure(ctx, repository, inputs)
+	img, err := a.Toolchain.EnsureVia(ctx, repository, inputs, proxy)
 	if err != nil {
 		return "", err
 	}
@@ -107,7 +122,7 @@ func (a *Activities) toolchainImage(ctx context.Context, repo, ref string) (stri
 		return "", temporal.NewNonRetryableApplicationError("invalid repo", "config", err)
 	}
 	activity.RecordHeartbeat(ctx, "resolving dependency image")
-	dep, err := a.Toolchain.Ensure(ctx, depRepository, spec)
+	dep, err := a.Toolchain.EnsureVia(ctx, depRepository, spec, proxy)
 	if err != nil {
 		return "", err
 	}

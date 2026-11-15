@@ -59,6 +59,7 @@ app.kubernetes.io/component: {{ index . 1 }}
   "maxConcurrentIssues" (int .Values.scheduler.maxConcurrentIssues)
   "temporal" (dict "address" (printf "%s-temporal:7233" $full) "namespace" .Values.temporal.namespace)
   "gatewayAdminURL" (printf "http://%s-llm-gateway:%v" $full .Values.llmGateway.port)
+  "egressProjectAllow" .Values.egressProxy.projectAllow
   "providers" $providers
   "agent" (dict
     "namespace" .Values.agents.namespace

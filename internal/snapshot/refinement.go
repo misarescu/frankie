@@ -38,7 +38,8 @@ func ResolveRefinement(ctx context.Context, r FileReader, repo, baseBranch strin
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: refinement definition: %w", err) // a platform bug, not the repo's
 	}
-	s := Snapshot{Workflow: w, Source: "built-in", BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD}
+	s := Snapshot{Workflow: w, Source: "built-in", BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD,
+		EgressAllow: project.Egress.Allow}
 	if s.Roles, err = rolesResult(config.ResolveRefinementRoles(w, rd.roleLookup())); err != nil {
 		return Snapshot{}, err
 	}

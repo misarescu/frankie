@@ -37,6 +37,9 @@ type Snapshot struct {
 	// IssueBudgetUSD is the project's cap on what the issue spends on
 	// models; zero means the platform's default (D53).
 	IssueBudgetUSD float64 `json:"issueBudgetUSD,omitempty"`
+	// EgressAllow are the hosts the project adds to the platform's egress
+	// list (D80), as the base branch declared them when the run started.
+	EgressAllow []string `json:"egressAllow,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -80,7 +83,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 		project.Workflow = workflows.Default
 	}
 
-	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD}
+	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow}
 	raw, found, err := rd.read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)

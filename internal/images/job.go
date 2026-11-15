@@ -1,6 +1,7 @@
 package images
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -94,6 +95,9 @@ func (c BuildConfig) validate() error {
 type BuildRequest struct {
 	Repository string // registry repository, from Repository() or DependencyRepository()
 	Spec       Spec
+	// EgressProxyURL replaces the config's for this build, e.g. with the
+	// project's egress token (D80); empty means the config's.
+	EgressProxyURL string
 }
 
 // JobName is stable per tag, so concurrent or retried requests for the same
@@ -175,6 +179,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 	}
 
 	noProxy := strings.Join(append([]string{"localhost", "127.0.0.1", ".svc", ".cluster.local"}, c.NoProxy...), ",")
+	proxy := cmp.Or(r.EgressProxyURL, c.EgressProxyURL)
 	limits := c.Limits.DeepCopy()
 	limits[corev1.ResourceEphemeralStorage] = c.ScratchSize
 	requests := limits.DeepCopy()
@@ -186,8 +191,8 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 		"--frontend", "dockerfile.v0",
 		"--local", "context=" + contextDir,
 		"--local", "dockerfile=" + contextDir,
-		"--opt", "build-arg:HTTPS_PROXY=" + c.EgressProxyURL,
-		"--opt", "build-arg:HTTP_PROXY=" + c.EgressProxyURL,
+		"--opt", "build-arg:HTTPS_PROXY=" + proxy,
+		"--opt", "build-arg:HTTP_PROXY=" + proxy,
 		"--opt", "build-arg:NO_PROXY=" + noProxy,
 		"--output", fmt.Sprintf("type=image,name=%s,push=true,push-by-digest=true,registry.insecure=true", r.Image(c)),
 		"--metadata-file", metadataFile,
@@ -218,10 +223,10 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 						Args:    args,
 						Env: []corev1.EnvVar{
 							{Name: "BUILDKITD_FLAGS", Value: "--config " + contextMount + "/" + buildkitdConfig},
-							{Name: "HTTPS_PROXY", Value: c.EgressProxyURL},
-							{Name: "https_proxy", Value: c.EgressProxyURL},
-							{Name: "HTTP_PROXY", Value: c.EgressProxyURL},
-							{Name: "http_proxy", Value: c.EgressProxyURL},
+							{Name: "HTTPS_PROXY", Value: proxy},
+							{Name: "https_proxy", Value: proxy},
+							{Name: "HTTP_PROXY", Value: proxy},
+							{Name: "http_proxy", Value: proxy},
 							{Name: "NO_PROXY", Value: noProxy},
 							{Name: "no_proxy", Value: noProxy},
 						},

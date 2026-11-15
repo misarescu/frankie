@@ -222,3 +222,26 @@ func TestBuildResourcesCPURequest(t *testing.T) {
 		t.Error("a cpu request above the limit was accepted")
 	}
 }
+
+// M5.2 (D80): a build reaches the internet through the proxy URL its request
+// carries (with the project's egress token), and the image stays the same.
+func TestBuildResourcesEgressProxyURL(t *testing.T) {
+	r := testRequest()
+	r.EgressProxyURL = "http://frankie:feg1.x.y@egress.frankie.svc:3128"
+	_, job, err := BuildResources(testConfig(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := job.Spec.Template.Spec.Containers[0]
+	if args := strings.Join(c.Args, " "); !strings.Contains(args, "build-arg:HTTPS_PROXY="+r.EgressProxyURL) {
+		t.Errorf("args = %s", args)
+	}
+	for _, e := range c.Env {
+		if strings.EqualFold(e.Name, "https_proxy") && e.Value != r.EgressProxyURL {
+			t.Errorf("%s = %q, want the request's proxy", e.Name, e.Value)
+		}
+	}
+	if _, plain, _ := BuildResources(testConfig(), testRequest()); plain.Name != job.Name {
+		t.Errorf("job name changed with the proxy: %s vs %s", plain.Name, job.Name)
+	}
+}

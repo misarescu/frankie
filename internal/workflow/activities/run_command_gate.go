@@ -80,7 +80,7 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 	}
 
 	// The gate runs in the toolchain the commit itself declares.
-	image, err := a.toolchainImage(ctx, in.Repo, req.CommitSHA)
+	image, err := a.toolchainImage(ctx, in, req.CommitSHA)
 	if errors.Is(err, errInvalidProjectConfig) {
 		// The commit under test broke its own toolchain or dependency
 		// declaration: the gate fails, and a loop back can fix it.
@@ -112,12 +112,18 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 	if err != nil {
 		return out, err
 	}
+	// Egress comes from the base branch's config, as the run started, not
+	// from the commit under test (D80).
+	proxy, err := a.egressProxyURL(in, deadline+10*time.Minute)
+	if err != nil {
+		return out, err
+	}
 	pod, err := sandbox.GatePod(sandbox.GatePodSpec{
 		Name: stepPodName(in.IssueKey, req.StepID, step.ID.String()), Namespace: a.Agent.Namespace, Image: image,
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: req.RunID, StepRunID: step.ID.String(), IssueKey: in.IssueKey,
 		Limits: a.Gate.Limits, CPURequest: a.Gate.CPURequest, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
-		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
+		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
 		Branch: req.Branch, CommitSHA: req.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,
 	})

@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,7 +20,11 @@ import (
 type Proxy struct {
 	policy Policy
 	log    *slog.Logger
-	dialer *net.Dialer
+	// dial reaches a destination; it refuses non-public addresses.
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Tokens verifies the egress tokens pods send as their proxy password
+	// (D80); a valid one adds its project's hosts to policy. Nil ignores them.
+	Tokens *Signer
 }
 
 // NewProxy returns a proxy enforcing policy. Dialed addresses must pass CheckPublic.
@@ -27,11 +33,8 @@ func NewProxy(policy Policy, log *slog.Logger) *Proxy {
 }
 
 func newProxy(policy Policy, log *slog.Logger, checkAddr func(netip.Addr) error) *Proxy {
-	return &Proxy{
-		policy: policy,
-		log:    log,
-		dialer: &net.Dialer{Timeout: 10 * time.Second, Control: dialControl(checkAddr)},
-	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: dialControl(checkAddr)}
+	return &Proxy{policy: policy, log: log, dial: dialer.DialContext}
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,12 +53,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.deny(w, r, http.StatusBadRequest, "CONNECT target must be host:port")
 		return
 	}
-	if !p.policy.Allows(host, port) {
+	repo, ok := p.allows(r, host, port)
+	if !ok {
+		if r.Header.Get("Proxy-Authorization") == "" && p.Tokens != nil {
+			// Clients that send credentials only when challenged get the chance.
+			w.Header().Set("Proxy-Authenticate", `Basic realm="frankie-egress"`)
+			p.deny(w, r, http.StatusProxyAuthRequired, "destination not in egress allowlist")
+			return
+		}
 		p.deny(w, r, http.StatusForbidden, "destination not in egress allowlist")
 		return
 	}
 
-	upstream, err := p.dialer.DialContext(r.Context(), "tcp", r.Host)
+	upstream, err := p.dial(r.Context(), "tcp", r.Host)
 	if err != nil {
 		if errors.Is(err, ErrAddressNotAllowed) {
 			p.deny(w, r, http.StatusForbidden, "destination resolves to a non-public address")
@@ -75,7 +85,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	p.log.Info("egress allowed", "host", host, "port", port, "client", r.RemoteAddr)
+	p.log.Info("egress allowed", "host", host, "port", port, "client", r.RemoteAddr, "project", repo)
 	if _, err := io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		_ = client.Close()
 		_ = upstream.Close()
@@ -83,6 +93,49 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Bytes the client sent after the CONNECT headers may already be buffered.
 	tunnel(client, io.MultiReader(buf.Reader, client), upstream)
+}
+
+// allows reports whether the destination is in the platform's list or, for a
+// pod with a valid egress token, in its project's hosts (D80), and names the
+// project when its hosts allowed it. A bad or expired token adds nothing.
+func (p *Proxy) allows(r *http.Request, host string, port int) (string, bool) {
+	if p.policy.Allows(host, port) {
+		return "", true
+	}
+	if p.Tokens == nil {
+		return "", false
+	}
+	token, ok := proxyPassword(r.Header.Get("Proxy-Authorization"))
+	if !ok {
+		return "", false
+	}
+	g, err := p.Tokens.Verify(token)
+	if err != nil {
+		p.log.Warn("egress token refused", "error", err, "client", r.RemoteAddr)
+		return "", false
+	}
+	// Project hosts are plain hostnames on port 443 (ValidateProjectHosts),
+	// so they parse into exact rules.
+	project, err := ParsePolicy(g.Hosts)
+	if err != nil || ValidateProjectHosts(g.Hosts) != nil {
+		return "", false
+	}
+	return g.Repo, project.Allows(host, port)
+}
+
+// proxyPassword returns the password of Basic proxy credentials, where pods
+// put their egress token (user:token in the proxy URL).
+func proxyPassword(header string) (string, bool) {
+	scheme, cred, ok := strings.Cut(header, " ")
+	if !ok || !strings.EqualFold(scheme, "Basic") {
+		return "", false
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cred))
+	if err != nil {
+		return "", false
+	}
+	_, pass, ok := strings.Cut(string(raw), ":")
+	return pass, ok && pass != ""
 }
 
 func (p *Proxy) deny(w http.ResponseWriter, r *http.Request, code int, reason string) {

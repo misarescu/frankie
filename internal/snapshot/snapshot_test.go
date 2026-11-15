@@ -217,3 +217,25 @@ func TestResolveIssueBudget(t *testing.T) {
 		t.Fatalf("no budgets: %+v, %v", s.IssueBudgetUSD, err)
 	}
 }
+
+// M5.2 (D80): the hosts a project adds to the egress list are read at the
+// base commit with the rest, so an agent cannot widen its own egress.
+func TestResolveEgressAllow(t *testing.T) {
+	r := &repo{files: map[string]string{".factory/config.yaml": "egress: {allow: [nodejs.org]}\n"}}
+	s, err := Resolve(t.Context(), r, "acme/app", "main")
+	if err != nil || len(s.EgressAllow) != 1 || s.EgressAllow[0] != "nodejs.org" {
+		t.Fatalf("snapshot = %+v, %v", s, err)
+	}
+	if s, err := ResolveRefinement(t.Context(), r, "acme/app", "main"); err != nil || len(s.EgressAllow) != 1 {
+		t.Fatalf("refinement: %+v, %v", s.EgressAllow, err)
+	}
+	for _, ref := range r.reads {
+		if ref != baseSHA {
+			t.Errorf("read at %q, want the base commit", ref)
+		}
+	}
+	bad := &repo{files: map[string]string{".factory/config.yaml": "egress: {allow: ['*.npmjs.org']}\n"}}
+	if _, err := Resolve(t.Context(), bad, "acme/app", "main"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a wildcard: err = %v, want ErrInvalid", err)
+	}
+}

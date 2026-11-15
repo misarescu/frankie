@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -173,5 +174,26 @@ func TestParseProjectSpecApproval(t *testing.T) {
 	}
 	if _, err := ParseProject([]byte("specApproval: always\n"), 2); err == nil || !strings.Contains(err.Error(), "specApproval") {
 		t.Errorf("unknown value: err = %v", err)
+	}
+}
+
+// M5.2 (D80): a project adds plain hostnames to the platform's egress list.
+func TestParseProjectEgress(t *testing.T) {
+	p, err := ParseProject([]byte("egress:\n  allow: [nodejs.org, registry.npmjs.org]\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Egress.Allow, []string{"nodejs.org", "registry.npmjs.org"}) {
+		t.Errorf("egress.allow = %v", p.Egress.Allow)
+	}
+	for name, body := range map[string]string{
+		"wildcard":      "egress:\n  allow: ['*.npmjs.org']\n",
+		"ip":            "egress:\n  allow: [10.0.0.1]\n",
+		"url":           "egress:\n  allow: ['https://nodejs.org']\n",
+		"unknown field": "egress:\n  deny: [nodejs.org]\n",
+	} {
+		if _, err := ParseProject([]byte(body), 0); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

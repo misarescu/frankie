@@ -56,7 +56,7 @@ func TestChooseWorkflow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, models, in)
+			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, models, false, in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,8 +74,39 @@ func TestChooseWorkflow(t *testing.T) {
 	}
 
 	t.Run("a read failure is retried by the next poll", func(t *testing.T) {
-		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, models, in); err == nil {
+		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, models, false, in); err == nil {
 			t.Fatal("no error")
 		}
 	})
+}
+
+// M5.2 (D80): the hosts a project adds reach the run's activities, read at
+// start; a deployment that does not allow them fails the run with the reason.
+func TestChooseWorkflowEgress(t *testing.T) {
+	in := activities.IssueRunInput{IssueKey: "gc-1", Repo: "acme/app", BaseBranch: "main"}
+	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
+	files := repoFiles{files: map[string]string{".factory/config.yaml": "egress: {allow: [nodejs.org]}\n"}}
+
+	_, arg, err := chooseWorkflow(t.Context(), files, models, true, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := arg.(workflow.InterpretInput)
+	if got.Snapshot.Error != "" || !reflect.DeepEqual(got.Issue.EgressAllow, []string{"nodejs.org"}) {
+		t.Errorf("allowed: issue egress %v, snapshot error %q", got.Issue.EgressAllow, got.Snapshot.Error)
+	}
+
+	_, arg, err = chooseWorkflow(t.Context(), files, models, false, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = arg.(workflow.InterpretInput)
+	if !strings.Contains(got.Snapshot.Error, "egressProxy.projectAllow") || got.Issue.EgressAllow != nil {
+		t.Errorf("refused: issue egress %v, snapshot error %q", got.Issue.EgressAllow, got.Snapshot.Error)
+	}
+
+	_, arg, _ = chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, in)
+	if got := arg.(workflow.InterpretInput); got.Snapshot.Error != "" || got.Issue.EgressAllow != nil {
+		t.Errorf("no hosts: %+v", got)
+	}
 }

@@ -44,6 +44,10 @@ egressProxy:
     - cdn.dl.k8s.io
     # Frankie's lint: kubeconform reads Kubernetes and CRD JSON schemas from GitHub.
     - raw.githubusercontent.com
+    # Node from mise (its dist tarballs and SHASUMS), first needed when
+    # Goodreads-Clone pinned node in mise.toml: every toolchain build retried the
+    # download until it failed.
+    - nodejs.org
 
 llmGateway:
   # Anthropic plus OpenRouter (M4: one workflow uses two providers). Create

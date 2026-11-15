@@ -12,7 +12,8 @@ app.kubernetes.io/name: {{ .Chart.Name }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
+{{- /* "+" is not allowed in a label value; Flux versions charts built from git as 0.1.0+<revision>. */}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end -}}
 
 {{/* Labels selecting one platform component, e.g. include "frankie.componentLabels" (list . "egress-proxy") */}}

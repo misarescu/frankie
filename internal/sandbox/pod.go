@@ -28,6 +28,14 @@ const (
 	IssueKeyLabel  = "frankie.dev/issue"
 )
 
+// SafeToEvictAnnotation set to "false" keeps a cluster autoscaler from evicting
+// the pod when it removes an underused node (D99): a step evicted mid-run fails.
+// Every pod the sandbox launches carries it; without an autoscaler it does nothing.
+const SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+
+// noEvict returns the annotations every sandbox pod carries.
+func noEvict() map[string]string { return map[string]string{SafeToEvictAnnotation: "false"} }
+
 // RunnerPort is where the runner serves RunnerService.
 const RunnerPort = 7070
 
@@ -120,8 +128,9 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.Name,
-			Namespace: s.Namespace,
+			Name:        s.Name,
+			Namespace:   s.Namespace,
+			Annotations: noEvict(),
 			Labels: map[string]string{
 				RoleLabel:      RoleAgent,
 				RunIDLabel:     s.RunID,

@@ -70,6 +70,9 @@ func TestGatePod(t *testing.T) {
 		if pod.Labels[RoleLabel] != RoleGate || pod.Labels[StepRunIDLabel] != "step-2" {
 			t.Errorf("labels = %v", pod.Labels)
 		}
+		if pod.Annotations[SafeToEvictAnnotation] != "false" { // D99
+			t.Errorf("an autoscaler may evict the gate: annotations = %v", pod.Annotations)
+		}
 		if *spec.RuntimeClassName != "kata" || *spec.AutomountServiceAccountToken || !*spec.SecurityContext.RunAsNonRoot ||
 			spec.RestartPolicy != corev1.RestartPolicyNever || *spec.ActiveDeadlineSeconds != 1800 {
 			t.Errorf("pod hardening missing: %+v", spec)

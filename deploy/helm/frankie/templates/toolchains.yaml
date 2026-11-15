@@ -12,6 +12,7 @@ metadata:
     {{- include "frankie.labels" . | nindent 4 }}
 spec:
   accessModes: [ReadWriteOnce]
+  {{- include "frankie.storageClassName" . | nindent 2 }}
   resources:
     requests:
       storage: {{ $r.storage }}
@@ -34,7 +35,12 @@ spec:
     metadata:
       labels:
         {{- include "frankie.componentLabels" (list . "registry") | nindent 8 }}
+      {{- with .Values.platform.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true

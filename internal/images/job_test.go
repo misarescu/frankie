@@ -86,6 +86,12 @@ func TestBuildResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Run("an autoscaler does not evict the build (D99)", func(t *testing.T) {
+		if got := job.Spec.Template.Annotations[SafeToEvictAnnotation]; got != "false" {
+			t.Errorf("pod template annotations = %v", job.Spec.Template.Annotations)
+		}
+	})
+
 	t.Run("context holds the repo files", func(t *testing.T) {
 		files := contextFiles(t, cm)
 		if files["mise.toml"] != string(testInputsSpec().MiseToml) || files["mise.lock"] != "lock" || len(files) != 2 {

@@ -103,7 +103,11 @@ spec:
         {{- include "frankie.componentLabels" (list . "controlplane") | nindent 8 }}
       annotations:
         checksum/config: {{ include "frankie.controlplaneConfig" . | sha256sum }}
+        {{- with .Values.platform.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       serviceAccountName: {{ $name }}
       terminationGracePeriodSeconds: 45
       # Needed to launch agent pods; the Role above limits it to that.

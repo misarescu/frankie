@@ -64,6 +64,8 @@ func TestAgentPodSandboxGuarantees(t *testing.T) {
 		{"run and step labels", pod.Labels[RunIDLabel] != "" && pod.Labels[StepRunIDLabel] != "" && pod.Labels[IssueKeyLabel] == "frk-42"},
 		{"deadline", spec.ActiveDeadlineSeconds != nil && *spec.ActiveDeadlineSeconds == 7200},
 		{"never restarts", spec.RestartPolicy == corev1.RestartPolicyNever},
+		// D99: an autoscaler removing an underused node does not evict a running step.
+		{"not evicted by an autoscaler", pod.Annotations[SafeToEvictAnnotation] == "false"},
 		{"workspace mounted", len(c.VolumeMounts) == 1 && c.VolumeMounts[0].MountPath == "/workspace"},
 		{"image entrypoint by default", c.Command == nil},
 		{"runner works in a directory it owns", len(c.Args) == 2 && c.Args[0] == "--workdir" && c.Args[1] == RunnerWorkdir},

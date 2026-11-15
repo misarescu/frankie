@@ -26,6 +26,21 @@ podResources:
     requests: { cpu: "1" }
     limits: { cpu: "2", memory: 3Gi }
 
+# Where platform pods run (D99). Agent, gate and build pods are not affected; on
+# a cluster with an autoscaled pool, give the platform its own small fixed pool
+# (nodeSelector plus a toleration for that pool's taint) so it never pins a burst
+# node, and so agents keep off it. podAnnotations go on every platform pod.
+platform:
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
+
+# Storage class for every volume claim (Postgres, Temporal, registry, Go module
+# proxy). Empty: the cluster's default class. Use one that keeps the volume when
+# its claim is deleted, so an uninstall cannot drop Postgres (D99).
+persistence:
+  storageClassName: ""
+
 # Platform images (D23). Set images.tag per deployment, e.g. sha-87f0290.
 images:
   registry: ghcr.io/misarescu

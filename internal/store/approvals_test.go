@@ -87,3 +87,31 @@ func TestOpenApprovalValidates(t *testing.T) {
 		t.Fatal("pending is not a decision")
 	}
 }
+
+// M6 (D92): a gate before a merge lets a person request changes; the inbox
+// says so, and the decision is recorded as such.
+func TestApprovalRequestChanges(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
+	run := mustRun(t, s, is.ID)
+	step, err := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: "merge-approval", Attempt: 1, Kind: domain.StepGate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenApproval(ctx, NewApproval{StepRunID: step.ID, Reason: "merge?", ExpiresAt: time.Now().Add(time.Hour), CanRequestChanges: true}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.GetPendingApproval(ctx, step.ID)
+	if err != nil || !p.CanRequestChanges {
+		t.Fatalf("pending = %+v, %v", p, err)
+	}
+	list, _ := s.ListPendingApprovals(ctx)
+	if len(list) != 1 || !list[0].CanRequestChanges {
+		t.Errorf("inbox = %+v", list)
+	}
+	d, err := s.DecideApproval(ctx, step.ID, domain.ApprovalChangesRequested, "ana", "keep the old route too")
+	if err != nil || d.Status != domain.ApprovalChangesRequested || d.Comment != "keep the old route too" {
+		t.Fatalf("decided = %+v, %v", d, err)
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/store"
 	"github.com/misarescu/frankie/internal/workflow"
@@ -149,4 +151,54 @@ func TestDecideGateWithoutWorkflows(t *testing.T) {
 			t.Errorf("status = %d", code)
 		}
 	})
+}
+
+// M6 (D92): a gate before a merge also takes "request-changes", with a
+// comment; other gates only approve or reject.
+func TestDecideGateRequestChanges(t *testing.T) {
+	sig := &fakeSignaler{}
+	st, srv, run, _ := testServerWith(t, sig)
+	plain := pendingGate(t, st, run)
+	step, err := st.CreateStepRun(t.Context(), store.NewStepRun{RunID: run.ID, StepID: "merge-approval", Attempt: 1, Kind: domain.StepGate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.OpenApproval(t.Context(), store.NewApproval{StepRunID: step.ID, Reason: "merge?", ExpiresAt: time.Now().Add(time.Hour),
+		CanRequestChanges: true}); err != nil {
+		t.Fatal(err)
+	}
+	url := func(id uuid.UUID) string { return srv.URL + "/api/gates/" + id.String() + "/decision" }
+
+	if code := postDecision(t, url(step.ID), "application/json", `{"decision":"request-changes"}`); code != http.StatusBadRequest {
+		t.Errorf("without a comment: %d", code)
+	}
+	if code := postDecision(t, url(plain.ID), "application/json", `{"decision":"request-changes","comment":"x"}`); code != http.StatusBadRequest {
+		t.Errorf("on a gate that cannot take it: %d", code)
+	}
+	if len(sig.sent) != 0 {
+		t.Fatalf("signals sent for refused requests: %+v", sig.sent)
+	}
+	if code := postDecision(t, url(step.ID), "application/json", `{"decision":"request-changes","comment":"keep both routes","by":"ana"}`); code != http.StatusAccepted {
+		t.Fatalf("status = %d", code)
+	}
+	want := workflow.HumanDecision{StepRunID: step.ID.String(), By: "ana", Comment: "keep both routes", Action: workflow.DecisionRequestChanges}
+	if len(sig.sent) != 1 || sig.sent[0].arg != want {
+		t.Errorf("signal = %+v", sig.sent)
+	}
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/approvals", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var inbox []approvalJSON
+	_ = json.NewDecoder(resp.Body).Decode(&inbox)
+	can := map[string]bool{}
+	for _, a := range inbox {
+		can[a.Step] = a.CanRequestChanges
+	}
+	if !can["merge-approval"] || can["approve"] {
+		t.Errorf("inbox says %v", can)
+	}
 }

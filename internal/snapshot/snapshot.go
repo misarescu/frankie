@@ -44,6 +44,10 @@ type Snapshot struct {
 	// MergeMethod is how the merge queue merges the run's change request
 	// (D88); empty in snapshots taken before it, which never enqueue.
 	MergeMethod domain.MergeMethod `json:"mergeMethod,omitempty"`
+	// MergeApproval is whether a person approves the change request before
+	// the merge queue takes it (D92): the project's setting, then the issue's
+	// labels as the run started.
+	MergeApproval bool `json:"mergeApproval,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -87,7 +91,8 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 		project.Workflow = workflows.Default
 	}
 
-	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow, MergeMethod: project.MergeMethod()}
+	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow, MergeMethod: project.MergeMethod(),
+		MergeApproval: project.MergeApprovalRequired(nil)}
 	raw, found, err := rd.read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)

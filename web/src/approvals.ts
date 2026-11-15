@@ -13,9 +13,21 @@ export type Approval = {
   change_request_url?: string;
   expires_at: string;
   created_at: string;
+  // The gate before a merge also takes "request-changes" (D92).
+  can_request_changes?: boolean;
 };
 
-export type Decision = "approve" | "reject";
+export type Decision = "approve" | "reject" | "request-changes";
+
+// approvalHelp says what each decision does on a gate: before a merge,
+// rejecting closes the change request and requesting changes sends it back.
+export function approvalHelp(a: Pick<Approval, "can_request_changes">): { placeholder: string; reject: string } {
+  if (!a.can_request_changes) return { placeholder: "Comment (optional; recorded with the decision)", reject: "Reject" };
+  return {
+    placeholder: "Comment (required to request changes: the coder gets it; with Reject it goes on the closed change request)",
+    reject: "Reject and close",
+  };
+}
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 

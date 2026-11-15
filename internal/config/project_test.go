@@ -217,3 +217,24 @@ func TestParseProjectEgress(t *testing.T) {
 		}
 	}
 }
+
+// M6 (D92): a project opts into approving change requests before they merge;
+// an issue label overrides it either way.
+func TestParseProjectMergeApproval(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"": false, "mergeApproval: off\n": false, "mergeApproval: false\n": false,
+		"mergeApproval: required\n": true, "mergeApproval: true\n": true,
+	} {
+		p, err := ParseProject([]byte(raw), 2)
+		if err != nil || p.MergeApprovalRequired(nil) != want {
+			t.Errorf("%q: %v, %v; want %v", raw, p.MergeApprovalRequired(nil), err, want)
+		}
+	}
+	if _, err := ParseProject([]byte("mergeApproval: sometimes\n"), 2); err == nil || !strings.Contains(err.Error(), "mergeApproval") {
+		t.Errorf("bad value: %v", err)
+	}
+	on, _ := ParseProject([]byte("mergeApproval: required\n"), 2)
+	if on.MergeApprovalRequired([]string{LabelNoMergeApproval}) || !(Project{}).MergeApprovalRequired([]string{"factory", LabelNeedsMergeApproval}) {
+		t.Error("labels do not override the project")
+	}
+}

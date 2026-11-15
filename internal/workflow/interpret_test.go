@@ -85,6 +85,8 @@ type interpretFixture struct {
 	queue    func(req activities.EnqueueRequest) QueueOutcome
 	stale    *QueueOutcome
 	left     int // LeaveQueue calls
+	// closedCR records CloseChangeRequest comments.
+	closedCR []string
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -181,6 +183,10 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 			f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, stale) }, 30*time.Minute)
 		}
 		f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, out) }, time.Hour)
+		return nil
+	})
+	f.env.OnActivity(a.CloseChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, _, comment string) error {
+		f.closedCR = append(f.closedCR, comment)
 		return nil
 	})
 	f.env.OnActivity(a.LeaveQueue, mock.Anything, testInput.IssueID).Return(func(context.Context, string) error {
@@ -369,6 +375,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_question_answered.json", "M4: step-answers version, a question answered by signal"},
 	{"testdata/interpret_default_build_merged.json", "M6: merge-queue version, protected change approved, then merged by the queue"},
 	{"testdata/interpret_queue_conflict_then_merged.json", "M6: merge-queue-loop version, a conflict sent back to the coder, then merged"},
+	{"testdata/interpret_merge_approval_changes_requested.json", "M6: merge-approval version, changes requested, then approved and merged"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

@@ -44,6 +44,9 @@ type IssueRunInput struct {
 	// list, from its snapshot (D80); the run's agent, gate and build pods get
 	// a token for them.
 	EgressAllow []string `json:",omitempty"`
+	// Labels are the issue's labels as the run started; some override the
+	// project's settings (D92).
+	Labels []string `json:",omitempty"`
 }
 
 // IssueDependency is an issue another one depends on, as refinement sees it.
@@ -254,6 +257,8 @@ type HumanGateRequest struct {
 	CommitSHA        string
 	ChangeRequestURL string
 	ExpiresAt        time.Time
+	// CanRequestChanges offers sending the change back to the coder (D92).
+	CanRequestChanges bool `json:",omitempty"`
 }
 
 // HumanGateClose records how a human gate ended.

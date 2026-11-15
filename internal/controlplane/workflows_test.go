@@ -110,3 +110,31 @@ func TestChooseWorkflowEgress(t *testing.T) {
 		t.Errorf("no hosts: %+v", got)
 	}
 }
+
+// M6 (D92): the project's merge approval, overridden by the issue's labels,
+// is fixed in the snapshot when the run starts.
+func TestChooseWorkflowMergeApproval(t *testing.T) {
+	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
+	required := repoFiles{files: map[string]string{".factory/config.yaml": "mergeApproval: required\n"}}
+	tests := []struct {
+		name   string
+		files  repoFiles
+		labels []string
+		want   bool
+	}{
+		{"off by default", repoFiles{files: map[string]string{}}, nil, false},
+		{"the project requires it", required, []string{"factory"}, true},
+		{"a label lifts it", required, []string{config.LabelNoMergeApproval}, false},
+		{"a label asks for it", repoFiles{files: map[string]string{}}, []string{config.LabelNeedsMergeApproval}, true},
+	}
+	for _, tt := range tests {
+		in := activities.IssueRunInput{IssueKey: "gc-1", Repo: "acme/app", BaseBranch: "main", Labels: tt.labels}
+		_, arg, err := chooseWorkflow(t.Context(), tt.files, models, false, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := arg.(workflow.InterpretInput).Snapshot; got.Error != "" || got.MergeApproval != tt.want {
+			t.Errorf("%s: merge approval %v (error %q), want %v", tt.name, got.MergeApproval, got.Error, tt.want)
+		}
+	}
+}

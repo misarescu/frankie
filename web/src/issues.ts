@@ -53,6 +53,9 @@ export type IssueDetail = {
   spec_approved_at?: string;
   spec_approved_by?: string;
   spec_feedback?: string;
+  // Set while a draft is held: its spec was sent back or its refinement
+  // failed, and it waits until someone asks again (D64, D66).
+  spec_rejected_at?: string;
   spec_proposal?: RefinedSpec;
   // Who completed or canceled the issue, when, and why (D70).
   closed_at?: string;
@@ -169,7 +172,8 @@ export type IssueActions = {
 };
 
 export function issueActions(
-  is: Pick<IssueDetail, "status" | "children" | "start_requested_by" | "start_requested_via" | "spec_proposal" | "change_requests">,
+  is: Pick<IssueDetail, "status" | "children" | "start_requested_by" | "start_requested_via" | "spec_proposal" | "change_requests">
+    & Partial<Pick<IssueDetail, "spec_rejected_at">>,
 ): IssueActions {
   const finished = isFinished(is.status);
   const out: IssueActions = { retry: is.status === "failed", complete: canComplete(is), cancel: !finished };
@@ -182,6 +186,13 @@ export function issueActions(
     // later (D62): once requested, there is nothing more to start.
     if (requested) out.note = requested;
     else out.start = "Start all under it";
+    return out;
+  }
+  // A held draft waits for a person even when a request covers it (M5.2):
+  // asking again lifts the hold, and the refiner gets the feedback.
+  if (is.status === "draft" && is.spec_rejected_at) {
+    out.start = "Refine again";
+    out.note = "Held until someone asks again";
     return out;
   }
   switch (is.status) {

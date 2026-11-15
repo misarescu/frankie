@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -65,7 +66,7 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) (string, error) 
 			return "", err
 		}
 		if _, failure := jobState(live); failure != "" {
-			return "", fmt.Errorf("build job %s failed: %s", job.Name, failure)
+			return "", fmt.Errorf("build job %s failed: %s%s", job.Name, failure, b.failureLog(ctx, live))
 		}
 		return b.reportedDigest(ctx, live)
 	}
@@ -152,6 +153,41 @@ func failureTime(j *batchv1.Job) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+// Bounds on the part of a failed build's log its error carries: BuildKit ends
+// with the failing step's output and the error.
+const (
+	buildLogTailLines = 40
+	buildLogTailBytes = 6 << 10
+)
+
+// failureLog is the end of a failed build's log, introduced for the error, so
+// a run's transcript says why its image did not build (M5.2). It reads the
+// newest pod of the Job; a log that cannot be read is said to be missing.
+func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
+	pods := b.Kube.CoreV1().Pods(b.Config.Namespace)
+	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
+	if err != nil || len(list.Items) == 0 {
+		return "\n(no build log: the build pod is gone)"
+	}
+	newest := list.Items[0]
+	for _, p := range list.Items[1:] {
+		if p.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = p
+		}
+	}
+	raw, err := pods.GetLogs(newest.Name, &corev1.PodLogOptions{
+		Container: buildContainer, TailLines: ptrTo(int64(buildLogTailLines)), LimitBytes: ptrTo(int64(buildLogTailBytes)),
+	}).Do(ctx).Raw()
+	if err != nil {
+		return "\n(no build log: " + err.Error() + ")"
+	}
+	tail := strings.TrimRight(string(raw), "\n")
+	if tail == "" {
+		return "\n(the build log is empty)"
+	}
+	return "\nlast lines of the build log:\n" + tail
 }
 
 // reportedDigest reads containerimage.digest from the termination message of

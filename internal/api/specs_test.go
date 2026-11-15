@@ -92,6 +92,10 @@ func TestSpecApprovalInbox(t *testing.T) {
 	if detail.SpecFeedback != "which page? (ana)" || detail.SpecProposal != nil {
 		t.Errorf("rejected detail: feedback %q, proposal %+v", detail.SpecFeedback, detail.SpecProposal)
 	}
+	// M5.2: the page sees the draft is held, so it can offer to refine again.
+	if detail.SpecRejectedAt == nil {
+		t.Error("rejected detail: not held")
+	}
 	if getJSON(t, srv.URL+"/api/specs", &specs); len(specs) != 0 {
 		t.Fatalf("specs after deciding = %+v; want none", specs)
 	}

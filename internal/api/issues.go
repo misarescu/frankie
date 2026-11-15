@@ -173,6 +173,9 @@ type issueDetailJSON struct {
 	SpecApprovedBy    string              `json:"spec_approved_by,omitempty"`
 	SpecFeedback      string              `json:"spec_feedback,omitempty"`
 	SpecProposal      *domain.RefinedSpec `json:"spec_proposal,omitempty"`
+	// SpecRejectedAt is set while a draft is held (D64, D66): its spec was sent
+	// back or its refinement failed, and it waits until someone asks again.
+	SpecRejectedAt *time.Time `json:"spec_rejected_at,omitempty"`
 	// Who completed or canceled the issue, when, and why (D70).
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
 	ClosedBy    string         `json:"closed_by,omitempty"`
@@ -224,7 +227,7 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 		SourceRef: is.SourceRef, CreatedBy: is.CreatedBy, CreatedAt: is.CreatedAt, UpdatedAt: is.UpdatedAt,
 		StartRequestedAt: is.StartRequestedAt, StartRequestedBy: is.StartRequestedBy,
 		SpecApprovedAt: is.SpecApprovedAt, SpecApprovedBy: is.SpecApprovedBy, SpecFeedback: is.SpecFeedback,
-		SpecProposal: is.SpecProposal, ClosedAt: is.ClosedAt, ClosedBy: is.ClosedBy, CloseReason: is.CloseReason}
+		SpecRejectedAt: is.SpecRejectedAt, SpecProposal: is.SpecProposal, ClosedAt: is.ClosedAt, ClosedBy: is.ClosedBy, CloseReason: is.CloseReason}
 	p, err := s.Store.GetProject(ctx, is.ProjectID)
 	if err != nil {
 		return out, err

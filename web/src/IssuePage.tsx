@@ -123,7 +123,9 @@ export function IssuePage({ issueKey }: { issueKey: string }) {
         </p>
       )}
       {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
-      {is.spec_feedback && <p className="question">Last spec sent back: {is.spec_feedback}</p>}
+      {is.spec_feedback && (
+        <p className="question">{is.spec_rejected_at ? "Held" : "Last spec sent back"}: {is.spec_feedback}</p>
+      )}
       {is.overlaps.length > 0 && (
         <p className="question">
           Likely overlap: {is.overlaps.map((o) => `${o.with} (${o.paths.join(", ")})`).join("; ")}

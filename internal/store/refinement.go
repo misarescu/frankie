@@ -30,10 +30,12 @@ func (s *Store) RecordRefinement(ctx context.Context, issueID, runID uuid.UUID, 
 	return err
 }
 
-// FailRefinement ends a refinement that produced no usable spec: its run fails,
-// and the issue returns to draft, held with the reason as feedback like a
-// rejection, so a failing refiner does not run again until someone asks (D66).
-func (s *Store) FailRefinement(ctx context.Context, issueID, runID uuid.UUID, reason string) error {
+// FailRefinement ends a refinement that produced no usable spec: its run fails
+// and the issue returns to draft. With hold, the draft is held with the reason
+// as feedback like a rejection, so a failing refiner does not run again until
+// someone asks (D66); without, it stays requested and the scheduler starts it
+// again (D79: the refinement failed before its agent started).
+func (s *Store) FailRefinement(ctx context.Context, issueID, runID uuid.UUID, reason string, hold bool) error {
 	if _, err := s.TransitionRun(ctx, runID, domain.ExecRunning, domain.ExecFailed); err != nil {
 		return err
 	}
@@ -48,6 +50,9 @@ func (s *Store) FailRefinement(ctx context.Context, issueID, runID uuid.UUID, re
 			}
 		} else if domain.IssueStatus(cur.Status) != domain.IssueDraft {
 			return nil // a person moved it on; nothing to hold
+		}
+		if !hold {
+			return nil
 		}
 		_, err = q.RejectSpec(ctx, db.RejectSpecParams{ID: issueID, Feedback: "refinement failed: " + reason})
 		return mapErr("hold issue", err)

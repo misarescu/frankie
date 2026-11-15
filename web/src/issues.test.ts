@@ -155,6 +155,14 @@ test("M5.1: the issue page offers Start only where it does something", () => {
   expect(issueActions({ ...parent, children: [ref("merged")] })).toMatchObject({ complete: true, cancel: true });
 });
 
+test("M5.2: a held draft offers to refine again, also under a parent's request", () => {
+  const held = { status: "draft", children: [] as IssueRef[], change_requests: [] as IssueDetail["change_requests"],
+    spec_rejected_at: "2026-11-15T02:36:00Z" as string | undefined };
+  expect(issueActions(held)).toEqual({ start: "Refine again", retry: false, complete: false, cancel: true, note: "Held until someone asks again" });
+  expect(issueActions({ ...held, start_requested_by: "Mihai", start_requested_via: "gc-13" }).start).toBe("Refine again");
+  expect(issueActions({ ...held, spec_rejected_at: undefined, start_requested_by: "Mihai" }).start).toBeUndefined();
+});
+
 test("M5.1: a parent's spec is not approved", () => {
   const base = { status: "draft", type: "task", children: [] as IssueRef[] };
   expect(specDecidable(base)).toBe(true);

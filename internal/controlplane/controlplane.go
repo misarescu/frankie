@@ -27,6 +27,12 @@ type Config struct {
 	DatabaseURL string
 	// GitProxyKey signs git proxy tokens (D21); at least 32 bytes.
 	GitProxyKey []byte
+	// EgressKey signs egress tokens (D80), which the egress proxy verifies
+	// with the same key; at least 32 bytes when EgressProjectAllow is set.
+	EgressKey []byte
+	// EgressProjectAllow lets projects add hosts to the egress list in their
+	// `.factory/config.yaml` (egressProxy.projectAllow, D80).
+	EgressProjectAllow bool
 	// APIToken is the bearer token the API's write endpoints require (D58); at
 	// least api.MinTokenLen bytes.
 	APIToken string

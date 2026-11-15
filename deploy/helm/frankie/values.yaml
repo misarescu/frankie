@@ -182,6 +182,10 @@ egressProxy:
   port: 3128
   # Hostnames agent pods may reach over HTTPS; profiles set the list.
   allow: []
+  # Let projects add plain hostnames in .factory/config.yaml (egress.allow, D80):
+  # each pod gets a signed token for its project's hosts. When false, a run of
+  # a project that adds any fails with the reason.
+  projectAllow: true
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits: { cpu: 250m, memory: 64Mi }

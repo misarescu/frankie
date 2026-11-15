@@ -15,6 +15,7 @@ import (
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/egress"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/images"
@@ -39,6 +40,10 @@ type IssueRunInput struct {
 	// ancestors', as they stood when the run started; only refinement passes
 	// them, so the refiner writes the spec against what they deliver (M5.1).
 	Dependencies []IssueDependency `json:",omitempty"`
+	// EgressAllow are the hosts the project adds to the platform's egress
+	// list, from its snapshot (D80); the run's agent, gate and build pods get
+	// a token for them.
+	EgressAllow []string `json:",omitempty"`
 }
 
 // IssueDependency is an issue another one depends on, as refinement sees it.
@@ -276,6 +281,9 @@ type Activities struct {
 	Gateway *gateway.Client
 	Signer  *gitproxy.Signer
 	GitHub  *github.Client
+	// Egress signs the egress tokens that give a run's pods its project's
+	// hosts (D80); nil leaves pods on the platform's list.
+	Egress *egress.Signer
 	// Toolchain builds and finds toolchain images (D30); nil disables them and
 	// agent pods run in the platform base image.
 	Toolchain *images.Ensurer

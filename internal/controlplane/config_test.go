@@ -279,3 +279,17 @@ func TestLoadConfigFileCPURequests(t *testing.T) {
 		}
 	})
 }
+
+// M5.2 (D80): whether projects may add egress hosts comes from the chart.
+func TestLoadConfigFileEgressProjectAllow(t *testing.T) {
+	for body, want := range map[string]bool{`{"egressProjectAllow": true}`: true, `{}`: false} {
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		if err := LoadConfigFile(path, &cfg); err != nil || cfg.EgressProjectAllow != want {
+			t.Errorf("%s: allow = %v, %v; want %v", body, cfg.EgressProjectAllow, err, want)
+		}
+	}
+}

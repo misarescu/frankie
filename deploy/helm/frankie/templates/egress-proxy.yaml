@@ -30,6 +30,7 @@ spec:
         {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 8 }}
       annotations:
         checksum/allowlist: {{ .Values.egressProxy.allow | toJson | sha256sum }}
+        checksum/project-allow: {{ .Values.egressProxy.projectAllow | toString | sha256sum }}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -42,7 +43,15 @@ spec:
         - name: egress-proxy
           image: {{ include "frankie.image" (list . "egress-proxy") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
-          args: ["--listen", ":{{ .Values.egressProxy.port }}", "--allow-file", "/etc/egress/allowlist"]
+          args: ["--listen", ":{{ .Values.egressProxy.port }}", "--allow-file", "/etc/egress/allowlist",
+                 "--project-allow={{ .Values.egressProxy.projectAllow }}"]
+          {{- if .Values.egressProxy.projectAllow }}
+          env:
+            # Verifies the egress tokens the control plane signs (D80).
+            - name: FRANKIE_EGRESS_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ printf "%s-controlplane" (include "frankie.fullname" .) }}, key: egress-key }
+          {{- end }}
           ports:
             - name: proxy
               containerPort: {{ .Values.egressProxy.port }}

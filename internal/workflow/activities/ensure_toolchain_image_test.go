@@ -327,3 +327,22 @@ func TestEnsureToolchainImageRefusesBadDependencyDeclarations(t *testing.T) {
 		})
 	}
 }
+
+// M5.2 (D80): a toolchain build reaches the project's egress hosts: the
+// missing nodejs.org of the M5.1 run is the project's to add.
+func TestEnsureToolchainImageBuildsWithTheProjectEgress(t *testing.T) {
+	a, b := toolchainActivities(t, map[string]string{"mise.toml": "[tools]\nnode = \"24\"\n"})
+	s := egressSigner(t)
+	a.Egress, a.Agent.EgressProxyURL = s, "http://proxy:3128"
+	in := testInput
+	in.EgressAllow = []string{"nodejs.org"}
+	if _, err := activityEnv(a).ExecuteActivity(a.EnsureToolchainImage, in); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.builds) != 1 {
+		t.Fatalf("builds = %d", len(b.builds))
+	}
+	if g, ok := egressGrant(t, s, b.builds[0].EgressProxyURL); !ok || g.Hosts[0] != "nodejs.org" {
+		t.Errorf("build proxy = %q, want the project's egress token", b.builds[0].EgressProxyURL)
+	}
+}

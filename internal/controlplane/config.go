@@ -104,6 +104,8 @@ type fileConfig struct {
 		ScratchSize    string   `json:"scratchSize"`
 		Deadline       string   `json:"deadline"`
 	} `json:"toolchains"`
+	// EgressProjectAllow is egressProxy.projectAllow (D80).
+	EgressProjectAllow bool `json:"egressProjectAllow"`
 }
 
 // gate parses the command gate settings; without them gates use the agent's
@@ -275,6 +277,7 @@ func LoadConfigFile(path string, cfg *Config) error {
 	cfg.MaxConcurrentIssues = max(fc.MaxConcurrentIssues, 1)
 	cfg.TemporalAddress, cfg.TemporalNamespace = fc.Temporal.Address, fc.Temporal.Namespace
 	cfg.GatewayAdminURL = fc.GatewayAdminURL
+	cfg.EgressProjectAllow = fc.EgressProjectAllow
 
 	var poll, deadline, session, idle time.Duration
 	for _, d := range []struct {

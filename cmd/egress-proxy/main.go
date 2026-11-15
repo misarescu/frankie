@@ -1,5 +1,7 @@
 // Command egress-proxy is the only route from agent pods to the internet (D20):
-// a CONNECT-only forward proxy with a hostname allowlist.
+// a CONNECT-only forward proxy with a hostname allowlist. With a signing key in
+// FRANKIE_EGRESS_KEY and --project-allow, a pod's egress token adds the hosts
+// its project declared (D80).
 package main
 
 import (
@@ -28,6 +30,7 @@ func run() error {
 	listen := flag.String("listen", ":3128", "proxy listen address")
 	allowFile := flag.String("allow-file", "", "file with one allowlist entry per line (# comments)")
 	allow := flag.String("allow", "", "comma-separated allowlist entries, added to --allow-file")
+	projectAllow := flag.Bool("project-allow", false, "let egress tokens add their project's hosts (needs FRANKIE_EGRESS_KEY)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -50,8 +53,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", *listen, err)
 	}
-	logger.Info("serving", "addr", lis.Addr().String(), "rules", policy.Len())
-	return egress.Serve(ctx, lis, egress.NewProxy(policy, logger))
+	proxy := egress.NewProxy(policy, logger)
+	if *projectAllow {
+		if proxy.Tokens, err = egress.NewSigner([]byte(os.Getenv("FRANKIE_EGRESS_KEY"))); err != nil {
+			return fmt.Errorf("--project-allow: FRANKIE_EGRESS_KEY: %w", err)
+		}
+	}
+	logger.Info("serving", "addr", lis.Addr().String(), "rules", policy.Len(), "project_allow", proxy.Tokens != nil)
+	return egress.Serve(ctx, lis, proxy)
 }
 
 func readEntries(path string) ([]string, error) {

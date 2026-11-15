@@ -296,3 +296,26 @@ func TestRunCommandGateFailsOnABrokenDependencyDeclaration(t *testing.T) {
 		t.Fatalf("outcome = %+v, pods %d", out, len(f.created))
 	}
 }
+
+// M5.2 (D80): the gate pod reaches the hosts the project's base branch adds,
+// in every container that may download.
+func TestRunCommandGateCarriesTheEgressToken(t *testing.T) {
+	f := newGateFixture(t, code(0), code(0), code(0))
+	s := egressSigner(t)
+	f.a.Egress = s
+	f.in.EgressAllow = []string{"registry.npmjs.org"}
+	if out := f.gate(t); !out.Passed {
+		t.Fatalf("outcome = %+v", out)
+	}
+	pod := f.created[0]
+	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		for _, e := range c.Env {
+			if e.Name != "HTTPS_PROXY" {
+				continue
+			}
+			if g, ok := egressGrant(t, s, e.Value); !ok || g.Hosts[0] != "registry.npmjs.org" {
+				t.Errorf("%s: HTTPS_PROXY = %q, want the project's egress token", c.Name, e.Value)
+			}
+		}
+	}
+}

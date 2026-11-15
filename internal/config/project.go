@@ -16,6 +16,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
+
+	"github.com/misarescu/frankie/internal/egress"
 )
 
 // ProjectConfigPath is where a repo declares its project config.
@@ -35,6 +37,9 @@ type Project struct {
 	Dependencies *Dependencies `json:"dependencies,omitempty"`
 	// Budgets cap model spend (D53).
 	Budgets Budgets `json:"budgets,omitempty"`
+	// Egress adds hosts to the platform's egress list for the project's agent,
+	// gate and build pods (D80).
+	Egress Egress `json:"egress,omitempty"`
 	// SpecApproval is "required" when an issue's spec needs a person's approval
 	// before it runs, or "off" (the default, also when empty) (D64). Issue labels
 	// override it per issue: LabelNeedsSpecApproval and LabelNoSpecApproval.
@@ -52,6 +57,14 @@ const (
 // RequiresSpecApproval reports whether the project's issues need an approved spec
 // unless a label says otherwise.
 func (p Project) RequiresSpecApproval() bool { return p.SpecApproval == SpecApprovalRequired }
+
+// Egress is what a project adds to the platform's egress list (D80). It is
+// read from the base branch when a run starts, so a change to it takes effect
+// for runs started after it merges; `.factory/**` is a protected path.
+type Egress struct {
+	// Allow lists plain hostnames the project's pods may reach on port 443.
+	Allow []string `json:"allow,omitempty"`
+}
 
 // Budgets cap what a project's work may spend on models, in USD, enforced
 // by the LLM gateway through each session's virtual key (D53). Zero means
@@ -204,6 +217,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if b := p.Budgets.IssueUSD; b < 0 || b > MaxIssueBudgetUSD {
 		errs = append(errs, fmt.Errorf("budgets.issueUSD: %v must be between 0 (the platform's default) and %d", b, MaxIssueBudgetUSD))
+	}
+	if err := egress.ValidateProjectHosts(p.Egress.Allow); err != nil {
+		errs = append(errs, err)
 	}
 	seen := map[string]bool{}
 	for i := range p.Services {

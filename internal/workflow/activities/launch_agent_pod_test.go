@@ -116,3 +116,28 @@ func TestAgentPodSpecCPURequestByStep(t *testing.T) {
 		})
 	}
 }
+
+// M5.2 (D80): the agent's proxy URL carries the project's egress token.
+func TestAgentPodSpecCarriesTheEgressToken(t *testing.T) {
+	s := egressSigner(t)
+	a := &Activities{Egress: s, Log: quietLog(), Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
+		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour, WorkspaceSize: resource.MustParse("1Gi"),
+		Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+	}}
+	in := testInput
+	in.EgressAllow = []string{"nodejs.org"}
+	pod, err := a.agentPodSpec(in, testRun, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proxy string
+	for _, e := range pod.Spec.Containers[0].Env {
+		if e.Name == "HTTPS_PROXY" {
+			proxy = e.Value
+		}
+	}
+	if g, ok := egressGrant(t, s, proxy); !ok || g.Hosts[0] != "nodejs.org" {
+		t.Errorf("HTTPS_PROXY = %q, want the project's egress token", proxy)
+	}
+}

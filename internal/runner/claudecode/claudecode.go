@@ -32,6 +32,11 @@ type Harness struct {
 	Binary string
 	// KillGrace is how long Abort waits after SIGTERM before SIGKILL; default 5s.
 	KillGrace time.Duration
+	// ExitGrace is how long claude may stay silent after answering every
+	// message before the session ends with its last result; default 2m.
+	// Claude Code does not exit while a background task the agent started is
+	// still running, even after its final result (M5.2).
+	ExitGrace time.Duration
 
 	prefixArgs []string // tests: arguments placed before the claude flags
 }
@@ -112,6 +117,10 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 	if grace <= 0 {
 		grace = 5 * time.Second
 	}
+	exitGrace := h.ExitGrace
+	if exitGrace <= 0 {
+		exitGrace = 2 * time.Minute
+	}
 	args, err := Args(cfg)
 	if err != nil {
 		return nil, err
@@ -150,7 +159,8 @@ func (h *Harness) Start(ctx context.Context, cfg runner.SessionConfig, emit runn
 		return nil, fmt.Errorf("claudecode: start %s: %w", bin, err)
 	}
 
-	s := &session{cmd: cmd, stdin: stdin, emit: emit, tr: newTranslator(emit), stderr: stderr, grace: grace, done: make(chan struct{})}
+	s := &session{cmd: cmd, stdin: stdin, emit: emit, tr: newTranslator(emit), stderr: stderr, grace: grace, exitGrace: exitGrace,
+		done: make(chan struct{}), lastOutput: time.Now()}
 	readDone := make(chan struct{})
 	go s.read(stdout, readDone)
 	go s.wait(readDone)
@@ -164,7 +174,10 @@ type session struct {
 	tr     *translator
 	stderr *runner.TailBuffer
 	grace  time.Duration
-	done   chan struct{}
+	// exitGrace is how long claude may stay silent once every message is
+	// answered (Harness.ExitGrace).
+	exitGrace time.Duration
+	done      chan struct{}
 
 	mu       sync.Mutex
 	written  int // user messages sent
@@ -176,6 +189,11 @@ type session struct {
 	inputClosed   bool
 	abortStatus   runner.DoneStatus
 	abortReason   string
+	lastOutput    time.Time
+	// endedAfterResult is set when the session stopped claude after it
+	// answered every message and then stayed silent: the session ends with
+	// its last result, not as killed.
+	endedAfterResult bool
 }
 
 // userMessage is one stream-json input line.
@@ -225,6 +243,45 @@ func (s *session) turnEnded() {
 	if allAnswered && !s.inputClosed {
 		s.inputClosed = true
 		_ = s.stdin.Close()
+		go s.endWhenSilent()
+	}
+}
+
+// endWhenSilent stops claude once it has stayed silent for exitGrace after
+// answering every message. Claude Code waits for the background tasks the
+// agent started before it exits, and a task that never ends (a loop waiting
+// for a line that never comes) would otherwise hold the session until the
+// idle timeout fails it, although its result is in. Output, such as a turn
+// Claude Code starts when a background task finishes, restarts the wait.
+func (s *session) endWhenSilent() {
+	wait := s.exitGrace
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-time.After(wait):
+		}
+		s.mu.Lock()
+		if s.abortStatus != "" {
+			s.mu.Unlock()
+			return
+		}
+		if silent := time.Since(s.lastOutput); silent < s.exitGrace {
+			wait = s.exitGrace - silent
+			s.mu.Unlock()
+			continue
+		}
+		s.endedAfterResult = true
+		s.mu.Unlock()
+		s.emit(domain.EventError, runner.Error{Message: "harness stopped after its result",
+			Detail: fmt.Sprintf("claude stayed silent for %s after answering every message, waiting for its background tasks", s.exitGrace)})
+		runner.TerminateGroup(s.cmd)
+		select {
+		case <-s.done:
+		case <-time.After(s.grace):
+			runner.KillGroup(s.cmd)
+		}
+		return
 	}
 }
 
@@ -264,6 +321,11 @@ func (s *session) read(stdout io.Reader, readDone chan<- struct{}) {
 	r := bufio.NewReaderSize(stdout, 64<<10)
 	for {
 		line, err := r.ReadBytes('\n')
+		if len(line) > 0 {
+			s.mu.Lock()
+			s.lastOutput = time.Now()
+			s.mu.Unlock()
+		}
 		if len(line) > 0 && s.tr.handle(line) {
 			s.turnEnded()
 		}
@@ -291,6 +353,10 @@ func (s *session) wait(readDone <-chan struct{}) {
 	switch {
 	case s.abortStatus != "":
 		done.Status, done.Reason = s.abortStatus, s.abortReason
+	case s.endedAfterResult && s.tr.last != nil && s.tr.last.isError:
+		done.Status, done.Reason = runner.DoneFailed, "harness reported an error result: "+s.tr.last.subtype
+	case s.endedAfterResult:
+		done.Status = runner.DoneSucceeded
 	case waitErr != nil:
 		done.Status, done.Reason = runner.DoneFailed, fmt.Sprintf("harness exited: %v", waitErr)
 	case s.written == 0:

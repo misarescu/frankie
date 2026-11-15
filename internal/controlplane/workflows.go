@@ -108,7 +108,7 @@ func (t temporalStarter) StartRefinement(ctx context.Context, in activities.Issu
 // tries again on its next poll. IssueRun is no longer started; it stays
 // registered until its runs drain.
 func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, egressAllowed bool, in activities.IssueRunInput) (any, any, error) {
-	snap, err := snapshot.Resolve(ctx, files, in.Repo, in.BaseBranch)
+	snap, err := snapshot.ResolveFor(ctx, files, in.Repo, in.BaseBranch, in.Type)
 	switch {
 	case errors.Is(err, snapshot.ErrInvalid):
 		snap = snapshot.Snapshot{Error: err.Error()}

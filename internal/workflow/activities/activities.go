@@ -47,6 +47,9 @@ type IssueRunInput struct {
 	// Labels are the issue's labels as the run started; some override the
 	// project's settings (D92).
 	Labels []string `json:",omitempty"`
+	// Type is the issue's type (epic, story, task or bug); it picks the
+	// workflow when the project names one per type (D94).
+	Type string `json:",omitempty"`
 }
 
 // IssueDependency is an issue another one depends on, as refinement sees it.
@@ -81,6 +84,9 @@ type StartRunResult struct {
 	// leaves it nil and gets the M2 step: the implement prompt and the platform's
 	// model, budget and timeout.
 	Step *AgentStep `json:",omitempty"`
+	// Findings is what the run's investigation found, rendered; the change
+	// request's description carries it (D94).
+	Findings string `json:",omitempty"`
 }
 
 // AgentStep is one execution of a definition's agent step, resolved by the
@@ -104,6 +110,9 @@ type AgentStep struct {
 	// Feedback is what the gate that looped back to this step found, when the
 	// step takes the feedback input.
 	Feedback string
+	// Findings is what an earlier investigating step found, rendered, when
+	// the step takes the findings input (D94).
+	Findings string `json:",omitempty"`
 	// AllowedTools are the role's harness-neutral tools; empty means all.
 	AllowedTools []string `json:",omitempty"`
 	// Contract is the role's output contract, e.g. review-verdict. A step with

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frankie.dev/schemas/bug-findings.json",
+  "title": "Bug findings",
+  "description": "What a bug investigation returns: the root cause with the code that shows it, how to reproduce the bug, and whether an automated test can show it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["root_cause", "evidence", "reproduce", "testable", "confidence"],
+  "properties": {
+    "root_cause": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Why the bug happens, in the code, not the symptom." },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "note"],
+        "properties": {
+          "file": { "type": "string", "description": "Path relative to the repository root." },
+          "line": { "type": "integer", "minimum": 1 },
+          "note": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "What this place shows." }
+        }
+      }
+    },
+    "reproduce": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Steps or a command that shows the bug." },
+    "testable": { "type": "boolean", "description": "Whether an automated test in this repo can show the bug." },
+    "test_plan": { "type": "string", "maxLength": 4000, "description": "Required when testable: which test, where, asserting what." },
+    "why_untestable": { "type": "string", "maxLength": 4000, "description": "Required when not testable: why no test can show it." },
+    "confidence": { "enum": ["high", "medium", "low"] }
+  }
+}

@@ -131,13 +131,33 @@ func TestResolveDefaultsToTheBuiltInWorkflow(t *testing.T) {
 	}
 }
 
+// M6 (D94): an issue's type picks the project's definition for that type,
+// else the project's, else the platform's.
+func TestResolveForIssueType(t *testing.T) {
+	files := map[string]string{
+		".factory/config.yaml":            "workflow: fast\nworkflows: {bug: careful}\n",
+		".factory/workflows/fast.yaml":    loopWorkflow,
+		".factory/workflows/careful.yaml": strings.Replace(loopWorkflow, "name: fast", "name: careful", 1),
+	}
+	for typ, want := range map[string]string{"bug": "careful", "task": "fast", "": "fast"} {
+		s, err := ResolveFor(t.Context(), &repo{files: files}, "acme/app", "main", typ)
+		if err != nil || s.Workflow.Name != want {
+			t.Errorf("%q: workflow %q, %v; want %q", typ, s.Workflow.Name, err, want)
+		}
+	}
+	s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "bug")
+	if err != nil || s.Workflow.Name != "default-build" {
+		t.Errorf("no project setting: %q, %v", s.Workflow.Name, err)
+	}
+}
+
 func TestResolveInvalid(t *testing.T) {
 	tests := []struct {
 		name  string
 		files map[string]string
 		want  string
 	}{
-		{"bad project config", map[string]string{".factory/config.yaml": "workflows: fast\n"}, "unknown field"},
+		{"bad project config", map[string]string{".factory/config.yaml": "workflowz: fast\n"}, "unknown field"},
 		{"unknown workflow", map[string]string{".factory/config.yaml": "workflow: nope\n"}, `workflow "nope" is neither in .factory/workflows nor built in`},
 		{"invalid definition", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": "name: fast\nversion: 1\nsteps: []\n"}, "at least one step"},
 		{"definition named differently", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": strings.Replace(loopWorkflow, "name: fast", "name: slow", 1)}, `is named "slow"`},

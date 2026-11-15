@@ -55,7 +55,32 @@ type Step struct {
 	// the queue sends the change request back (a conflict, or a failed check
 	// after the update). fail (the default) or {goto, maxLoops}.
 	OnFail *OnFail `json:"onFail,omitempty"`
+	// When makes an agent step or a gate run only if an earlier step's result
+	// says so (D94); a step whose condition does not hold is skipped.
+	When *When `json:"when,omitempty"`
 }
+
+// When is a condition on an earlier step's structured result: the field of
+// that step's output contract equals the value.
+type When struct {
+	Step   string `json:"step"`
+	Field  string `json:"field"`
+	Equals any    `json:"equals"`
+}
+
+// kind is the kind of value the condition compares with: bool or string.
+func (w When) kind() string {
+	switch w.Equals.(type) {
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	}
+	return ""
+}
+
+// Holds reports whether a result's field value meets the condition.
+func (w When) Holds(value any) bool { return value == w.Equals }
 
 // Kind reports the step's kind, or "" when the fields do not form exactly one kind.
 func (s Step) Kind() StepKind {
@@ -233,7 +258,7 @@ var actions = map[string]bool{
 
 // Step inputs an agent may be given. Until the native issue store (M5)
 // separates them, spec and acceptance_criteria both come from the issue body.
-var stepInputs = []string{"spec", "acceptance_criteria", "diff", "feedback"}
+var stepInputs = []string{"spec", "acceptance_criteria", "diff", "feedback", "findings"}
 
 var (
 	identifierRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -391,6 +416,18 @@ func (v *validator) step(path string, s Step, branch bool) {
 		v.errf(path+".id", "duplicate step id %q", s.ID)
 	}
 
+	if w := s.When; w != nil {
+		switch {
+		case kind != StepAgent && kind != StepGate:
+			v.errf(path+".when", "applies to agent steps and gates only")
+		case w.Step == "" || w.Field == "":
+			v.errf(path+".when", "needs a step and a field")
+		case v.seen[w.Step] != StepAgent:
+			v.errf(path+".when.step", "%q is not an earlier agent step", w.Step)
+		case w.kind() == "":
+			v.errf(path+".when.equals", "must be true, false or a string")
+		}
+	}
 	if s.OnFail != nil && s.Action != ActionEnqueue {
 		v.errf(path+".onFail", "applies to merge-queue.enqueue only; a gate's onFail goes in its gate")
 	}

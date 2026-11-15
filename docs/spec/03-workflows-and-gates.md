@@ -49,7 +49,7 @@ Notes versus the earliest sketch: `implement` and `e2e-tests` are in a `parallel
 
 ### Where definitions come from (D39)
 
-The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. Until later milestones, the built-in `default-build` has no `e2e-tests` branch (M7) and one Claude Code reviewer (M4); since M6 it ends with `change-request.open` and `merge-queue.enqueue` (D88).
+The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or one per issue type with `workflows: {bug: <name>}` (D94), or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. Until later milestones, the built-in `default-build` has no `e2e-tests` branch (M7) and one Claude Code reviewer (M4); since M6 it ends with `change-request.open` and `merge-queue.enqueue` (D88).
 
 Parsing fills in every default, so the snapshot is explicit: `harness: claude-code`; all inputs; `policy: blocking`; `onFail: fail` for blocking gates; `run: ["mise run lint", "mise run test"]` for command gates; `require: all`; human gates `timeout: 72h, onTimeout: fail`.
 
@@ -57,7 +57,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 
 | Kind | Fields | Behavior |
 |---|---|---|
-| agent | `id, agent{role, harness, model}, inputs?, timeout?, budgetUSD?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. |
+| agent | `id, agent{role, harness, model}, inputs?, timeout?, budgetUSD?, when?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. A role returning `bug-findings` reads without pushing; its findings reach later steps (input `findings`) and the change request, and `when: {step, field, equals}` on a later agent step or gate makes it run only if they say so (D94). |
 | gate | `id, gate{type, ...}` | See below. |
 | parallel | list of agent steps, optional trailing `gate`; `id` required when gated | Run branches concurrently; gate evaluates after all finish. A branch without an `id` is named after its role. |
 | action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`, M6 `merge-queue.enqueue` (last step, after `change-request.open`, D88; takes `onFail: fail | {goto, maxLoops}` for what the queue sends back, D89); `release.create` (M7) and `issue.comment` are rejected until they exist. |

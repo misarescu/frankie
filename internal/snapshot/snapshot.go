@@ -4,6 +4,7 @@
 package snapshot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -79,6 +80,12 @@ var errRead = errors.New("read")
 // over built-in ones of the same name; a project that selects no workflow runs
 // the built-in default (workflows.Default).
 func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapshot, error) {
+	return ResolveFor(ctx, r, repo, baseBranch, "")
+}
+
+// ResolveFor is Resolve for an issue of issueType: the project's definition
+// for that type, else its definition, else the platform's for the type (D94).
+func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType string) (Snapshot, error) {
 	rd, err := open(ctx, r, repo, baseBranch)
 	if err != nil {
 		return Snapshot{}, err
@@ -87,9 +94,7 @@ func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapsh
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if project.Workflow == "" {
-		project.Workflow = workflows.Default
-	}
+	project.Workflow = cmp.Or(project.WorkflowFor(issueType), workflows.DefaultFor(issueType))
 
 	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow, MergeMethod: project.MergeMethod(),
 		MergeApproval: project.MergeApprovalRequired(nil)}

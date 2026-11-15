@@ -34,6 +34,9 @@ const (
 	// build ended (D93); EventBuildLog is the build's log as it grows.
 	EventImageBuild EventType = "image_build"
 	EventBuildLog   EventType = "build_log"
+	// EventFindings is what an investigating step found (D94): its
+	// BugFindings, or why its result is not valid findings.
+	EventFindings EventType = "findings"
 )
 
 // Image build statuses in an EventImageBuild.

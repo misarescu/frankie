@@ -115,6 +115,16 @@ func TestParseProjectWorkflow(t *testing.T) {
 	if err != nil || p.Workflow != "default-build" {
 		t.Fatalf("p = %+v, err = %v", p, err)
 	}
+	// M6 (D94): a definition per issue type.
+	p, err = ParseProject([]byte("workflow: fast\nworkflows: {bug: bug-fix}\n"), 0)
+	if err != nil || p.WorkflowFor("bug") != "bug-fix" || p.WorkflowFor("task") != "fast" || (Project{}).WorkflowFor("bug") != "" {
+		t.Fatalf("p = %+v, err = %v", p, err)
+	}
+	for _, raw := range []string{"workflows: {feature: x}\n", "workflows: {bug: ../evil}\n"} {
+		if _, err := ParseProject([]byte(raw), 0); err == nil || !strings.Contains(err.Error(), "workflows") {
+			t.Errorf("%q: %v", raw, err)
+		}
+	}
 	if _, err := ParseProject([]byte("workflow: ../evil\n"), 0); err == nil || !strings.Contains(err.Error(), "workflow:") {
 		t.Fatalf("err = %v", err)
 	}

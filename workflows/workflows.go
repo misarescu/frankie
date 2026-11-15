@@ -21,6 +21,18 @@ var files embed.FS
 // Default is the definition a project runs when it names none.
 const Default = "default-build"
 
+// defaultsByType are the built-in definitions issues of a type run when their
+// project names none for it (D94).
+var defaultsByType = map[string]string{}
+
+// DefaultFor is the built-in definition for issues of issueType, or Default.
+func DefaultFor(issueType string) string {
+	if name, ok := defaultsByType[issueType]; ok {
+		return name
+	}
+	return Default
+}
+
 // ErrNotFound reports a name with no built-in definition.
 var ErrNotFound = errors.New("no built-in workflow with that name")
 

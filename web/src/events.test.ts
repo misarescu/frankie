@@ -83,3 +83,10 @@ test("M6: image builds and their logs read as such", () => {
     .toBe("the toolchain image build failed in 39s: nodejs.org refused");
   expect(summary(ev("build_log", { output: "mise install node@22\n" }))).toBe("mise install node@22\n");
 });
+
+test("M6: an investigation's findings read as such", () => {
+  expect(label(ev("findings", {}))).toBe("Findings");
+  expect(summary(ev("findings", { findings: { root_cause: "stats sum shelf rows", confidence: "high", testable: true } })))
+    .toBe("root cause (high confidence): stats sum shelf rows\na test can show it");
+  expect(summary(ev("findings", { error: "the final message holds no JSON findings" }))).toBe("no valid findings: the final message holds no JSON findings");
+});

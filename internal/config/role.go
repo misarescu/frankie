@@ -56,7 +56,16 @@ type outputContract struct {
 // limited to commands that do not change the workspace.
 var roleTools = []string{"read", "grep", "glob", "edit", "write", "bash", "bash:readonly", "web-fetch"}
 
-var outputContracts = []string{ContractReviewVerdict, ContractRefinedSpec}
+var outputContracts = []string{ContractReviewVerdict, ContractRefinedSpec, ContractBugFindings}
+
+// ContractBugFindings is the output contract of an investigating role: a
+// domain.BugFindings, described by roles/schemas/bug-findings.json (D94). Its
+// step reads the code without changing it, and later steps can depend on it.
+const ContractBugFindings = "bug-findings"
+
+// contractFields are the result fields of an output contract a step can be
+// conditional on (`when`), with their kinds.
+var contractFields = map[string]map[string]string{ContractBugFindings: domain.BugFindingsFields}
 
 const maxSystemPrompt = 64 << 10
 
@@ -183,6 +192,8 @@ func resolveRoles(w Workflow, lookup RoleLookup, refinement bool) (map[string]Ro
 			errs = append(errs, fmt.Errorf("%s.agent.role: %s does not return a review verdict, so an agent-verdict gate cannot judge it", path, name))
 		case !verdictGroup && reviewer:
 			errs = append(errs, fmt.Errorf("%s.agent.role: %s returns a review verdict; put it in a parallel group with an agent-verdict gate", path, name))
+		case r.OutputContract == ContractBugFindings && strings.Contains(path, ".parallel["):
+			errs = append(errs, fmt.Errorf("%s.agent.role: %s returns bug findings; run it as its own step, not in a parallel group", path, name))
 		}
 	}
 	for i, s := range w.Steps {
@@ -197,8 +208,40 @@ func resolveRoles(w Workflow, lookup RoleLookup, refinement bool) (map[string]Ro
 			}
 		}
 	}
+	if !refinement {
+		errs = append(errs, checkConditions(w, out)...)
+	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, fmt.Errorf("workflow %q: %w", w.Name, err)
 	}
 	return out, nil
+}
+
+// checkConditions checks each `when` against the role of the step it reads:
+// that step returns a contract with the field, and the value has its kind (D94).
+func checkConditions(w Workflow, roles map[string]Role) []error {
+	contracts := map[string]string{}
+	for _, s := range w.Steps {
+		if s.Kind() == StepAgent {
+			contracts[s.ID] = roles[s.Agent.RoleName()].OutputContract
+		}
+	}
+	var errs []error
+	for i, s := range w.Steps {
+		if s.When == nil {
+			continue
+		}
+		path := fmt.Sprintf("steps[%d].when", i)
+		fields := contractFields[contracts[s.When.Step]]
+		kind, ok := fields[s.When.Field]
+		switch {
+		case fields == nil:
+			errs = append(errs, fmt.Errorf("%s: step %q returns no result a step can depend on", path, s.When.Step))
+		case !ok:
+			errs = append(errs, fmt.Errorf("%s: step %q's result has no field %q", path, s.When.Step, s.When.Field))
+		case kind != s.When.kind():
+			errs = append(errs, fmt.Errorf("%s: %s is a %s, not a %s", path, s.When.Field, kind, s.When.kind()))
+		}
+	}
+	return errs
 }

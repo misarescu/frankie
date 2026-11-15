@@ -19,7 +19,7 @@ export type RunSummary = {
 
 export const eventTypes = [
   "assistant_message", "tool_call", "tool_result", "file_diff", "command_output",
-  "token_usage", "error", "done", "gate_result", "state_change", "intervention", "question", "image_build", "build_log",
+  "token_usage", "error", "done", "gate_result", "state_change", "intervention", "question", "image_build", "build_log", "findings",
 ] as const;
 
 // The transcript has an event type named "error", which is also the name of
@@ -63,6 +63,7 @@ export function label(e: RunEvent): string {
     case "question": return "Question for a person";
     case "image_build": return "Image build";
     case "build_log": return "Build log";
+    case "findings": return "Findings";
     case "intervention": return p.action === "abort" ? "Abort" : p.action === "answer" ? "Answer" : "Steer";
     default: return e.type.replaceAll("_", " ");
   }
@@ -132,6 +133,12 @@ export function summary(e: RunEvent): string {
       return p.status === "failed" ? `the ${image} image build failed${took}: ${str(p.error)}` : `built the ${image} image${took}`;
     }
     case "build_log": return str(p.output);
+    case "findings": {
+      // D94: what an investigation found, or why its answer was not findings.
+      if (p.error) return `no valid findings: ${str(p.error)}`;
+      const f = (p.findings ?? {}) as { root_cause?: string; confidence?: string; testable?: boolean };
+      return `root cause (${f.confidence ?? "?"} confidence): ${f.root_cause ?? ""}\n${f.testable ? "a test can show it" : "no test can show it"}`;
+    }
     case "intervention": {
       const verb = p.action === "abort" ? "aborted" : p.action === "answer" ? "answered" : "steered";
       const missed = p.action === "answer" ? " (the agent no longer waited for it)" : " (the session had already ended)";

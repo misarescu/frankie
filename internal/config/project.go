@@ -29,6 +29,9 @@ type Project struct {
 	// Workflow names the workflow definition the project's issues run: a
 	// built-in one (workflows/) or `.factory/workflows/<name>.yaml` (D39).
 	Workflow string `json:"workflow,omitempty"`
+	// Workflows names a definition per issue type, e.g. {bug: bug-fix}; it
+	// takes precedence over Workflow for issues of that type (D94).
+	Workflows map[string]string `json:"workflows,omitempty"`
 	// Services run next to agent steps and command gates for integration tests
 	// (FR-SB-9), reachable on localhost.
 	Services []Service `json:"services,omitempty"`
@@ -100,6 +103,15 @@ const (
 	LabelNeedsSpecApproval = "needs-spec-approval"
 	LabelNoSpecApproval    = "no-spec-approval"
 )
+
+// WorkflowFor names the definition issues of issueType run: the project's
+// for that type, else the project's, else "" (the platform's default).
+func (p Project) WorkflowFor(issueType string) string {
+	if name := p.Workflows[issueType]; name != "" {
+		return name
+	}
+	return p.Workflow
+}
 
 // RequiresSpecApproval reports whether the project's issues need an approved spec
 // unless a label says otherwise.
@@ -270,6 +282,14 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if p.MergeApproval != "" && p.MergeApproval != SpecApprovalRequired && p.MergeApproval != SpecApprovalOff {
 		errs = append(errs, fmt.Errorf("mergeApproval: %q must be %q or %q", p.MergeApproval, SpecApprovalRequired, SpecApprovalOff))
+	}
+	for t, name := range p.Workflows {
+		if !domain.IssueType(t).Valid() {
+			errs = append(errs, fmt.Errorf("workflows: %q is not an issue type (epic, story, task or bug)", t))
+		}
+		if !identifierRE.MatchString(name) {
+			errs = append(errs, fmt.Errorf("workflows.%s: %q is not a workflow name", t, name))
+		}
 	}
 	if m := p.Merge.Method; m != "" {
 		if err := m.Validate(); err != nil {

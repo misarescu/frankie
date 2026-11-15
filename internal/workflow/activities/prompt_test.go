@@ -30,7 +30,7 @@ func TestPromptAndPRBody(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, p)
 		}
 	}
-	body := PRBody(in, SessionResult{Result: "Added a search box.", CommitSHA: "abc"})
+	body := PRBody(in, SessionResult{Result: "Added a search box.", CommitSHA: "abc"}, "")
 	if !strings.HasPrefix(body, "Closes #3") || !strings.Contains(body, "Added a search box.") || !strings.Contains(body, "`abc`") {
 		t.Errorf("PR body:\n%s", body)
 	}
@@ -146,5 +146,24 @@ func TestStepPromptCarriesDependencies(t *testing.T) {
 	}
 	if p := StepPrompt(IssueRunInput{IssueKey: "gc-3", BaseBranch: "main"}, "b", false, AgentStep{StepID: "implement", Inputs: []string{"spec"}}, nil); strings.Contains(p, "depends on") {
 		t.Errorf("a run without dependencies mentions them:\n%s", p)
+	}
+}
+
+// M6 (D94): steps that take the findings input get what the investigation
+// found, and the change request describes it.
+func TestFindingsInPromptAndPRBody(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-79", Title: "User stats count a finished book twice", BaseBranch: "main", SourceNumber: 79}
+	findings := "**Root cause** (high confidence): stats sum shelf rows\n"
+	step := AgentStep{StepID: "reproduce", Inputs: []string{"spec", "findings"}, Findings: findings}
+	if p := StepPrompt(in, "agent/gc-79/x", false, step, nil); !strings.Contains(p, "What the investigation of this bug found:\n\n**Root cause**") {
+		t.Errorf("prompt lacks the findings:\n%s", p)
+	}
+	step.Inputs = []string{"spec"}
+	if p := StepPrompt(in, "agent/gc-79/x", false, step, nil); strings.Contains(p, "Root cause") {
+		t.Errorf("a step without the findings input got them:\n%s", p)
+	}
+	body := PRBody(in, SessionResult{Result: "Fixed.", CommitSHA: "abc"}, findings)
+	if !strings.Contains(body, "### What the investigation found\n\n**Root cause**") || !strings.HasPrefix(body, "Closes #79") {
+		t.Errorf("body = %s", body)
 	}
 }

@@ -84,7 +84,7 @@ Every gate has:
 
 ### Built-in protections
 
-Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this. The gate comes after the definition's last step, so after `change-request.open` (D44), or, in a definition that enqueues, right before `merge-queue.enqueue`, so a protected change is approved before it can merge (D88).
+Regardless of the definition, the interpreter forces a human gate when a change touches **protected paths** or removes/skips tests (see `05-sandbox-and-toolchains.md`). A workflow author cannot disable this. The gate comes after the definition's last step, so after `change-request.open` (D44), or, in a definition that enqueues, right before `merge-queue.enqueue`, so a protected change is approved before it can merge (D88). A project can also require a person to approve every change before it merges (`mergeApproval: required`, or the `needs-merge-approval` label): the run then opens a `merge-approval` gate there instead. Both gates before a merge take approve, request changes (back to the coder with the comment, through the enqueue step's `onFail`) and reject (closes the change request with the comment) (D92).
 
 ### Validation (at save time)
 

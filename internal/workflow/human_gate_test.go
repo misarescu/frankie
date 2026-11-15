@@ -9,6 +9,7 @@ import (
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/guard"
+	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
@@ -35,6 +36,18 @@ func (f *interpretFixture) decide(t *testing.T, delay time.Duration, n int, appr
 			return
 		}
 		f.env.SignalWorkflow(HumanDecisionSignal, HumanDecision{StepRunID: f.opened[n].StepRunID, Approved: approved, By: "web", Comment: comment})
+	}, delay)
+}
+
+// requestChanges sends the n-th opened human gate back to the coder (D92).
+func (f *interpretFixture) requestChanges(t *testing.T, delay time.Duration, n int, comment string) {
+	t.Helper()
+	f.env.RegisterDelayedCallback(func() {
+		if len(f.opened) <= n {
+			t.Errorf("no human gate #%d is open", n)
+			return
+		}
+		f.env.SignalWorkflow(HumanDecisionSignal, HumanDecision{StepRunID: f.opened[n].StepRunID, By: "ana", Comment: comment, Action: DecisionRequestChanges})
 	}, delay)
 }
 
@@ -171,6 +184,10 @@ func TestProtectedChangesForceAHumanGate(t *testing.T) {
 		if len(f.enqueued) != 0 {
 			t.Errorf("a rejected protected change was enqueued: %+v", f.enqueued)
 		}
+		// M6 (D92): rejecting before the merge closes the change request.
+		if len(f.closedCR) != 1 || f.closedCR[0] != "Rejected in Frankie by web: do not touch the toolchain" {
+			t.Errorf("closed = %v", f.closedCR)
+		}
 	})
 	t.Run("the snapshot's patterns are used", func(t *testing.T) {
 		f := newInterpretFixture(t)
@@ -187,6 +204,84 @@ func TestProtectedChangesForceAHumanGate(t *testing.T) {
 		f.protect = func(activities.GuardRequest) guard.Report { return report }
 		if out := f.run(t, defaultBuildSnapshot(t)); out.Succeeded || len(f.guarded) != 0 {
 			t.Errorf("result = %+v, guarded %+v", out, f.guarded)
+		}
+	})
+}
+
+// M6 (D92): a project's merge approval asks a person before the merge queue;
+// approving merges, requesting changes sends the change back to the coder,
+// rejecting closes the change request.
+func TestMergeApproval(t *testing.T) {
+	snap := func(t *testing.T) snapshot.Snapshot {
+		s := defaultBuildSnapshot(t)
+		s.MergeApproval = true
+		return s
+	}
+	t.Run("approved", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.decide(t, time.Minute, 0, true, "")
+		out := f.run(t, snap(t))
+		if !out.Merged || len(f.opened) != 1 || f.opened[0].StepID != "merge-approval" || !f.opened[0].CanRequestChanges ||
+			f.opened[0].ChangeRequestURL == "" {
+			t.Fatalf("result %+v, opened %+v", out, f.opened)
+		}
+		if got := f.stepIDs(); got != "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 merge-approval/1 merge/1" {
+			t.Errorf("steps = %s", got)
+		}
+	})
+	t.Run("changes requested", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.requestChanges(t, time.Minute, 0, "keep the old route as well")
+		f.decide(t, 3*time.Hour, 1, true, "")
+		out := f.run(t, snap(t))
+		if !out.Merged {
+			t.Fatalf("result = %+v", out)
+		}
+		want := "implement/1 checks/1 code-reviewer/1 review/1 open-change-request/1 merge-approval/1 " +
+			"implement/2 checks/2 code-reviewer/2 review/2 open-change-request/2 merge-approval/2 merge/1"
+		if got := f.stepIDs(); got != want {
+			t.Errorf("steps = %s\nwant    %s", got, want)
+		}
+		if fb := f.sessions[2].Step.Feedback; !strings.Contains(fb, "ana reviewed your change request") || !strings.Contains(fb, "keep the old route as well") {
+			t.Errorf("coder feedback = %q", fb)
+		}
+		if f.left != 0 || strings.Join(f.loops, ",") != "merge=1" || len(f.closedCR) != 0 {
+			t.Errorf("left %d, loops %v, closed %v", f.left, f.loops, f.closedCR)
+		}
+	})
+	t.Run("rejected", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.decide(t, time.Minute, 0, false, "not needed")
+		out := f.run(t, snap(t))
+		if out.Succeeded || out.Reason != "step merge-approval: rejected by web: not needed" || len(f.enqueued) != 0 {
+			t.Fatalf("result %+v, enqueued %d", out, len(f.enqueued))
+		}
+		if len(f.closedCR) != 1 || f.closedCR[0] != "Rejected in Frankie by web: not needed" {
+			t.Errorf("closed = %v", f.closedCR)
+		}
+	})
+	t.Run("an approved protected change is not asked twice", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.protect = func(activities.GuardRequest) guard.Report {
+			return guard.Report{Protected: []guard.ProtectedChange{{Path: "mise.toml", Pattern: "mise.toml"}}}
+		}
+		f.decide(t, time.Minute, 0, true, "")
+		if out := f.run(t, snap(t)); !out.Merged || len(f.opened) != 1 || f.opened[0].StepID != "protected-changes" || !f.opened[0].CanRequestChanges {
+			t.Fatalf("result %+v, opened %+v", out, f.opened)
+		}
+	})
+	t.Run("off: straight to the queue", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		if out := f.run(t, defaultBuildSnapshot(t)); !out.Merged || len(f.opened) != 0 {
+			t.Fatalf("result %+v, opened %+v", out, f.opened)
+		}
+	})
+	t.Run("a definition's own human gate cannot be sent back", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.requestChanges(t, time.Minute, 0, "hmm")
+		out := f.run(t, loopSnapshot(t, approvalDefinition))
+		if out.Succeeded || !strings.Contains(out.Reason, "rejected by ana: hmm") || f.opened[0].CanRequestChanges {
+			t.Fatalf("result %+v, opened %+v", out, f.opened)
 		}
 	})
 }

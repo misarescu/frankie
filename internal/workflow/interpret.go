@@ -116,9 +116,19 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 			next, reason = it.gate(ctx, pc, s)
 		case config.StepAction:
 			if s.Action == actionEnqueue {
-				// A protected change needs a person before it merges, so the
-				// forced gate comes before the queue, not after the last step.
-				if why := it.guardChanges(ctx); why != "" {
+				// A person decides before the change merges: on a protected
+				// change (the forced gate comes before the queue, not after
+				// the last step), and where the project asks for it (D92).
+				if workflow.GetVersion(ctx, "merge-approval", workflow.DefaultVersion, 1) >= 1 {
+					n, why, proceed := it.beforeMerge(ctx, pc, s)
+					if !proceed {
+						if why != "" {
+							return why
+						}
+						pc = n
+						continue
+					}
+				} else if why := it.guardChanges(ctx); why != "" {
 					return why
 				}
 				it.guarded = true
@@ -448,9 +458,21 @@ func (it *interpreter) enqueue(ctx workflow.Context, pc int, s config.Step) (int
 		return pc + 1, ""
 	}
 	failed := fmt.Sprintf("merge queue: %s: %s", out.Kind, out.Reason)
-	o := s.OnFail
-	if (out.Kind != QueueOutcomeConflict && out.Kind != QueueOutcomeRed) || o == nil || o.Action != config.OnFailGoto ||
+	if (out.Kind != QueueOutcomeConflict && out.Kind != QueueOutcomeRed) ||
 		workflow.GetVersion(ctx, "merge-queue-loop", workflow.DefaultVersion, 1) < 1 {
+		return 0, failed
+	}
+	// The queue's update may have moved the branch (a merge of the base, or
+	// a rebase); the coder continues from the branch head either way.
+	return it.loopBack(ctx, s, failed, queueFeedback(it.in.Issue.BaseBranch, out), true)
+}
+
+// loopBack sends the change back to the coder when the enqueue step's onFail
+// loops and has loops left (D89, D92), with feedback; otherwise the run fails
+// with failed. leaveQueue moves the issue out of the queue first.
+func (it *interpreter) loopBack(ctx workflow.Context, s config.Step, failed, feedback string, leaveQueue bool) (int, string) {
+	o := s.OnFail
+	if o == nil || o.Action != config.OnFailGoto {
 		return 0, failed
 	}
 	if it.loops[s.ID] >= o.MaxLoops {
@@ -465,13 +487,13 @@ func (it *interpreter) enqueue(ctx workflow.Context, pc int, s config.Step) (int
 	if err := workflow.ExecuteActivity(short, it.a.RecordLoop, it.run.RunID, s.ID, it.loops[s.ID]).Get(ctx, nil); err != nil {
 		return 0, "recording the loop failed: " + err.Error()
 	}
-	if err := workflow.ExecuteActivity(short, it.a.LeaveQueue, it.in.Issue.IssueID).Get(ctx, nil); err != nil {
-		return 0, "leaving the queue failed: " + err.Error()
+	if leaveQueue {
+		if err := workflow.ExecuteActivity(short, it.a.LeaveQueue, it.in.Issue.IssueID).Get(ctx, nil); err != nil {
+			return 0, "leaving the queue failed: " + err.Error()
+		}
 	}
-	it.feedback = queueFeedback(it.in.Issue.BaseBranch, out)
+	it.feedback = feedback
 	it.only = branch
-	// The queue's update may have moved the branch (a merge of the base, or
-	// a rebase); the coder continues from the branch head either way.
 	return target, ""
 }
 

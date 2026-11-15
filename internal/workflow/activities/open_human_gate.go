@@ -20,7 +20,7 @@ func (a *Activities) OpenHumanGate(ctx context.Context, req HumanGateRequest) er
 		return temporal.NewNonRetryableApplicationError("bad step run id", "input", err)
 	}
 	if _, err := a.Store.OpenApproval(ctx, store.NewApproval{StepRunID: id, Reason: req.Reason, CommitSHA: req.CommitSHA,
-		ChangeRequestURL: req.ChangeRequestURL, ExpiresAt: req.ExpiresAt}); err != nil {
+		ChangeRequestURL: req.ChangeRequestURL, ExpiresAt: req.ExpiresAt, CanRequestChanges: req.CanRequestChanges}); err != nil {
 		return err
 	}
 	if req.CommitSHA != "" {

@@ -115,6 +115,7 @@ func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Model
 	case err != nil:
 		return nil, nil, err
 	default:
+		snap.MergeApproval = config.MergeApprovalWithLabels(snap.MergeApproval, in.Labels)
 		if err := workflow.CheckSupported(snap.Workflow); err != nil {
 			snap = snapshot.Snapshot{Error: "the interpreter cannot run this yet: " + err.Error()}
 		} else if err := config.CheckModels(snap.Workflow, snap.Roles, models.Default, models.Providers); err != nil {

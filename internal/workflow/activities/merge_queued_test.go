@@ -29,6 +29,9 @@ type fakeProvider struct {
 	pr       string // GET pulls/9
 	mergeAns int    // PUT pulls/9/merge status
 	merged   []map[string]any
+	// onComment sees each comment on #9; closed counts the PATCHes that close it.
+	onComment func(body string)
+	closed    int
 }
 
 func (p *fakeProvider) client(t *testing.T) *github.Client {
@@ -48,6 +51,18 @@ func (p *fakeProvider) client(t *testing.T) *github.Client {
 			_, _ = fmt.Fprintf(w, `{"object":{"sha":%q}}`, sha)
 		case path == "pulls/9" && r.Method == http.MethodGet:
 			_, _ = io.WriteString(w, p.pr)
+		case path == "issues/9/comments" && r.Method == http.MethodPost:
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if p.onComment != nil {
+				p.onComment(body["body"])
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{}`)
+		case path == "pulls/9" && r.Method == http.MethodPatch:
+			p.closed++
+			p.pr = `{"state":"closed","merged":false}`
+			_, _ = io.WriteString(w, `{}`)
 		case path == "pulls/9/merge" && r.Method == http.MethodPut:
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)

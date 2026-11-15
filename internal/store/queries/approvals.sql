@@ -1,7 +1,7 @@
 -- Idempotent per gate StepRun: a retried Activity gets the approval it opened.
 -- name: OpenApproval :one
-INSERT INTO approvals (id, step_run_id, run_id, reason, commit_sha, change_request_url, expires_at)
-VALUES (@id, @step_run_id, @run_id, @reason, sqlc.narg('commit_sha'), sqlc.narg('change_request_url'), @expires_at)
+INSERT INTO approvals (id, step_run_id, run_id, reason, commit_sha, change_request_url, expires_at, can_request_changes)
+VALUES (@id, @step_run_id, @run_id, @reason, sqlc.narg('commit_sha'), sqlc.narg('change_request_url'), @expires_at, @can_request_changes)
 ON CONFLICT (step_run_id) DO UPDATE SET updated_at = approvals.updated_at
 RETURNING *;
 

@@ -181,7 +181,10 @@ CREATE TABLE approvals (
   reason             text        NOT NULL,
   commit_sha         text,
   change_request_url text,
-  status             text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out')),
+  status             text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out', 'changes_requested')),
+  -- Whether a person may send the change back to the coder instead of
+  -- approving or rejecting it (D92): the gates before a merge.
+  can_request_changes boolean  NOT NULL DEFAULT false,
   decided_by         text,
   comment            text,
   expires_at         timestamptz NOT NULL,

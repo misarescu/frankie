@@ -32,6 +32,8 @@ type approvalJSON struct {
 	ChangeRequestURL string    `json:"change_request_url,omitempty"`
 	ExpiresAt        time.Time `json:"expires_at"`
 	CreatedAt        time.Time `json:"created_at"`
+	// CanRequestChanges: the gate also takes "request-changes" (D92).
+	CanRequestChanges bool `json:"can_request_changes,omitempty"`
 }
 
 // listApprovals is the approvals inbox: human gates waiting for a decision.
@@ -45,7 +47,7 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 	for _, p := range pending {
 		out = append(out, approvalJSON{StepRunID: p.StepRunID, RunID: p.RunID, Step: p.StepID, IssueKey: p.IssueKey,
 			IssueTitle: p.IssueTitle, Reason: p.Reason, CommitSHA: p.CommitSHA, ChangeRequestURL: p.ChangeRequestURL,
-			ExpiresAt: p.ExpiresAt, CreatedAt: p.CreatedAt})
+			ExpiresAt: p.ExpiresAt, CreatedAt: p.CreatedAt, CanRequestChanges: p.CanRequestChanges})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -53,7 +55,7 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 
 // decisionRequest is the body of POST /api/gates/{id}/decision.
 type decisionRequest struct {
-	Decision string `json:"decision"` // approve or reject
+	Decision string `json:"decision"` // approve, reject, or request-changes where the gate allows it (D92)
 	Comment  string `json:"comment"`
 	By       string `json:"by"` // who decides; until auth exists (open question 7) the client says
 }
@@ -87,8 +89,11 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Comment, req.By = strings.TrimSpace(req.Comment), strings.TrimSpace(req.By)
 	switch {
-	case req.Decision != "approve" && req.Decision != "reject":
-		http.Error(w, `decision must be "approve" or "reject"`, http.StatusBadRequest)
+	case req.Decision != "approve" && req.Decision != "reject" && req.Decision != workflow.DecisionRequestChanges:
+		http.Error(w, `decision must be "approve", "reject" or "request-changes"`, http.StatusBadRequest)
+		return
+	case req.Decision == workflow.DecisionRequestChanges && req.Comment == "":
+		http.Error(w, "requesting changes needs a comment saying which", http.StatusBadRequest)
 		return
 	case len(req.Comment) > maxComment || len(req.By) > maxBy:
 		http.Error(w, "comment or by is too long", http.StatusBadRequest)
@@ -115,7 +120,14 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
+	if req.Decision == workflow.DecisionRequestChanges && !p.CanRequestChanges {
+		http.Error(w, "this gate can only be approved or rejected", http.StatusBadRequest)
+		return
+	}
 	decision := workflow.HumanDecision{StepRunID: id.String(), Approved: req.Decision == "approve", By: req.By, Comment: req.Comment}
+	if req.Decision == workflow.DecisionRequestChanges {
+		decision.Action = workflow.DecisionRequestChanges
+	}
 	if err := s.Signaler.SignalWorkflow(r.Context(), p.TemporalWorkflowID, p.TemporalRunID, workflow.HumanDecisionSignal, decision); err != nil {
 		s.Log.Warn("signal human decision", "gate", id, "error", err)
 		http.Error(w, "could not reach the run's workflow", http.StatusBadGateway)

@@ -15,12 +15,14 @@ const (
 	ApprovalApproved ApprovalStatus = "approved"
 	ApprovalRejected ApprovalStatus = "rejected"
 	ApprovalTimedOut ApprovalStatus = "timed_out"
+	// ApprovalChangesRequested sends the change back to the coder (D92).
+	ApprovalChangesRequested ApprovalStatus = "changes_requested"
 )
 
 // Valid reports whether s is a known approval status.
 func (s ApprovalStatus) Valid() bool {
 	switch s {
-	case ApprovalPending, ApprovalApproved, ApprovalRejected, ApprovalTimedOut:
+	case ApprovalPending, ApprovalApproved, ApprovalRejected, ApprovalTimedOut, ApprovalChangesRequested:
 		return true
 	}
 	return false
@@ -41,4 +43,7 @@ type Approval struct {
 	ExpiresAt        time.Time
 	DecidedAt        *time.Time
 	CreatedAt        time.Time
+	// CanRequestChanges: a person may send the change back to the coder
+	// instead of approving or rejecting it (D92).
+	CanRequestChanges bool
 }

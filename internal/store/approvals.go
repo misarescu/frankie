@@ -19,6 +19,8 @@ type NewApproval struct {
 	CommitSHA        string
 	ChangeRequestURL string
 	ExpiresAt        time.Time
+	// CanRequestChanges lets a person send the change back to the coder (D92).
+	CanRequestChanges bool
 }
 
 // PendingApproval is an open approval with what the inbox shows and what the
@@ -47,7 +49,8 @@ func (s *Store) OpenApproval(ctx context.Context, in NewApproval) (domain.Approv
 		}
 		id := domain.NewID()
 		row, err := q.OpenApproval(ctx, db.OpenApprovalParams{ID: id, StepRunID: in.StepRunID, RunID: step.RunID, Reason: in.Reason,
-			CommitSha: nonEmpty(in.CommitSHA), ChangeRequestUrl: nonEmpty(in.ChangeRequestURL), ExpiresAt: in.ExpiresAt})
+			CommitSha: nonEmpty(in.CommitSHA), ChangeRequestUrl: nonEmpty(in.ChangeRequestURL), ExpiresAt: in.ExpiresAt,
+			CanRequestChanges: in.CanRequestChanges})
 		if err != nil {
 			return mapErr("open approval", err)
 		}
@@ -119,7 +122,7 @@ func (s *Store) ListPendingApprovals(ctx context.Context) ([]PendingApproval, er
 	for _, r := range rows {
 		out = append(out, PendingApproval{Approval: approvalFromRow(db.Approval{ID: r.ID, StepRunID: r.StepRunID, RunID: r.RunID,
 			Reason: r.Reason, CommitSha: r.CommitSha, ChangeRequestUrl: r.ChangeRequestUrl, Status: r.Status, DecidedBy: r.DecidedBy,
-			Comment: r.Comment, ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt}),
+			Comment: r.Comment, ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt, CanRequestChanges: r.CanRequestChanges}),
 			StepID: r.StepID, IssueKey: r.IssueKey, IssueTitle: r.IssueTitle, TemporalWorkflowID: r.TemporalWorkflowID,
 			TemporalRunID: deref(r.TemporalRunID)})
 	}
@@ -135,7 +138,7 @@ func (s *Store) GetPendingApproval(ctx context.Context, stepRunID uuid.UUID) (Pe
 	}
 	return PendingApproval{Approval: approvalFromRow(db.Approval{ID: r.ID, StepRunID: r.StepRunID, RunID: r.RunID,
 		Reason: r.Reason, CommitSha: r.CommitSha, ChangeRequestUrl: r.ChangeRequestUrl, Status: r.Status, DecidedBy: r.DecidedBy,
-		Comment: r.Comment, ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt}),
+		Comment: r.Comment, ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt, CanRequestChanges: r.CanRequestChanges}),
 		StepID: r.StepID, IssueKey: r.IssueKey, IssueTitle: r.IssueTitle, TemporalWorkflowID: r.TemporalWorkflowID,
 		TemporalRunID: deref(r.TemporalRunID)}, nil
 }
@@ -143,5 +146,6 @@ func (s *Store) GetPendingApproval(ctx context.Context, stepRunID uuid.UUID) (Pe
 func approvalFromRow(r db.Approval) domain.Approval {
 	return domain.Approval{ID: r.ID, StepRunID: r.StepRunID, RunID: r.RunID, Reason: r.Reason, CommitSHA: deref(r.CommitSha),
 		ChangeRequestURL: deref(r.ChangeRequestUrl), Status: domain.ApprovalStatus(r.Status), DecidedBy: deref(r.DecidedBy),
-		Comment: deref(r.Comment), ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt}
+		Comment: deref(r.Comment), ExpiresAt: r.ExpiresAt, DecidedAt: r.DecidedAt, CreatedAt: r.CreatedAt,
+		CanRequestChanges: r.CanRequestChanges}
 }

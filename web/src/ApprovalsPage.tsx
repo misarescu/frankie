@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { decide, expiresIn, type Approval, type Decision } from "./approvals";
+import { approvalHelp, decide, expiresIn, type Approval, type Decision } from "./approvals";
 import { answer, type Question } from "./questions";
 import { apiFetch } from "./auth";
 import { decideSpec, type Spec, type SpecDecision } from "./specs";
@@ -73,6 +73,7 @@ function QuestionCard({ question: q, onAnswered }: { question: Question; onAnswe
 }
 
 function ApprovalCard({ approval: a, onDecided }: { approval: Approval; onDecided: () => void }) {
+  const help = approvalHelp(a);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +96,14 @@ function ApprovalCard({ approval: a, onDecided }: { approval: Approval; onDecide
         {a.commit_sha && <>commit {a.commit_sha.slice(0, 12)} · </>}
         waiting since {new Date(a.created_at).toLocaleString()} · expires in {expiresIn(a.expires_at)}
       </p>
-      <textarea placeholder="Comment (optional; recorded with the decision)" value={comment} maxLength={4000}
+      <textarea placeholder={help.placeholder} value={comment} maxLength={4000}
         onChange={(e) => setComment(e.target.value)} disabled={busy} />
       <div className="actions">
         <button onClick={() => send("approve")} disabled={busy}>Approve</button>
-        <button className="reject" onClick={() => send("reject")} disabled={busy}>Reject</button>
+        {a.can_request_changes && (
+          <button onClick={() => send("request-changes")} disabled={busy || comment.trim() === ""}>Request changes</button>
+        )}
+        <button className="reject" onClick={() => send("reject")} disabled={busy}>{help.reject}</button>
         {busy && !error && <span className="status">sent…</span>}
         {error && <span className="status">{error}</span>}
       </div>

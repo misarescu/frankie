@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decide, expiresIn } from "./approvals";
+import { approvalHelp, decide, expiresIn } from "./approvals";
 
 test("decide posts JSON to the gate's decision endpoint", async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -38,4 +38,21 @@ test("M5.1: decide sends the person's name as by", async () => {
   await decide(fetchFn, "g1", "approve", "", "Ana");
   await decide(fetchFn, "g1", "approve", "", null);
   expect(bodies).toEqual([{ decision: "approve", comment: "", by: "Ana" }, { decision: "approve", comment: "" }]);
+});
+
+test("M6: a gate before a merge offers request changes and says what reject does", () => {
+  expect(approvalHelp({}).reject).toBe("Reject");
+  const merge = approvalHelp({ can_request_changes: true });
+  expect(merge.reject).toBe("Reject and close");
+  expect(merge.placeholder).toContain("required to request changes");
+});
+
+test("M6: request-changes is sent as such", async () => {
+  const bodies: unknown[] = [];
+  const fetchFn = async (_: string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(null, { status: 202 });
+  };
+  await decide(fetchFn, "g1", "request-changes", " keep both routes ", null);
+  expect(bodies).toEqual([{ decision: "request-changes", comment: "keep both routes" }]);
 });

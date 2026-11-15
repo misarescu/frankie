@@ -17,7 +17,7 @@ UPDATE approvals
 SET status = $1::text, decided_by = $2, comment = $3,
     decided_at = now(), updated_at = now()
 WHERE step_run_id = $4 AND status = 'pending'
-RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at
+RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at, can_request_changes
 `
 
 type DecideApprovalParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 		&i.DecidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CanRequestChanges,
 	)
 	return i, err
 }
@@ -57,7 +58,7 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 const extendApproval = `-- name: ExtendApproval :one
 UPDATE approvals SET expires_at = $1, updated_at = now()
 WHERE step_run_id = $2 AND status = 'pending'
-RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at
+RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at, can_request_changes
 `
 
 type ExtendApprovalParams struct {
@@ -82,12 +83,13 @@ func (q *Queries) ExtendApproval(ctx context.Context, arg ExtendApprovalParams) 
 		&i.DecidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CanRequestChanges,
 	)
 	return i, err
 }
 
 const getApprovalByStepRun = `-- name: GetApprovalByStepRun :one
-SELECT id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at FROM approvals WHERE step_run_id = $1
+SELECT id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at, can_request_changes FROM approvals WHERE step_run_id = $1
 `
 
 func (q *Queries) GetApprovalByStepRun(ctx context.Context, stepRunID uuid.UUID) (Approval, error) {
@@ -107,12 +109,13 @@ func (q *Queries) GetApprovalByStepRun(ctx context.Context, stepRunID uuid.UUID)
 		&i.DecidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CanRequestChanges,
 	)
 	return i, err
 }
 
 const getPendingApproval = `-- name: GetPendingApproval :one
-SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id, i.key AS issue_key, i.title AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
@@ -135,6 +138,7 @@ type GetPendingApprovalRow struct {
 	DecidedAt          *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	CanRequestChanges  bool
 	StepID             string
 	IssueKey           string
 	IssueTitle         string
@@ -159,6 +163,7 @@ func (q *Queries) GetPendingApproval(ctx context.Context, stepRunID uuid.UUID) (
 		&i.DecidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CanRequestChanges,
 		&i.StepID,
 		&i.IssueKey,
 		&i.IssueTitle,
@@ -169,7 +174,7 @@ func (q *Queries) GetPendingApproval(ctx context.Context, stepRunID uuid.UUID) (
 }
 
 const listPendingApprovals = `-- name: ListPendingApprovals :many
-SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id, i.key AS issue_key, i.title AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
@@ -193,6 +198,7 @@ type ListPendingApprovalsRow struct {
 	DecidedAt          *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	CanRequestChanges  bool
 	StepID             string
 	IssueKey           string
 	IssueTitle         string
@@ -225,6 +231,7 @@ func (q *Queries) ListPendingApprovals(ctx context.Context) ([]ListPendingApprov
 			&i.DecidedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CanRequestChanges,
 			&i.StepID,
 			&i.IssueKey,
 			&i.IssueTitle,
@@ -242,20 +249,21 @@ func (q *Queries) ListPendingApprovals(ctx context.Context) ([]ListPendingApprov
 }
 
 const openApproval = `-- name: OpenApproval :one
-INSERT INTO approvals (id, step_run_id, run_id, reason, commit_sha, change_request_url, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO approvals (id, step_run_id, run_id, reason, commit_sha, change_request_url, expires_at, can_request_changes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (step_run_id) DO UPDATE SET updated_at = approvals.updated_at
-RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at
+RETURNING id, step_run_id, run_id, reason, commit_sha, change_request_url, status, decided_by, comment, expires_at, decided_at, created_at, updated_at, can_request_changes
 `
 
 type OpenApprovalParams struct {
-	ID               uuid.UUID
-	StepRunID        uuid.UUID
-	RunID            uuid.UUID
-	Reason           string
-	CommitSha        *string
-	ChangeRequestUrl *string
-	ExpiresAt        time.Time
+	ID                uuid.UUID
+	StepRunID         uuid.UUID
+	RunID             uuid.UUID
+	Reason            string
+	CommitSha         *string
+	ChangeRequestUrl  *string
+	ExpiresAt         time.Time
+	CanRequestChanges bool
 }
 
 // Idempotent per gate StepRun: a retried Activity gets the approval it opened.
@@ -268,6 +276,7 @@ func (q *Queries) OpenApproval(ctx context.Context, arg OpenApprovalParams) (App
 		arg.CommitSha,
 		arg.ChangeRequestUrl,
 		arg.ExpiresAt,
+		arg.CanRequestChanges,
 	)
 	var i Approval
 	err := row.Scan(
@@ -284,6 +293,7 @@ func (q *Queries) OpenApproval(ctx context.Context, arg OpenApprovalParams) (App
 		&i.DecidedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CanRequestChanges,
 	)
 	return i, err
 }

@@ -47,6 +47,36 @@ type Project struct {
 	SpecApproval string `json:"specApproval,omitempty"`
 	// Merge says how the merge queue lands the project's change requests (D88).
 	Merge Merge `json:"merge,omitempty"`
+	// MergeApproval is "required" when a person approves each change request
+	// before the merge queue takes it, or "off" (the default, also when empty)
+	// (D92). Issue labels override it: LabelNeedsMergeApproval and
+	// LabelNoMergeApproval.
+	MergeApproval string `json:"mergeApproval,omitempty"`
+}
+
+// Merge approval labels (D92).
+const (
+	LabelNeedsMergeApproval = "needs-merge-approval"
+	LabelNoMergeApproval    = "no-merge-approval"
+)
+
+// MergeApprovalRequired reports whether an issue with labels needs a person
+// to approve its change request before it merges: a label decides, else the
+// project.
+func (p Project) MergeApprovalRequired(labels []string) bool {
+	return MergeApprovalWithLabels(p.MergeApproval == SpecApprovalRequired, labels)
+}
+
+// MergeApprovalWithLabels applies an issue's labels to its project's merge
+// approval setting.
+func MergeApprovalWithLabels(project bool, labels []string) bool {
+	switch {
+	case slices.Contains(labels, LabelNoMergeApproval):
+		return false
+	case slices.Contains(labels, LabelNeedsMergeApproval):
+		return true
+	}
+	return project
 }
 
 // Merge is how the merge queue merges a project's change requests.
@@ -231,6 +261,15 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	}
 	if p.SpecApproval != "" && p.SpecApproval != SpecApprovalRequired && p.SpecApproval != SpecApprovalOff {
 		errs = append(errs, fmt.Errorf("specApproval: %q must be %q or %q", p.SpecApproval, SpecApprovalRequired, SpecApprovalOff))
+	}
+	switch p.MergeApproval {
+	case "true":
+		p.MergeApproval = SpecApprovalRequired
+	case "false":
+		p.MergeApproval = SpecApprovalOff
+	}
+	if p.MergeApproval != "" && p.MergeApproval != SpecApprovalRequired && p.MergeApproval != SpecApprovalOff {
+		errs = append(errs, fmt.Errorf("mergeApproval: %q must be %q or %q", p.MergeApproval, SpecApprovalRequired, SpecApprovalOff))
 	}
 	if m := p.Merge.Method; m != "" {
 		if err := m.Validate(); err != nil {

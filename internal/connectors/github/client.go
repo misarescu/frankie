@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,14 +21,24 @@ type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	// retryWaits are the waits before retrying a request that never reached
+	// GitHub; nil means no retries.
+	retryWaits []time.Duration
 }
+
+// unsentRetryWaits are the waits before retrying a request that failed before
+// it reached GitHub, on a DNS lookup or a refused connection (M5.2: a short
+// network outage failed a run). About 45 s in all, under the one-minute
+// heartbeat timeout of the activities that call GitHub. A request that may
+// have reached GitHub is never retried, so a write is never sent twice.
+var unsentRetryWaits = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second, 15 * time.Second}
 
 // NewClient returns a client for api.github.com (or baseURL, for tests).
 func NewClient(token, baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = "https://api.github.com"
 	}
-	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), token: token, http: &http.Client{Timeout: 30 * time.Second}}
+	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), token: token, http: &http.Client{Timeout: 30 * time.Second}, retryWaits: unsentRetryWaits}
 }
 
 // PullRequest is an opened pull request.
@@ -95,14 +106,40 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
-// send performs a request and returns the body of a 2xx response.
+// send performs a request and returns the body of a 2xx response. A request
+// that failed before reaching GitHub is retried (unsentRetryWaits).
 func (c *Client) send(ctx context.Context, method, path, accept string, body any) ([]byte, error) {
-	var rdr io.Reader
+	var raw []byte
 	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if raw, err = json.Marshal(body); err != nil {
 			return nil, fmt.Errorf("github: encode: %w", err)
 		}
+	}
+	for attempt := 0; ; attempt++ {
+		data, err := c.sendOnce(ctx, method, path, accept, raw)
+		if err == nil || attempt >= len(c.retryWaits) || !unsent(err) {
+			return data, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(c.retryWaits[attempt]):
+		}
+	}
+}
+
+// unsent reports whether a request failed before any of it reached the
+// server: its host did not resolve or the connection was refused.
+func unsent(err error) bool {
+	var dns *net.DNSError
+	var op *net.OpError
+	return errors.As(err, &dns) || (errors.As(err, &op) && op.Op == "dial")
+}
+
+func (c *Client) sendOnce(ctx context.Context, method, path, accept string, raw []byte) ([]byte, error) {
+	var rdr io.Reader
+	if raw != nil {
 		rdr = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
@@ -114,7 +151,7 @@ func (c *Client) send(ctx context.Context, method, path, accept string, body any
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	if body != nil {
+	if raw != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.http.Do(req)

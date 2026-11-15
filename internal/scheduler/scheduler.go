@@ -128,7 +128,7 @@ func (s *Scheduler) start(ctx context.Context, id uuid.UUID, refine bool) error 
 	in := activities.IssueRunInput{
 		IssueID: is.ID.String(), IssueKey: is.Key, Title: is.Title, Spec: is.Spec,
 		AcceptanceCriteria: is.AcceptanceCriteria, SourceURL: is.SourceRef,
-		Repo: p.Repo, BaseBranch: p.BaseBranch, Labels: is.Labels,
+		Repo: p.Repo, BaseBranch: p.BaseBranch, Labels: is.Labels, Type: string(is.Type),
 	}
 	startFn := s.Starter.StartIssueRun
 	if refine {

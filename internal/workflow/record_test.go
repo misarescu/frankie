@@ -68,6 +68,13 @@ func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil 
 func (s *stubActivities) CloseChangeRequest(context.Context, activities.IssueRunInput, string, string) error {
 	return nil
 }
+func (s *stubActivities) RecordFindings(_ context.Context, req activities.FindingsRequest) (activities.FindingsResult, error) {
+	f, err := domain.ParseBugFindings([]byte(req.Result))
+	if err != nil {
+		return activities.FindingsResult{Error: err.Error()}, nil
+	}
+	return activities.FindingsResult{Findings: f}, nil
+}
 
 func (s *stubActivities) ConflictContext(_ context.Context, req activities.ConflictRequest) (string, error) {
 	return "### " + req.Files[0] + "\n\nChanged on main since your branch forked:\n```diff\n+import Shelves\n```\n", nil
@@ -130,6 +137,9 @@ func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRu
 	if run.Step.Contract == config.ContractRefinedSpec { // the refiner reads the base branch
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch,
 			Result: `{"spec":"Add a search box above the book list.","acceptance_criteria":["typing filters the list by title"]}`}, nil
+	}
+	if run.Step.Contract == config.ContractBugFindings { // an investigator reads and pushes nothing
+		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, Result: fmt.Sprintf(testFindings, true)}, nil
 	}
 	if run.Step.Contract != "" { // a reviewer reads the head and pushes nothing
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("%040d", s.pushes),
@@ -285,6 +295,9 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// image-build-events version: agent steps resolve their image as
 		// themselves, so a build they wait for is recorded on them.
 		{"interpret_image_build_events.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
+		// bug-findings version: an investigation finds a testable bug, the
+		// reproduce step runs, then the fix.
+		{"interpret_investigate_testable.json", investigateSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {

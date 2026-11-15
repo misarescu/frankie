@@ -10,7 +10,7 @@ import (
 
 // OpenChangeRequest opens (or finds) the PR for the pushed branch and records it.
 func (a *Activities) OpenChangeRequest(ctx context.Context, in IssueRunInput, run StartRunResult, s SessionResult) (string, error) {
-	pr, err := a.GitHub.OpenPullRequest(ctx, in.Repo, s.Branch, in.BaseBranch, in.IssueKey+": "+in.Title, PRBody(in, s))
+	pr, err := a.GitHub.OpenPullRequest(ctx, in.Repo, s.Branch, in.BaseBranch, in.IssueKey+": "+in.Title, PRBody(in, s, run.Findings))
 	if err != nil {
 		return "", err
 	}

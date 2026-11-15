@@ -102,6 +102,11 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, a
 		b.WriteString(f)
 		b.WriteString("\n")
 	}
+	if has("findings") && strings.TrimSpace(s.Findings) != "" {
+		b.WriteString("\nWhat the investigation of this bug found:\n\n")
+		b.WriteString(strings.TrimRight(s.Findings, "\n"))
+		b.WriteString("\n")
+	}
 	if has("feedback") && strings.TrimSpace(s.Feedback) != "" {
 		b.WriteString("\nYour previous attempt was sent back. Address every point below:\n\n")
 		b.WriteString(strings.TrimRight(s.Feedback, "\n"))
@@ -155,13 +160,19 @@ func writeAnswers(b *strings.Builder, answers []domain.Question) {
 	}
 }
 
-// PRBody describes the change for reviewers.
-func PRBody(in IssueRunInput, s SessionResult) string {
+// PRBody describes the change for reviewers; findings is what the run's
+// investigation found, if it had one (D94).
+func PRBody(in IssueRunInput, s SessionResult, findings string) string {
 	var b strings.Builder
 	if in.SourceNumber > 0 {
 		fmt.Fprintf(&b, "Closes #%d\n\n", in.SourceNumber)
 	}
 	fmt.Fprintf(&b, "Implemented by a Frankie agent for issue **%s**.\n\n", in.IssueKey)
+	if f := strings.TrimSpace(findings); f != "" {
+		b.WriteString("### What the investigation found\n\n")
+		b.WriteString(f)
+		b.WriteString("\n\n")
+	}
 	if r := strings.TrimSpace(s.Result); r != "" {
 		b.WriteString("### Agent summary\n\n")
 		b.WriteString(r)

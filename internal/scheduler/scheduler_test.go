@@ -329,7 +329,7 @@ func TestSchedulerSpecApproval(t *testing.T) {
 		t.Fatalf("started %v (spec %q), want %s with its approved spec", starter.started, starter.inputs[len(starter.inputs)-1].Spec, gated.Key)
 	}
 	// M6 (D92): the run gets the issue's labels, which override project settings.
-	if !slices.Contains(starter.inputs[1].Labels, "needs-spec-approval") {
-		t.Errorf("labels = %v", starter.inputs[1].Labels)
+	if !slices.Contains(starter.inputs[1].Labels, "needs-spec-approval") || starter.inputs[1].Type != "task" {
+		t.Errorf("labels = %v, type %q", starter.inputs[1].Labels, starter.inputs[1].Type)
 	}
 }

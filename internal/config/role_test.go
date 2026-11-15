@@ -172,3 +172,40 @@ func TestResolveRefinementRoles(t *testing.T) {
 		t.Fatalf("a coder as refiner: err = %v", err)
 	}
 }
+
+var investigatorRole = Role{Name: "bug-investigator", Version: 1, SystemPrompt: "x", AllowedTools: []string{"read"}, OutputContract: ContractBugFindings}
+
+// M6 (D94): a step can be conditional on an investigation's findings; the
+// condition must name a field of that step's result with a value of its kind.
+func TestResolveRolesConditions(t *testing.T) {
+	const head = "name: w\nversion: 1\nsteps:\n  - id: investigate\n    agent: {role: bug-investigator}\n"
+	ok := head + "  - id: reproduce\n    agent: {role: coder}\n    when: {step: investigate, field: testable, equals: true}\n" +
+		"  - id: decide\n    gate: {type: human}\n    when: {step: investigate, field: confidence, equals: low}\n"
+	w, err := ParseWorkflow([]byte(ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRoles(w, lookupIn(coderRole, investigatorRole)); err != nil {
+		t.Fatalf("valid conditions: %v", err)
+	}
+	if w.Steps[1].When.Equals != true {
+		t.Errorf("when = %+v", w.Steps[1].When)
+	}
+	tests := []struct{ name, yaml, want string }{
+		{"a field the result lacks", head + "  - id: r\n    agent: {role: coder}\n    when: {step: investigate, field: root_cause, equals: x}\n", `has no field "root_cause"`},
+		{"a value of the wrong kind", head + "  - id: r\n    agent: {role: coder}\n    when: {step: investigate, field: testable, equals: maybe}\n", "testable is a bool, not a string"},
+		{"a step without a result", "name: w\nversion: 1\nsteps:\n  - id: implement\n    agent: {role: coder}\n  - id: r\n    agent: {role: coder}\n    when: {step: implement, field: testable, equals: true}\n", "returns no result a step can depend on"},
+		{"an investigator in a group", "name: w\nversion: 1\nsteps:\n  - id: p\n    parallel: [{agent: {role: bug-investigator}}]\n", "run it as its own step"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w, err := ParseWorkflow([]byte(tt.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ResolveRoles(w, lookupIn(coderRole, investigatorRole)); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}

@@ -26,6 +26,7 @@ var ErrNotFound = errors.New("no built-in role with that name")
 var contractSchemas = map[string]string{
 	config.ContractReviewVerdict: "schemas/review-verdict.json",
 	config.ContractRefinedSpec:   "schemas/refined-spec.json",
+	config.ContractBugFindings:   "schemas/bug-findings.json",
 }
 
 // Names lists the built-in roles, sorted.

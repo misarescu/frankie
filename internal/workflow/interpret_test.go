@@ -87,6 +87,8 @@ type interpretFixture struct {
 	left     int // LeaveQueue calls
 	// closedCR records CloseChangeRequest comments.
 	closedCR []string
+	// findings is what an investigating session answers.
+	findings string
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -118,6 +120,9 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		n := len(f.sessions)
 		if f.sessionStatus != "" {
 			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
+		}
+		if run.Step.Contract == config.ContractBugFindings { // an investigator reads and pushes nothing
+			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, Result: f.findings}, nil
 		}
 		if run.Step.Contract != "" { // a reviewer checks out the head and pushes nothing
 			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head,
@@ -185,6 +190,13 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		}
 		f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(MergeQueueOutcomeSignal, out) }, time.Hour)
 		return nil
+	})
+	f.env.OnActivity(a.RecordFindings, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.FindingsRequest) (activities.FindingsResult, error) {
+		found, err := domain.ParseBugFindings([]byte(req.Result))
+		if err != nil {
+			return activities.FindingsResult{Error: err.Error()}, nil
+		}
+		return activities.FindingsResult{Findings: found}, nil
 	})
 	f.env.OnActivity(a.CloseChangeRequest, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, _, comment string) error {
 		f.closedCR = append(f.closedCR, comment)
@@ -378,6 +390,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_queue_conflict_then_merged.json", "M6: merge-queue-loop version, a conflict sent back to the coder, then merged"},
 	{"testdata/interpret_merge_approval_changes_requested.json", "M6: merge-approval version, changes requested, then approved and merged"},
 	{"testdata/interpret_image_build_events.json", "M6: image-build-events version, agent steps resolve their image as themselves"},
+	{"testdata/interpret_investigate_testable.json", "M6: bug-findings version, a testable bug is investigated, reproduced and fixed"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -644,6 +657,72 @@ func TestInterpretQueueSendBackLimits(t *testing.T) {
 		out := f.run(t, defaultBuildSnapshot(t))
 		if out.Succeeded || out.Reason != "step merge: merge queue: refused: branch protection" || f.left != 0 {
 			t.Fatalf("result = %+v", out)
+		}
+	})
+}
+
+// investigateDefinition investigates, reproduces only a testable bug, fixes.
+const investigateDefinition = `
+name: bugs
+version: 1
+steps:
+  - id: investigate
+    agent: {role: bug-investigator}
+  - id: reproduce
+    agent: {role: coder}
+    when: {step: investigate, field: testable, equals: true}
+  - id: fix
+    agent: {role: coder}
+  - id: open
+    action: change-request.open
+`
+
+func investigateSnapshot(t *testing.T) snapshot.Snapshot {
+	t.Helper()
+	w, err := config.ParseWorkflow([]byte(investigateDefinition))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.Snapshot{Workflow: w, BaseSHA: "base", Roles: map[string]config.Role{
+		"bug-investigator": {Name: "bug-investigator", Version: 1, SystemPrompt: "find it", OutputContract: config.ContractBugFindings},
+		"coder":            {Name: "coder", Version: 1, SystemPrompt: "code"},
+	}}
+}
+
+const testFindings = `{"root_cause":"stats sum shelf rows","evidence":[{"file":"db/queries/shelf_books.sql","line":40,"note":"SUM"}],
+"reproduce":"two shelves","testable":%t,"test_plan":"storage test","why_untestable":"timing","confidence":"high"}`
+
+// M6 (D94): an investigating step's findings decide which steps run and
+// reach the later steps' prompts and the change request.
+func TestInterpretInvestigates(t *testing.T) {
+	for _, testable := range []bool{true, false} {
+		t.Run(fmt.Sprintf("testable=%v", testable), func(t *testing.T) {
+			f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, testable) })
+			out := f.run(t, investigateSnapshot(t))
+			if !out.Succeeded {
+				t.Fatalf("result = %+v", out)
+			}
+			want := "investigate/1 reproduce/1 fix/1 open/1"
+			if !testable {
+				want = "investigate/1 fix/1 open/1"
+			}
+			if got := f.stepIDs(); got != want {
+				t.Errorf("steps = %s, want %s", got, want)
+			}
+			fix := f.sessions[len(f.sessions)-1].Step
+			if !strings.Contains(fix.Findings, "**Root cause** (high confidence): stats sum shelf rows") {
+				t.Errorf("fix step findings = %q", fix.Findings)
+			}
+			if inv := f.sessions[0].Step; inv.Contract != config.ContractBugFindings || inv.Findings != "" {
+				t.Errorf("investigate step = %+v", inv)
+			}
+		})
+	}
+	t.Run("findings that are not valid fail the run", func(t *testing.T) {
+		f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = "I am not sure." })
+		out := f.run(t, investigateSnapshot(t))
+		if out.Succeeded || !strings.Contains(out.Reason, "step investigate: the investigation returned no valid findings") || len(f.sessions) != 1 {
+			t.Fatalf("result = %+v, sessions %d", out, len(f.sessions))
 		}
 	})
 }

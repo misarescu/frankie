@@ -64,7 +64,7 @@ func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) 
 	if in.Snapshot.Error != "" {
 		out.Reason = in.Snapshot.Error
 	} else {
-		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}}
+		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}, findings: map[string]domain.BugFindings{}}
 		out.Reason = it.execute(ctx)
 		out.Succeeded, out.ChangeRequestURL = out.Reason == "", it.changeRequest
 		out.Merged = it.merged
@@ -101,6 +101,8 @@ type interpreter struct {
 	guarded bool
 	// merged is set when the merge queue merged the change request (D88).
 	merged bool
+	// findings are what investigating steps found, by step ID (D94).
+	findings map[string]domain.BugFindings
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -109,8 +111,18 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 	for pc := 0; pc < len(steps); {
 		s := steps[pc]
 		next, reason := pc+1, ""
+		if s.When != nil && !it.holds(*s.When) {
+			// The step does not apply to this run, e.g. a reproducing test
+			// for a bug no test can show (D94).
+			pc = next
+			continue
+		}
 		switch s.Kind() {
 		case config.StepAgent:
+			if it.in.Snapshot.Roles[s.Agent.RoleName()].OutputContract == config.ContractBugFindings {
+				reason = it.investigate(ctx, s)
+				break
+			}
 			reason = it.agent(ctx, s)
 		case config.StepGate:
 			next, reason = it.gate(ctx, pc, s)
@@ -186,6 +198,50 @@ func (it *interpreter) agent(ctx workflow.Context, s config.Step) string {
 	return reason
 }
 
+// investigate runs one execution of an investigating step (D94): the agent
+// reads the code without changing it and its final message must be valid
+// bug findings, which later steps and the change request get, and which
+// `when` conditions read.
+func (it *interpreter) investigate(ctx workflow.Context, s config.Step) string {
+	if workflow.GetVersion(ctx, "bug-findings", workflow.DefaultVersion, 1) < 1 {
+		return "this run cannot investigate"
+	}
+	session, stepRunID, reason := it.agentSession(ctx, s)
+	if stepRunID == "" {
+		return reason
+	}
+	if reason != "" {
+		it.finishStep(ctx, stepRunID, false)
+		return reason
+	}
+	var res activities.FindingsResult
+	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.RecordFindings, activities.FindingsRequest{
+		RunID: it.run.RunID, StepRunID: stepRunID, Result: session.Result,
+	}).Get(ctx, &res)
+	it.finishStep(ctx, stepRunID, err == nil && res.Error == "")
+	switch {
+	case err != nil:
+		return "recording the findings failed: " + err.Error()
+	case res.Error != "":
+		return "the investigation returned no valid findings: " + res.Error
+	}
+	it.findings[s.ID] = res.Findings
+	it.run.Findings = res.Findings.Markdown()
+	it.feedback = ""
+	return ""
+}
+
+// holds reports whether a step's condition is met by what the step it reads
+// found; a step that has not run meets none.
+func (it *interpreter) holds(w config.When) bool {
+	f, ok := it.findings[w.Step]
+	if !ok {
+		return false
+	}
+	v, ok := f.Field(w.Field)
+	return ok && w.Holds(v)
+}
+
 // reviewer runs one execution of a reviewing agent step on the last pushed
 // commit; its final message is the verdict.
 func (it *interpreter) reviewer(ctx workflow.Context, s config.Step) (activities.Review, string) {
@@ -213,8 +269,11 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
 		Model: config.GatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), Harness: s.Agent.Harness, BudgetUSD: s.BudgetUSD, IssueBudgetUSD: it.in.Snapshot.IssueBudgetUSD, Timeout: time.Duration(s.Timeout),
 		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract}
-	if slices.Contains(s.Inputs, "feedback") && step.Contract == "" {
+	if slices.Contains(s.Inputs, "feedback") && step.Contract != config.ContractReviewVerdict {
 		step.Feedback = it.feedback
+	}
+	if slices.Contains(s.Inputs, "findings") && step.Contract != config.ContractBugFindings {
+		step.Findings = it.run.Findings
 	}
 	run := activities.StartRunResult{RunID: it.run.RunID, StepRunID: stepRunID, Branch: it.run.Branch, Step: step}
 

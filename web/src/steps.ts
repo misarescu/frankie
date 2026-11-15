@@ -24,6 +24,8 @@ export type Step = {
   // What a step waits for: a person (M5.1), a human gate's decision or an
   // answer to the agent's question; or the build of its image (D93).
   waits_for?: "approval" | "answer" | "toolchain-image" | "dependency-image";
+  // Why a step the run went past did not run: its condition (D98).
+  skipped_because?: string;
 };
 
 const buildingImage = (s: Step) => s.waits_for === "toolchain-image" || s.waits_for === "dependency-image";
@@ -50,17 +52,48 @@ export function waitNote(s: Step, runHref?: string): { text: string; href?: stri
   return undefined;
 }
 
-// PlanStep is a step a run's workflow executes, in order (GET /api/runs/{id}/plan).
-export type PlanStep = { step_id: string; kind: string; role?: string; harness?: string; model?: string; gate?: string };
+// When is a step's condition (D94): it runs only if the named earlier step's
+// result has that value.
+export type When = { step: string; field: string; equals: boolean | string };
 
-// upcoming lists the planned steps that have not run yet, in plan order, as
-// steps without a status, so a timeline can show them greyed after the ones
-// that ran.
-export function upcoming(plan: PlanStep[], ran: Step[]): Step[] {
+// PlanStep is a step a run's workflow executes, in order (GET /api/runs/{id}/plan).
+export type PlanStep = { step_id: string; kind: string; role?: string; harness?: string; model?: string; gate?: string; when?: When };
+
+// condition says when a conditional step runs: "runs only when investigate's testable is false".
+export const condition = (w: When): string => `runs only when ${w.step}'s ${w.field} is ${String(w.equals)}`;
+
+// timeline lists a run's steps for its timeline: the step executions in the
+// order they ran, with the planned steps that did not run (D98). A
+// conditional step the run went past (a later step in the plan ran) shows as
+// skipped, with its condition, where it would have run. While the run goes
+// on, the steps not reached yet follow, greyed, in plan order; once it ends,
+// they are left out, since it will not reach them.
+export function timeline(plan: PlanStep[], ran: Step[], ended: boolean): Step[] {
+  const index = new Map(plan.map((p, i) => [p.step_id, i]));
   const seen = new Set(ran.map((s) => s.step_id));
-  return plan.filter((p) => !seen.has(p.step_id)).map((p) => ({
-    ...p, id: `plan-${p.step_id}`, attempt: 1, status: "not started", cost_usd: 0, input_tokens: 0, output_tokens: 0,
-  }));
+  const last = Math.max(-1, ...ran.map((s) => index.get(s.step_id) ?? -1));
+  const unrun = (p: PlanStep, status: string): Step => {
+    const { when, ...rest } = p;
+    return {
+      ...rest, id: `plan-${p.step_id}`, attempt: 1, status, cost_usd: 0, input_tokens: 0, output_tokens: 0,
+      ...(status === "skipped" && when ? { skipped_because: condition(when) } : {}),
+    };
+  };
+  const skipped = plan.flatMap((p, i) => (!seen.has(p.step_id) && p.when && i < last ? [{ at: i, step: unrun(p, "skipped") }] : []));
+  const out: Step[] = [];
+  for (const s of ran) {
+    const at = index.get(s.step_id) ?? -1;
+    for (let k = skipped[0]; k && k.at < at; k = skipped[0]) {
+      out.push(k.step);
+      skipped.shift();
+    }
+    out.push(s);
+  }
+  out.push(...skipped.map((k) => k.step));
+  if (!ended) {
+    out.push(...plan.filter((p, i) => !seen.has(p.step_id) && !(p.when && i < last)).map((p) => unrun(p, "not started")));
+  }
+  return out;
 }
 
 // who says what does a step's work: "coder · claude-code · anthropic/claude-sonnet-5-5"

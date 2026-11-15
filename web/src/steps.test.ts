@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { abort, runningAgentStep, shownStatus, steer, stepName, totals, upcoming, usd, waitNote, who, type Step } from "./steps";
+import { abort, runningAgentStep, shownStatus, steer, stepName, timeline, totals, usd, waitNote, who, type Step } from "./steps";
 
 const step = (step_id: string, kind: string, status: string, cost_usd = 0, input_tokens = 0, output_tokens = 0): Step =>
   ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status, cost_usd, input_tokens, output_tokens });
@@ -65,11 +65,44 @@ test("M5.1: the steps not reached yet follow the ones that ran, in plan order", 
     { step_id: "implement", kind: "agent", role: "coder" }, { step_id: "checks", kind: "gate", gate: "command" },
     { step_id: "code-reviewer", kind: "agent", role: "code-reviewer" }, { step_id: "review", kind: "gate", gate: "agent-verdict" },
   ];
-  const got = upcoming(plan, [step("implement", "agent", "succeeded"), step("checks", "gate", "running")]);
+  const ran = [step("implement", "agent", "succeeded"), step("checks", "gate", "running")];
+  const got = timeline(plan, ran, false);
   expect(got.map((s) => [s.step_id, s.status, who(s)])).toEqual([
+    ["implement", "succeeded", ""], ["checks", "running", ""],
     ["code-reviewer", "not started", "code-reviewer · default model"], ["review", "not started", "agent-verdict gate"],
   ]);
-  expect(upcoming(plan, plan.map((p) => step(p.step_id, p.kind, "succeeded")))).toEqual([]);
+  // A run that ended will not reach them.
+  expect(timeline(plan, ran, true)).toEqual(ran);
+});
+
+test("D98: a conditional step the run went past shows as skipped, with its condition, where it would have run", () => {
+  const testable = (equals: boolean) => ({ step: "investigate", field: "testable", equals });
+  const plan = [
+    { step_id: "investigate", kind: "agent", role: "bug-investigator" },
+    { step_id: "decide", kind: "gate", gate: "human", when: testable(false) },
+    { step_id: "reproduce", kind: "agent", role: "bug-reproducer", when: testable(true) },
+    { step_id: "fix", kind: "agent", role: "coder" },
+    { step_id: "keeps-test", kind: "gate", gate: "preserve", when: testable(true) },
+    { step_id: "checks", kind: "gate", gate: "command" },
+  ];
+  const shown = (ran: Step[], ended: boolean) => timeline(plan, ran, ended).map((s) => `${s.step_id}:${s.status}`);
+  // Before the run goes past it, a conditional step is still to come.
+  expect(shown([step("investigate", "agent", "running")], false))
+    .toEqual(["investigate:running", "decide:not started", "reproduce:not started", "fix:not started", "keeps-test:not started", "checks:not started"]);
+  // Testable: decide is skipped, in its place, while the run goes and after it ends.
+  const testableRun = [step("investigate", "agent", "succeeded"), step("reproduce", "agent", "succeeded"), step("fix", "agent", "running")];
+  expect(shown(testableRun, false))
+    .toEqual(["investigate:succeeded", "decide:skipped", "reproduce:succeeded", "fix:running", "keeps-test:not started", "checks:not started"]);
+  expect(timeline(plan, testableRun, false)[1]?.skipped_because).toBe("runs only when investigate's testable is false");
+  // Not testable: the steps for a test are skipped; one the run never reached is not.
+  const untestable = [step("investigate", "agent", "succeeded"), step("decide", "gate", "succeeded"), step("fix", "agent", "succeeded"), step("checks", "gate", "failed")];
+  expect(shown(untestable, true))
+    .toEqual(["investigate:succeeded", "decide:succeeded", "reproduce:skipped", "fix:succeeded", "keeps-test:skipped", "checks:failed"]);
+  expect(shown(untestable.slice(0, 3), true)).toEqual(["investigate:succeeded", "decide:succeeded", "reproduce:skipped", "fix:succeeded"]);
+  // A loop back runs earlier steps again: the skipped step keeps its place.
+  const looped = [...untestable, { ...step("fix", "agent", "running"), id: "fix-2", attempt: 2 }];
+  expect(shown(looped, false))
+    .toEqual(["investigate:succeeded", "decide:succeeded", "reproduce:skipped", "fix:succeeded", "keeps-test:skipped", "checks:failed", "fix:running"]);
 });
 
 test("M5.1: a step waiting for a person shows as awaiting a human, with where to act", () => {

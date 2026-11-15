@@ -106,6 +106,7 @@ steps:
     agent: { role: coder, harness: opencode, model: openrouter/openai/gpt-5.6-luna }
   - id: checks
     gate: { type: command }
+    when: { step: implement, field: testable, equals: true }
   - id: review
     parallel:
       - agent: { role: code-reviewer, harness: pi, model: openrouter/openai/gpt-5.6-terra }
@@ -150,6 +151,7 @@ steps:
     agent: { role: coder }
   - id: checks
     gate: { type: command }
+    when: { step: implement, field: testable, equals: true }
   - id: review
     parallel:
       - agent: { role: code-reviewer, harness: pi, model: openrouter/openai/gpt-5.6-terra }
@@ -168,6 +170,10 @@ steps:
 	want := []string{"implement:agent:coder", "checks:gate:command", "code-reviewer:agent:code-reviewer", "review:gate:agent-verdict", "open-change-request:action:"}
 	if !slices.Equal(got, want) {
 		t.Errorf("plan = %v\nwant %v", got, want)
+	}
+	// D98: a step's condition comes with it, so a skipped step can say why.
+	if when := runPlan(raw)[1].When; when == nil || *when != (config.When{Step: "implement", Field: "testable", Equals: true}) {
+		t.Errorf("checks.when = %+v", when)
 	}
 	if p := runPlan(json.RawMessage(`not json`)); p == nil || len(p) != 0 {
 		t.Errorf("unreadable snapshot: plan = %#v, want empty", p)

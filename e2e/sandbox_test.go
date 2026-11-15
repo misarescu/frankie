@@ -38,6 +38,8 @@ r proxy_denied_lan "$(curl -sk -m 20 -o /dev/null -w '%{http_connect}' https://$
 r direct_internet "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://example.com/)"
 r direct_lan "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://${NODE_IP}:6443/)"
 r direct_k8s_api "$(curl --noproxy '*' -sk -m 8 -o /dev/null -w '%{http_code}' https://kubernetes.default.svc/)"
+r direct_metadata "$(curl --noproxy '*' -s -m 5 -o /dev/null -w '%{http_code}' http://169.254.169.254/)"
+r direct_metadata_scaleway "$(curl --noproxy '*' -s -m 5 -o /dev/null -w '%{http_code}' http://169.254.42.42/conf)"
 r gitproxy "$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://${CP_HOST}:8081/git/x/y.git/info/refs?service=git-upload-pack")"
 r controlplane_api "$(timeout 5 bash -c "echo > /dev/tcp/${CP_HOST}/8080" 2>/dev/null && echo open || echo closed)"
 r postgres "$(timeout 5 bash -c "echo > /dev/tcp/${PG_HOST}/5432" 2>/dev/null && echo open || echo closed)"
@@ -110,11 +112,19 @@ var _ = Describe("Agent sandbox", Ordered, ContinueOnFailure, Label("sandbox"), 
 	It("reaches an allowlisted host through the egress proxy", func() {
 		Expect(results["proxy_allowed"]).NotTo(BeElementOf("", "000"))
 	})
+	// The probe sends no egress token: since D80 the proxy refuses such a
+	// request with 407, a challenge a pod holding a project's token may answer.
 	It("is refused by the proxy for unlisted hosts", func() {
-		Expect(results).To(HaveKeyWithValue("proxy_denied_host", "403"))
+		Expect(results).To(HaveKeyWithValue("proxy_denied_host", "407"))
 	})
 	It("is refused by the proxy for the node and LAN", func() {
-		Expect(results).To(HaveKeyWithValue("proxy_denied_lan", "403"))
+		Expect(results).To(HaveKeyWithValue("proxy_denied_lan", "407"))
+	})
+	// Cloud instance metadata can describe the node and its credentials
+	// (Scaleway serves it on 169.254.42.42, most clouds on 169.254.169.254).
+	It("cannot reach a cloud metadata service", func() {
+		Expect(results).To(HaveKeyWithValue("direct_metadata", "000"))
+		Expect(results).To(HaveKeyWithValue("direct_metadata_scaleway", "000"))
 	})
 	It("cannot reach the internet directly", func() {
 		Expect(results).To(HaveKeyWithValue("direct_internet", "000"))

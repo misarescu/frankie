@@ -55,8 +55,9 @@ r sumdb "$(curl -s -m 20 -o /dev/null -w '%{http_code}' https://sum.golang.org/l
 
 		Expect(results).To(HaveKeyWithValue("athens_list", "200"))
 		Expect(results).To(HaveKeyWithValue("athens_zip", "200 PK"), "Athens must serve the module zip")
-		Expect(results).To(HaveKeyWithValue("public_proxy", "403"), "proxy.golang.org must be refused by the egress proxy")
-		Expect(results).To(HaveKeyWithValue("cloud_storage", "403"), "storage.googleapis.com must be refused by the egress proxy")
+		// No egress token, so the proxy refuses with its D80 challenge.
+		Expect(results).To(HaveKeyWithValue("public_proxy", "407"), "proxy.golang.org must be refused by the egress proxy")
+		Expect(results).To(HaveKeyWithValue("cloud_storage", "407"), "storage.googleapis.com must be refused by the egress proxy")
 		Expect(results).To(HaveKeyWithValue("sumdb", "200"), "the checksum database stays reachable")
 	}, NodeTimeout(7*time.Minute))
 })

@@ -89,6 +89,9 @@ func stepDetails(raw json.RawMessage) map[string]stepDetail {
 type planStepJSON struct {
 	StepID string `json:"step_id"`
 	Kind   string `json:"kind"` // agent, gate, action
+	// When is the step's condition (D94), so a timeline can show a step the
+	// run went past without running as skipped, and why (D98).
+	When *config.When `json:"when,omitempty"`
 	stepDetail
 }
 
@@ -102,22 +105,23 @@ func runPlan(raw json.RawMessage) []planStepJSON {
 	}
 	details := stepDetails(raw)
 	out := []planStepJSON{}
-	add := func(id string, kind config.StepKind) {
-		out = append(out, planStepJSON{StepID: id, Kind: string(kind), stepDetail: details[id]})
+	add := func(id string, kind config.StepKind, when *config.When) {
+		out = append(out, planStepJSON{StepID: id, Kind: string(kind), When: when, stepDetail: details[id]})
 	}
 	for _, st := range snap.Workflow.Steps {
 		switch k := st.Kind(); k {
 		case config.StepParallel:
+			// A group's condition holds for its branches and its gate.
 			for _, b := range st.Parallel {
-				add(b.ID, b.Kind())
+				add(b.ID, b.Kind(), cmp.Or(b.When, st.When))
 			}
 			if st.Gate != nil {
-				add(st.ID, config.StepGate)
+				add(st.ID, config.StepGate, st.When)
 			}
 		case "":
 			// not a valid step; a snapshot that passed validation has none
 		default:
-			add(st.ID, k)
+			add(st.ID, k, st.When)
 		}
 	}
 	return out

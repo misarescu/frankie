@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { eventTypes, label, parseStreamEvent, summary, type RunEvent } from "./events";
 import { StatusChip } from "./IssuesPage";
 import { clip, duration, keepLatest, type LiveRunRef } from "./live";
-import { shownStatus, stepName, upcoming, usd, waitNote, who, type PlanStep, type Step } from "./steps";
+import { shownStatus, stepName, timeline, usd, waitNote, who, type PlanStep, type Step } from "./steps";
 import { WaitNote } from "./WaitNote";
 
 // LiveRun follows one run on the issue page (M5.1): its step timeline with
@@ -60,9 +60,9 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
   }, [run.id, end]);
 
   const cost = steps.reduce((c, s) => c + s.cost_usd, 0);
-  // A run that ended without reaching a step will not reach it: only a run in
-  // progress shows what is still to come.
-  const rest = end ? [] : upcoming(plan, steps);
+  // Conditional steps the run went past show as skipped; only a run in
+  // progress shows what is still to come (D98).
+  const shown = timeline(plan, steps, end !== null);
   return (
     <section className="live">
       <h2>
@@ -72,15 +72,16 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
         <span className="type"> · total {usd(cost)}</span>
         {" · "}<a href={`#/runs/${run.id}`}>full transcript</a>
       </h2>
-      {steps.length === 0 && rest.length === 0 ? <p className="status">{end ? "No steps ran." : "Starting: waiting for the first step…"}</p> : (
+      {shown.length === 0 ? <p className="status">{end ? "No steps ran." : "Starting: waiting for the first step…"}</p> : (
         <ol className="timeline">
-          {[...steps, ...rest].map((s) => (
-            <li key={s.id} className={s.status === "not started" ? "upcoming" : `st-${shownStatus(s)}`}>
+          {shown.map((s) => (
+            <li key={s.id} className={s.status === "not started" || s.status === "skipped" ? "upcoming" : `st-${shownStatus(s)}`}>
               <strong>{stepName(s)}</strong> <StatusChip status={shownStatus(s)} />
               <span className="type">
                 {" "}{duration(s.started_at, s.finished_at, now)}
                 {who(s) && ` · ${who(s)}`}
-                {s.kind === "agent" && s.status !== "not started" && ` · ${usd(s.cost_usd)}`}
+                {s.kind === "agent" && s.status !== "not started" && s.status !== "skipped" && ` · ${usd(s.cost_usd)}`}
+                {s.skipped_because && ` · ${s.skipped_because}`}
               </span>
               <WaitNote note={waitNote(s, `#/runs/${run.id}`)} />
             </li>

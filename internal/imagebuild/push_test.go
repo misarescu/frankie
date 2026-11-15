@@ -204,6 +204,31 @@ func TestPushMirrorsTheBaseByDigest(t *testing.T) {
 	}
 }
 
+// M6 (D84): a mirror named with a tag gets that tag on the base's copy, also
+// when the copy was there already and the tag pointed elsewhere.
+func TestPushTagsTheMirror(t *testing.T) {
+	host := testRegistry(t)
+	base := pushBase(t, host+"/upstream/runner:sha-1", types.DockerManifestSchema2)
+	baseDigest, _ := base.Digest()
+	other := pushBase(t, host+"/base/runner:sha-1", types.OCIManifestSchema1)
+	if d, _ := other.Digest(); d == baseDigest {
+		t.Fatal("test images are the same")
+	}
+	opts := PushOptions{
+		Base: host + "/upstream/runner:sha-1", Mirror: host + "/base/runner:sha-1",
+		Layer:  layerFile(t, map[string]string{"a": "1"}),
+		Target: host + "/toolchains/acme/app", Insecure: []string{host},
+	}
+	for range 2 {
+		if _, err := Push(t.Context(), opts); err != nil {
+			t.Fatal(err)
+		}
+		if d, _ := pulled(t, host+"/base/runner:sha-1").Digest(); d != baseDigest {
+			t.Errorf("mirror tag = %v, want the base %v", d, baseDigest)
+		}
+	}
+}
+
 func TestPushFailsWithoutTheBase(t *testing.T) {
 	host := testRegistry(t)
 	_, err := Push(t.Context(), PushOptions{

@@ -203,3 +203,43 @@ func TestEnsureViaPassesTheProxyToTheBuild(t *testing.T) {
 		t.Errorf("without the proxy: %+v, %v; want the same recorded image", again, err)
 	}
 }
+
+// collectingBuilder tries to start a registry collection mid-build.
+type collectingBuilder struct {
+	*fakeBuilder
+	m         *Maintenance
+	collected bool
+}
+
+func (c *collectingBuilder) Build(ctx context.Context, r BuildRequest) (string, error) {
+	if stop, ok := c.m.TryCollect(); ok {
+		c.collected = true
+		stop()
+	}
+	return c.fakeBuilder.Build(ctx, r)
+}
+
+// M6 (D84): no registry collection starts while Ensure builds and records an
+// image, and Ensure waits for a running one.
+func TestEnsureHoldsOffCollection(t *testing.T) {
+	e, b, _, _ := newEnsurer()
+	m := &Maintenance{}
+	cb := &collectingBuilder{fakeBuilder: b, m: m}
+	e.Builder, e.Maintenance = cb, m
+	if _, err := e.Ensure(t.Context(), "toolchains/misarescu/repo", testInputs); err != nil {
+		t.Fatal(err)
+	}
+	if cb.collected {
+		t.Error("a collection started during a build")
+	}
+	if stop, ok := m.TryCollect(); !ok {
+		t.Fatal("Ensure still holds maintenance after it returned")
+	} else {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := e.Ensure(ctx, "toolchains/misarescu/repo", testInputs); err == nil {
+			t.Error("Ensure ran during a collection")
+		}
+		stop()
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -110,7 +111,7 @@ func (in Inputs) Recipe(string) (Recipe, error) {
 		files["mise.lock"] = in.MiseLock
 	}
 	return Recipe{
-		Image: in.Base, Base: in.Base, Mirror: mirrorRepository(in.Base),
+		Image: in.Base, Base: in.Base, Mirror: mirrorReference(in.Base),
 		Dir: toolchainDir, Files: files,
 		Run: "mise trust && mise install",
 		// mise's download cache stays out of the image.
@@ -121,19 +122,38 @@ func (in Inputs) Recipe(string) (Recipe, error) {
 	}, nil
 }
 
-// mirrorRepository is where a base image is mirrored on the push host:
-// base/ and the last path element of its repository, e.g. base/frankie-runner.
-func mirrorRepository(ref string) string {
-	repo := ref
+// mirrorReference is MirrorOf as one repository:tag reference.
+func mirrorReference(ref string) string {
+	repository, tag := MirrorOf(ref)
+	return repository + ":" + tag
+}
+
+// MirrorOf is where a base image is mirrored on the push host (D81): base/ and
+// the last path element of its repository, e.g. base/frankie-runner, under the
+// base reference's own tag, or sha256-<hex> for a base given by digest only.
+// The tag lets registry collection keep the deployed base's mirror and delete
+// older ones (D84); builds still take the mirrored base by digest.
+func MirrorOf(ref string) (repository, tag string) {
+	repo, digest := ref, ""
 	if i := strings.Index(repo, "@"); i >= 0 {
-		repo = repo[:i]
+		repo, digest = repo[:i], repo[i+1:]
 	}
 	if i := strings.LastIndex(repo, ":"); i > strings.LastIndex(repo, "/") {
-		repo = repo[:i]
+		repo, tag = repo[:i], repo[i+1:]
 	}
-	r := "base/" + strings.ToLower(path.Base(repo))
-	if !repositoryRE.MatchString(r) {
-		return "base/runner"
+	repository = "base/" + strings.ToLower(path.Base(repo))
+	if !repositoryRE.MatchString(repository) {
+		repository = "base/runner"
 	}
-	return r
+	switch {
+	case tagRE.MatchString(tag):
+	case digestRE.MatchString(digest):
+		tag = strings.Replace(digest, ":", "-", 1)
+	default:
+		tag = "latest"
+	}
+	return repository, tag
 }
+
+// tagRE is the OCI distribution grammar for a tag.
+var tagRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)

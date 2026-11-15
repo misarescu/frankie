@@ -42,6 +42,11 @@ type Ensurer struct {
 	// PullHost is how nodes reach the registry, e.g. localhost:30500. It can
 	// differ from the host builds push to, which is cluster-internal.
 	PullHost string
+	// Maintenance, when set, keeps registry collection out while an image is
+	// looked up, built and recorded (D84).
+	Maintenance *Maintenance
+	// Heartbeat, when set, is called while Ensure waits for a collection.
+	Heartbeat func(ctx context.Context, details ...any)
 }
 
 var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -63,6 +68,15 @@ func (e Ensurer) EnsureVia(ctx context.Context, repository string, spec Spec, eg
 	if !repositoryRE.MatchString(repository) {
 		return Image{}, fmt.Errorf("images: invalid repository %q", repository)
 	}
+	release, err := e.Maintenance.Use(ctx, func() {
+		if e.Heartbeat != nil {
+			e.Heartbeat(ctx, "waiting for registry collection")
+		}
+	})
+	if err != nil {
+		return Image{}, fmt.Errorf("wait for registry collection: %w", err)
+	}
+	defer release()
 	repo := repository
 	tag := spec.Tag()
 	digest, found, err := e.Digests.Lookup(ctx, repository, tag)

@@ -101,6 +101,18 @@ func TestLoadConfigFileToolchains(t *testing.T) {
 			t.Errorf("toolchain = %+v", tc)
 		}
 	})
+	t.Run("collection", func(t *testing.T) {
+		cfg, err := load(t, `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m",
+		  "collect": {"interval": "24h", "minAge": "12h", "keep": 3, "registryNamespace": "frankie", "registryDeployment": "frankie-registry"}}}`)
+		c := cfg.Toolchain.Collect
+		if err != nil || c.Interval != 24*time.Hour || c.MinAge != 12*time.Hour || c.Keep != 3 || c.RegistryDeployment != "frankie-registry" {
+			t.Errorf("collect = %+v, %v", c, err)
+		}
+		cfg, err = load(t, `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`)
+		if err != nil || cfg.Toolchain.Collect.Interval != 0 {
+			t.Errorf("no interval = %+v, %v; want collection off", cfg.Toolchain.Collect, err)
+		}
+	})
 	t.Run("absent disables toolchain images", func(t *testing.T) {
 		cfg, err := load(t, `{}`)
 		if err != nil || cfg.Toolchain.Enabled() {
@@ -112,6 +124,14 @@ func TestLoadConfigFileToolchains(t *testing.T) {
 			"bad deadline": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "soon"}}`,
 			"bad quantity": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "lots", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`,
 			"no pull host": `{"toolchains": {"registryURL": "http://r", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`,
+			"collect too often": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m",
+			  "collect": {"interval": "5m", "keep": 1, "registryNamespace": "n", "registryDeployment": "d"}}}`,
+			"collect keeps nothing": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m",
+			  "collect": {"interval": "24h", "keep": 0, "registryNamespace": "n", "registryDeployment": "d"}}}`,
+			"collect without deployment": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m",
+			  "collect": {"interval": "24h", "keep": 1, "registryNamespace": "n"}}}`,
+			"collect bad min age": `{"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m",
+			  "collect": {"interval": "24h", "minAge": "a while", "keep": 1, "registryNamespace": "n", "registryDeployment": "d"}}}`,
 		} {
 			if _, err := load(t, body); err == nil {
 				t.Errorf("%s: accepted", name)

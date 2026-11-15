@@ -31,7 +31,7 @@ Memory budget, GiB:
 | Control plane API + UI | 0.3 | 0.3 | |
 | LiteLLM gateway | 0.5 | 0.5 | Kept: keeps API keys out of sandboxes |
 | Flux | 0.3 | 0.3 | |
-| Local registry | 0.1 | 0.5 | Plain registry:2; 128 MiB was OOM-killed receiving a dependency image (M5.2) |
+| Local registry | 0.1 | 0.5 | Plain registry:2; 128 MiB was OOM-killed receiving a dependency image (M5.2); collected daily (D84) |
 | Egress proxy | 0.05 | 0.05 | D20; hostname allowlist for agent pods |
 | Go module proxy (Athens) | 0.06 | 0.25 | D37; Go modules for sandboxes |
 | **Platform total** | **4.31** | **5.4** | |

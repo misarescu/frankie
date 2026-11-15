@@ -178,6 +178,10 @@ func TestParseWorkflowRejects(t *testing.T) {
 		{"unknown action", head + "  - id: x\n    action: deploy.prod\n", `unknown action "deploy.prod"`},
 		{"action not yet available", head + "  - id: x\n    action: release.create\n", `"release.create" is not available yet`},
 		{"enqueue without a change request", head + impl + "  - id: q\n    action: merge-queue.enqueue\n", "needs an earlier change-request.open step"},
+		{"enqueue escalates", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: escalate\n", "the queue's onFail is fail or {goto, maxLoops}"},
+		{"enqueue loops forward", head + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: {goto: later, maxLoops: 1}\n", `"later" is not an earlier step`},
+		{"enqueue loops without a bound", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: {goto: implement}\n", "steps[2].onFail.maxLoops"},
+		{"onFail on an agent step", head + "  - id: x\n    agent: {role: coder}\n    onFail: fail\n", "applies to merge-queue.enqueue only"},
 		{"step after enqueue", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n" + checks, "must be the last step"},
 		{"unknown gate type", head + "  - id: g\n    gate: {type: vibes}\n", `unknown gate type "vibes"`},
 		{"unknown policy", head + "  - id: g\n    gate: {type: command, policy: maybe}\n", `unknown policy "maybe"`},
@@ -225,5 +229,25 @@ func TestParseWorkflowReportsEveryError(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v\nmissing %q", err, want)
 		}
+	}
+}
+
+// M6 (D89): the merge queue's step loops back to the coder like a gate, and
+// fails the run by default.
+func TestParseWorkflowEnqueueOnFail(t *testing.T) {
+	const def = "name: w\nversion: 1\nsteps:\n  - id: implement\n    agent: {role: coder}\n  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n"
+	w, err := ParseWorkflow([]byte(def))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := w.Steps[2].OnFail; o == nil || o.Action != OnFailFail {
+		t.Errorf("default onFail = %+v, want fail", o)
+	}
+	w, err = ParseWorkflow([]byte(def + "    onFail: {goto: implement, maxLoops: 2}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := w.Steps[2].OnFail; o.Action != OnFailGoto || o.Goto != "implement" || o.MaxLoops != 2 {
+		t.Errorf("onFail = %+v", o)
 	}
 }

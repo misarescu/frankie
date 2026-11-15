@@ -24,3 +24,6 @@ steps:
     action: change-request.open
   - id: merge
     action: merge-queue.enqueue
+    # A conflict or a failed check after updating with main goes back to the
+    # coder; the change is then checked and reviewed again (D89).
+    onFail: { goto: implement, maxLoops: 2 }

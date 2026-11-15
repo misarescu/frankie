@@ -50,6 +50,14 @@ type stubActivities struct {
 	// enqueued receives each enqueue request, for the recording to answer
 	// with the queue's outcome.
 	enqueued chan activities.EnqueueRequest
+	// conflict makes the queue's branch update conflict.
+	conflict bool
+}
+
+func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil }
+
+func (s *stubActivities) ConflictContext(_ context.Context, req activities.ConflictRequest) (string, error) {
+	return "### " + req.Files[0] + "\n\nChanged on main since your branch forked:\n```diff\n+import Shelves\n```\n", nil
 }
 
 func (s *stubActivities) EnqueueChangeRequest(_ context.Context, req activities.EnqueueRequest) error {
@@ -219,35 +227,39 @@ func TestRecordInterpretHistories(t *testing.T) {
 		intervene  bool // steer, then abort, the first agent session
 		answer     bool // answer a question of the first agent session
 		merge      bool // the merge queue merges the change request
+		sendBack   bool // ... after sending it back once with a conflict
 	}{
 		// The first command gate fails, the loop back to implement fixes it.
 		{"interpret_loop_then_success.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool {
 			return req.StepID == "checks" && req.CommitSHA == fmt.Sprintf("%040d", 1)
-		}, nil, false, false, false, false, false},
+		}, nil, false, false, false, false, false, false},
 		// The command gate keeps failing until maxLoops is used up (recorded before
 		// escalation existed, so the run failed there).
-		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false, false, false, false},
+		{"interpret_loops_exhausted.json", loopSnapshot(t, loopDefinition), func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, false, false, false, false, false, false},
 		// default-build: the reviewer fails the first commit, the loop back to
 		// implement fixes it.
 		{"interpret_default_build_review_loop.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false },
-			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false, false, false, false},
+			func(req activities.VerdictGateRequest) bool { return req.CommitSHA == fmt.Sprintf("%040d", 1) }, false, false, false, false, false, false},
 		// A definition's human gate after the change request opened, approved.
-		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false, false, false, false},
+		{"interpret_human_gate_approved.json", loopSnapshot(t, approvalDefinition), func(activities.GateRequest) bool { return false }, nil, true, false, false, false, false, false},
 		// maxLoops used up: the gate escalates to a human, who approves.
 		{"interpret_loops_exhausted_escalated.json", loopSnapshot(t, loopDefinition),
-			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false, false, false, false},
+			func(req activities.GateRequest) bool { return req.StepID == "checks" }, nil, true, false, false, false, false, false},
 		// default-build on a change to a protected path: the forced human gate, approved.
-		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, false},
+		{"interpret_protected_changes_approved.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, false, false},
 		// step-interventions version: a person steers the implement session,
 		// then aborts it, which fails the run.
-		{"interpret_steer_then_abort.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, true, false, false},
+		{"interpret_steer_then_abort.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, true, false, false, false},
 		// step-answers version: the implement session asks a question, a
 		// person answers it, and the run succeeds.
-		{"interpret_question_answered.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, true, false},
+		{"interpret_question_answered.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, true, false, false},
 		// merge-queue version: default-build enqueues its change request on a
 		// protected change: the forced gate first, approved, then the queue
 		// merges it.
-		{"interpret_default_build_merged.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, true},
+		{"interpret_default_build_merged.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, true, false, false, true, false},
+		// merge-queue-loop version: the queue sends the change request back
+		// with a conflict, the coder resolves it, and the second pass merges.
+		{"interpret_queue_conflict_then_merged.json", defaultBuildSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, false, false, false, true, true},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -258,7 +270,7 @@ func TestRecordInterpretHistories(t *testing.T) {
 			w := worker.New(c, queue, worker.Options{})
 			w.RegisterWorkflow(Interpret)
 			stub := &stubActivities{failGate: sc.failGate, failReview: sc.failReview, opened: make(chan string, 4), protected: sc.protected,
-				enqueued: make(chan activities.EnqueueRequest, 1)}
+				enqueued: make(chan activities.EnqueueRequest, 2)}
 			if sc.intervene {
 				stub.started, stub.abort = make(chan string, 1), make(chan struct{})
 			}
@@ -290,10 +302,15 @@ func TestRecordInterpretHistories(t *testing.T) {
 				}()
 			}
 			if sc.merge {
-				go func() { // the merge queue answers the enqueue
-					req := <-stub.enqueued
-					_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), MergeQueueOutcomeSignal,
-						QueueOutcome{StepID: req.StepID, Attempt: req.Attempt, Kind: QueueOutcomeMerged, MergeSHA: "m3rge", HeadSHA: req.HeadSHA})
+				go func() { // the merge queue answers each enqueue
+					for req := range stub.enqueued {
+						out := QueueOutcome{StepID: req.StepID, Attempt: req.Attempt, Kind: QueueOutcomeMerged, MergeSHA: "m3rge", HeadSHA: req.HeadSHA}
+						if sc.sendBack && req.Attempt == 1 {
+							out = QueueOutcome{StepID: req.StepID, Attempt: req.Attempt, Kind: QueueOutcomeConflict, Reason: "conflicts with main",
+								Conflicts: []string{"web/App.jsx"}, Feedback: "### web/App.jsx\n+import Shelves", HeadSHA: req.HeadSHA}
+						}
+						_ = c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), MergeQueueOutcomeSignal, out)
+					}
 				}()
 			}
 			go func() { // a person decides each human gate the run opens
@@ -339,6 +356,9 @@ func (s *stubActivities) CheckQueueEntry(context.Context, activities.IssueRunInp
 }
 
 func (s *stubActivities) UpdateBranch(_ context.Context, req activities.BranchUpdateRequest) (activities.BranchUpdateResult, error) {
+	if s.conflict {
+		return activities.BranchUpdateResult{Outcome: activities.BranchConflict, BaseSHA: fmt.Sprintf("%040d", 200), Conflicts: []string{"web/App.jsx"}}, nil
+	}
 	s.pushes++
 	return activities.BranchUpdateResult{Outcome: activities.BranchUpdated, HeadSHA: fmt.Sprintf("%040d", 100+s.pushes),
 		BaseSHA: fmt.Sprintf("%040d", 200+s.pushes)}, nil
@@ -369,7 +389,8 @@ func TestRecordMergeQueueHistories(t *testing.T) {
 	queue := fmt.Sprintf("record-mq-%d", time.Now().UnixNano())
 	w := worker.New(c, queue, worker.Options{})
 	w.RegisterWorkflow(MergeQueue)
-	w.RegisterActivity(&stubActivities{failGate: func(activities.GateRequest) bool { return false }})
+	stub := &stubActivities{failGate: func(activities.GateRequest) bool { return false }}
+	w.RegisterActivity(stub)
 	if err := w.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -386,5 +407,19 @@ func TestRecordMergeQueueHistories(t *testing.T) {
 	if err := run.Get(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
-	writeHistory(t, c, run, "merge_queue_base_moved_then_merged.json")
+	file := "merge_queue_base_moved_then_merged.json"
+	if os.Getenv("FRANKIE_RECORD_ONLY") == "merge_queue_conflict.json" {
+		// conflict-context version: the update conflicts, and both sides go back.
+		stub.conflict, file = true, "merge_queue_conflict.json"
+		entry.WorkflowID = "issue-gc-1-gone-conflict"
+		run, err = c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: MergeQueueWorkflowID("misarescu/Goodreads-Clone") + "-c-" + queue, TaskQueue: queue},
+			MergeQueue, MergeQueueInput{Repo: "misarescu/Goodreads-Clone", Pending: []QueueEntry{entry}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := run.Get(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeHistory(t, c, run, file)
 }

@@ -60,7 +60,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 | agent | `id, agent{role, harness, model}, inputs?, timeout?, budgetUSD?` | Launch pod, run role via the harness, push result to the issue's `agent/*` branch. |
 | gate | `id, gate{type, ...}` | See below. |
 | parallel | list of agent steps, optional trailing `gate`; `id` required when gated | Run branches concurrently; gate evaluates after all finish. A branch without an `id` is named after its role. |
-| action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`, M6 `merge-queue.enqueue` (last step, after `change-request.open`, D88); `release.create` (M7) and `issue.comment` are rejected until they exist. |
+| action | `id, action: <name>` | Built-in control plane action. M3 implements `change-request.open`, M6 `merge-queue.enqueue` (last step, after `change-request.open`, D88; takes `onFail: fail | {goto, maxLoops}` for what the queue sends back, D89); `release.create` (M7) and `issue.comment` are rejected until they exist. |
 
 - `role` is a role name, optionally pinned as `name@version`.
 - `model` is a model ref `<provider>/<model id>` (the id may contain slashes, as OpenRouter's `openrouter/openai/gpt-5.6-terra`); empty means the role's default model, then the platform's. A harness may use a provider only if it speaks the API that provider serves (D48): Claude Code reaches the `anthropic` provider only; opencode and pi reach every provider.

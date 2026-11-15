@@ -74,3 +74,12 @@ test("M5.1: groups consecutive events by step execution", () => {
   ]);
   expect(segments([])).toEqual([]);
 });
+
+test("M6: image builds and their logs read as such", () => {
+  expect(label(ev("image_build", {}))).toBe("Image build");
+  expect(summary(ev("image_build", { image: "toolchain", tag: "tc-1", status: "building" }))).toBe("building the toolchain image tc-1");
+  expect(summary(ev("image_build", { image: "dependencies", status: "built", seconds: 61.4 }))).toBe("built the dependency image in 61s");
+  expect(summary(ev("image_build", { image: "toolchain", status: "failed", seconds: 39, error: "nodejs.org refused" })))
+    .toBe("the toolchain image build failed in 39s: nodejs.org refused");
+  expect(summary(ev("build_log", { output: "mise install node@22\n" }))).toBe("mise install node@22\n");
+});

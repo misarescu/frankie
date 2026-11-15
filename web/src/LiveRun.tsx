@@ -3,6 +3,7 @@ import { eventTypes, label, parseStreamEvent, summary, type RunEvent } from "./e
 import { StatusChip } from "./IssuesPage";
 import { clip, duration, keepLatest, type LiveRunRef } from "./live";
 import { shownStatus, stepName, upcoming, usd, waitNote, who, type PlanStep, type Step } from "./steps";
+import { WaitNote } from "./WaitNote";
 
 // LiveRun follows one run on the issue page (M5.1): its step timeline with
 // status and duration, and the agent's latest messages and tool calls, from the
@@ -81,7 +82,7 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
                 {who(s) && ` · ${who(s)}`}
                 {s.kind === "agent" && s.status !== "not started" && ` · ${usd(s.cost_usd)}`}
               </span>
-              {waitNote(s) && <> · <a href={waitNote(s)!.href}>{waitNote(s)!.text}</a></>}
+              <WaitNote note={waitNote(s, `#/runs/${run.id}`)} />
             </li>
           ))}
         </ol>

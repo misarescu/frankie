@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { eventTypes, isConnectionError, label, parseStreamEvent, segments, summary, type RunEvent } from "./events";
 import { abort, runningAgentStep, shownStatus, steer, stepName, totals, usd, waitNote, who, type Step } from "./steps";
 import { apiFetch } from "./auth";
+import { WaitNote } from "./WaitNote";
 
 // Live transcript: the control plane's SSE stream replays stored events, then
 // follows live ones; EventSource resumes with Last-Event-ID after a drop.
@@ -135,7 +136,7 @@ function StepsTable({ steps }: { steps: Step[] }) {
           <tr key={s.id}>
             <td>{stepName(s)}</td>
             <td className="type">{who(s)}</td>
-            <td>{shownStatus(s).replace("_", " ")}{waitNote(s) && <> · <a href={waitNote(s)!.href}>{waitNote(s)!.text}</a></>}</td>
+            <td>{shownStatus(s).replace("_", " ")}<WaitNote note={waitNote(s)} /></td>
             <td>{s.kind === "agent" ? usd(s.cost_usd) : ""}</td>
             <td>{s.kind === "agent" ? `${s.input_tokens.toLocaleString()} / ${s.output_tokens.toLocaleString()}` : ""}</td>
           </tr>

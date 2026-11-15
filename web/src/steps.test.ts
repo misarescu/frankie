@@ -84,3 +84,13 @@ test("M5.1: a step waiting for a person shows as awaiting a human, with where to
   expect(shownStatus({ ...gate, status: "succeeded" })).toBe("succeeded");
 });
 
+
+test("M6: a step whose image is being built says so, with where its log is", () => {
+  const building = { ...step("implement", "agent", "pending"), waits_for: "toolchain-image" as const };
+  expect(shownStatus(building)).toBe("building_image");
+  expect(waitNote(building, "#/runs/r1")).toEqual({ text: "building the toolchain image: see its log", href: "#/runs/r1" });
+  expect(waitNote(building)).toEqual({ text: "building the toolchain image; its log is below" });
+  const deps = { ...step("checks", "gate", "running"), waits_for: "dependency-image" as const };
+  expect(waitNote(deps)?.text).toBe("building the dependency image; its log is below");
+  expect(shownStatus({ ...building, status: "failed" })).toBe("failed");
+});

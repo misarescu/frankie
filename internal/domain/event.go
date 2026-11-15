@@ -30,7 +30,29 @@ const (
 	// EventIntervention is a person steering, aborting or answering a running
 	// agent step.
 	EventIntervention EventType = "intervention"
+	// EventImageBuild is a step waiting for its image's build, and how the
+	// build ended (D93); EventBuildLog is the build's log as it grows.
+	EventImageBuild EventType = "image_build"
+	EventBuildLog   EventType = "build_log"
 )
+
+// Image build statuses in an EventImageBuild.
+const (
+	ImageBuilding = "building"
+	ImageBuilt    = "built"
+	ImageFailed   = "failed"
+)
+
+// ImageBuild is the payload of an EventImageBuild.
+type ImageBuild struct {
+	// Image is "toolchain" or "dependencies".
+	Image      string  `json:"image"`
+	Repository string  `json:"repository"`
+	Tag        string  `json:"tag"`
+	Status     string  `json:"status"` // ImageBuilding, ImageBuilt or ImageFailed
+	Seconds    float64 `json:"seconds,omitempty"`
+	Error      string  `json:"error,omitempty"`
+}
 
 // Intervention actions.
 const (

@@ -38,8 +38,9 @@ type stepJSON struct {
 	OutputTokens int64      `json:"output_tokens"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
-	// WaitsFor says what a running step waits for from a person: "approval" (a
-	// human gate's decision) or "answer" (an ask-human question).
+	// WaitsFor says what a step waits for: from a person, "approval" (a human
+	// gate's decision) or "answer" (an ask-human question); or the build of
+	// its image, "toolchain-image" or "dependency-image" (D93).
 	WaitsFor string `json:"waits_for,omitempty"`
 	stepDetail
 }

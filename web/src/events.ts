@@ -19,7 +19,7 @@ export type RunSummary = {
 
 export const eventTypes = [
   "assistant_message", "tool_call", "tool_result", "file_diff", "command_output",
-  "token_usage", "error", "done", "gate_result", "state_change", "intervention", "question",
+  "token_usage", "error", "done", "gate_result", "state_change", "intervention", "question", "image_build", "build_log",
 ] as const;
 
 // The transcript has an event type named "error", which is also the name of
@@ -61,6 +61,8 @@ export function label(e: RunEvent): string {
     case "gate_result": return "Gate result";
     case "state_change": return "Status";
     case "question": return "Question for a person";
+    case "image_build": return "Image build";
+    case "build_log": return "Build log";
     case "intervention": return p.action === "abort" ? "Abort" : p.action === "answer" ? "Answer" : "Steer";
     default: return e.type.replaceAll("_", " ");
   }
@@ -122,6 +124,14 @@ export function summary(e: RunEvent): string {
     case "done": return [str(p.status), p.reason ? `: ${str(p.reason)}` : "", p.commit_sha ? ` · ${str(p.commit_sha)}` : ""].join("");
     case "error": return p.detail ? `${str(p.message)}: ${str(p.detail)}` : str(p.message);
     case "question": return `asked: ${str(p.question)}`;
+    case "image_build": {
+      // D93: a step waits for its image; the build's log follows as build_log.
+      const image = p.image === "dependencies" ? "dependency" : "toolchain";
+      if (p.status === "building") return `building the ${image} image ${str(p.tag)}`;
+      const took = p.seconds ? ` in ${Math.round(Number(p.seconds))}s` : "";
+      return p.status === "failed" ? `the ${image} image build failed${took}: ${str(p.error)}` : `built the ${image} image${took}`;
+    }
+    case "build_log": return str(p.output);
     case "intervention": {
       const verb = p.action === "abort" ? "aborted" : p.action === "answer" ? "answered" : "steered";
       const missed = p.action === "answer" ? " (the agent no longer waited for it)" : " (the session had already ended)";

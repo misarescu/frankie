@@ -432,6 +432,13 @@ UNION ALL
 SELECT q.step_run_id, 'answer'::text AS waits_for
 FROM questions q JOIN step_runs s ON s.id = q.step_run_id
 WHERE s.run_id = $1 AND q.status = 'pending'
+UNION ALL
+SELECT s.id AS step_run_id, (CASE WHEN b.payload->>'image' = 'dependencies' THEN 'dependency-image' ELSE 'toolchain-image' END)::text AS waits_for
+FROM step_runs s
+JOIN LATERAL (SELECT e.payload FROM events e
+              WHERE e.run_id = $1 AND e.step_run_id = s.id AND e.type = 'image_build'
+              ORDER BY e.seq DESC LIMIT 1) b ON true
+WHERE s.run_id = $1 AND s.status IN ('pending', 'running') AND b.payload->>'status' = 'building'
 `
 
 type ListRunWaitsRow struct {
@@ -441,6 +448,8 @@ type ListRunWaitsRow struct {
 
 // What a run's steps wait for from a person (M5.1): a pending human gate
 // decision ('approval') or a pending ask-human answer ('answer').
+// A step whose image is being built (D93): its newest image_build event says
+// building, and the step has not ended.
 func (q *Queries) ListRunWaits(ctx context.Context, runID uuid.UUID) ([]ListRunWaitsRow, error) {
 	rows, err := q.db.Query(ctx, listRunWaits, runID)
 	if err != nil {

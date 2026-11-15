@@ -218,7 +218,13 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	}
 	run := activities.StartRunResult{RunID: it.run.RunID, StepRunID: stepRunID, Branch: it.run.Branch, Step: step}
 
-	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, toolchainOptions), it.a.EnsureToolchainImage, it.in.Issue).Get(ctx, &run.ToolchainImage)
+	// A build the step waits for is recorded on the step (D93); runs from
+	// before that resolve the image without a step to record on.
+	if workflow.GetVersion(ctx, "image-build-events", workflow.DefaultVersion, 1) >= 1 {
+		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, toolchainOptions), it.a.EnsureStepImage, it.in.Issue, it.run.RunID, stepRunID).Get(ctx, &run.ToolchainImage)
+	} else {
+		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, toolchainOptions), it.a.EnsureToolchainImage, it.in.Issue).Get(ctx, &run.ToolchainImage)
+	}
 	if err != nil {
 		err = fmt.Errorf("toolchain image: %w", err)
 	}

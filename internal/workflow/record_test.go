@@ -65,7 +65,9 @@ func (s *stubActivities) AwaitProviderChecks(_ context.Context, req activities.P
 
 func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil }
 
-func (s *stubActivities) CloseChangeRequest(context.Context, activities.IssueRunInput, string, string) error { return nil }
+func (s *stubActivities) CloseChangeRequest(context.Context, activities.IssueRunInput, string, string) error {
+	return nil
+}
 
 func (s *stubActivities) ConflictContext(_ context.Context, req activities.ConflictRequest) (string, error) {
 	return "### " + req.Files[0] + "\n\nChanged on main since your branch forked:\n```diff\n+import Shelves\n```\n", nil
@@ -113,6 +115,10 @@ func (s *stubActivities) StartStep(_ context.Context, in activities.StepStart) (
 func (s *stubActivities) FinishStep(context.Context, activities.StepEnd) error { return nil }
 
 func (s *stubActivities) EnsureToolchainImage(context.Context, activities.IssueRunInput) (string, error) {
+	return toolchainRef, nil
+}
+
+func (s *stubActivities) EnsureStepImage(context.Context, activities.IssueRunInput, string, string) (string, error) {
 	return toolchainRef, nil
 }
 
@@ -276,6 +282,9 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// person requests changes, the coder makes them, the second ask is
 		// approved and the queue merges.
 		{"interpret_merge_approval_changes_requested.json", mergeApprovalSnapshot(t), func(activities.GateRequest) bool { return false }, nil, true, false, false, false, true, false, true},
+		// image-build-events version: agent steps resolve their image as
+		// themselves, so a build they wait for is recorded on them.
+		{"interpret_image_build_events.json", loopSnapshot(t, loopDefinition), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {

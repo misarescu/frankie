@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
@@ -23,6 +24,22 @@ import (
 // are pure functions of their inputs and concurrent builds share one Job. The
 // Activity keeps its name so recorded histories still replay.
 func (a *Activities) EnsureToolchainImage(ctx context.Context, in IssueRunInput) (string, error) {
+	return a.ensureImage(ctx, in, nil)
+}
+
+// EnsureStepImage is EnsureToolchainImage for one execution of an agent step:
+// a build the step waits for is recorded on the step's stream, with its log
+// (D93), so the step says why it has not started.
+func (a *Activities) EnsureStepImage(ctx context.Context, in IssueRunInput, runID, stepRunID string) (string, error) {
+	run, err1 := uuid.Parse(runID)
+	step, err2 := uuid.Parse(stepRunID)
+	if err := errors.Join(err1, err2); err != nil {
+		return "", temporal.NewNonRetryableApplicationError("bad id", "input", err)
+	}
+	return a.ensureImage(ctx, in, a.progressFor(ctx, run, step))
+}
+
+func (a *Activities) ensureImage(ctx context.Context, in IssueRunInput, progress images.Progress) (string, error) {
 	if a.Toolchain == nil {
 		return "", nil
 	}
@@ -30,7 +47,7 @@ func (a *Activities) EnsureToolchainImage(ctx context.Context, in IssueRunInput)
 	if err != nil {
 		return "", err
 	}
-	ref, err := a.toolchainImage(ctx, in, start.FilesRef)
+	ref, err := a.toolchainImage(ctx, in, start.FilesRef, progress)
 	if errors.Is(err, errInvalidProjectConfig) {
 		// The repo must fix it; retrying cannot.
 		return "", temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
@@ -49,7 +66,7 @@ const buildEgressTTL = 2 * time.Hour
 // file is read at one commit, so a push in between cannot mix versions. A
 // configuration the repo got wrong is wrapped in errInvalidProjectConfig.
 // Builds reach the project's egress hosts (D80).
-func (a *Activities) toolchainImage(ctx context.Context, in IssueRunInput, ref string) (string, error) {
+func (a *Activities) toolchainImage(ctx context.Context, in IssueRunInput, ref string, progress images.Progress) (string, error) {
 	if a.Toolchain == nil {
 		return "", nil
 	}
@@ -93,7 +110,7 @@ func (a *Activities) toolchainImage(ctx context.Context, in IssueRunInput, ref s
 		return "", temporal.NewNonRetryableApplicationError("invalid repo", "config", err)
 	}
 	activity.RecordHeartbeat(ctx, "resolving toolchain image")
-	img, err := a.Toolchain.EnsureVia(ctx, repository, inputs, proxy)
+	img, err := a.Toolchain.EnsureWith(ctx, repository, inputs, images.EnsureOptions{EgressProxyURL: proxy, Progress: progress})
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +139,7 @@ func (a *Activities) toolchainImage(ctx context.Context, in IssueRunInput, ref s
 		return "", temporal.NewNonRetryableApplicationError("invalid repo", "config", err)
 	}
 	activity.RecordHeartbeat(ctx, "resolving dependency image")
-	dep, err := a.Toolchain.EnsureVia(ctx, depRepository, spec, proxy)
+	dep, err := a.Toolchain.EnsureWith(ctx, depRepository, spec, images.EnsureOptions{EgressProxyURL: proxy, Progress: progress})
 	if err != nil {
 		return "", err
 	}

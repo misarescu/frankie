@@ -118,4 +118,13 @@ FROM approvals a WHERE a.run_id = @run_id AND a.status = 'pending'
 UNION ALL
 SELECT q.step_run_id, 'answer'::text AS waits_for
 FROM questions q JOIN step_runs s ON s.id = q.step_run_id
-WHERE s.run_id = @run_id AND q.status = 'pending';
+WHERE s.run_id = @run_id AND q.status = 'pending'
+UNION ALL
+-- A step whose image is being built (D93): its newest image_build event says
+-- building, and the step has not ended.
+SELECT s.id AS step_run_id, (CASE WHEN b.payload->>'image' = 'dependencies' THEN 'dependency-image' ELSE 'toolchain-image' END)::text AS waits_for
+FROM step_runs s
+JOIN LATERAL (SELECT e.payload FROM events e
+              WHERE e.run_id = @run_id AND e.step_run_id = s.id AND e.type = 'image_build'
+              ORDER BY e.seq DESC LIMIT 1) b ON true
+WHERE s.run_id = @run_id AND s.status IN ('pending', 'running') AND b.payload->>'status' = 'building';

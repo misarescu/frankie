@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"time"
 )
 
 // Builder builds a toolchain image and returns once it is pushed, with the
@@ -62,6 +63,20 @@ func (e Ensurer) Ensure(ctx context.Context, repository string, spec Spec) (Imag
 // build config's. The URL does not change the image's tag: it says where
 // downloads may come from, not what is installed.
 func (e Ensurer) EnsureVia(ctx context.Context, repository string, spec Spec, egressProxyURL string) (Image, error) {
+	return e.EnsureWith(ctx, repository, spec, EnsureOptions{EgressProxyURL: egressProxyURL})
+}
+
+// EnsureOptions are per-request settings of EnsureWith.
+type EnsureOptions struct {
+	// EgressProxyURL is where the build reaches the internet (see EnsureVia).
+	EgressProxyURL string
+	// Progress hears about a build this request waits for (D93); nil hears nothing.
+	Progress Progress
+}
+
+// EnsureWith is Ensure with per-request options.
+func (e Ensurer) EnsureWith(ctx context.Context, repository string, spec Spec, opts EnsureOptions) (Image, error) {
+	egressProxyURL := opts.EgressProxyURL
 	if err := spec.Validate(); err != nil {
 		return Image{}, fmt.Errorf("image inputs for %s: %w", repository, err)
 	}
@@ -94,7 +109,14 @@ func (e Ensurer) EnsureVia(ctx context.Context, repository string, spec Spec, eg
 		// The registry lost the image (its storage was reset): build it again.
 	}
 
-	digest, err = e.Builder.Build(ctx, BuildRequest{Repository: repository, Spec: spec, EgressProxyURL: egressProxyURL})
+	start := time.Now()
+	if opts.Progress != nil {
+		opts.Progress.Building(repository, tag)
+	}
+	digest, err = e.Builder.Build(ctx, BuildRequest{Repository: repository, Spec: spec, EgressProxyURL: egressProxyURL, Progress: opts.Progress})
+	if opts.Progress != nil {
+		opts.Progress.Built(repository, tag, time.Since(start), err)
+	}
 	if err != nil {
 		return Image{}, fmt.Errorf("build %s: %w", repo, err)
 	}

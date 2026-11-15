@@ -59,7 +59,7 @@ func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) (string, error) 
 		if err != nil {
 			return "", err
 		}
-		live, err = b.wait(ctx, live)
+		live, err = b.wait(ctx, live, r.Progress)
 		if errors.Is(err, errReplaced) {
 			continue
 		}
@@ -118,9 +118,13 @@ func (b KubeBuilder) start(ctx context.Context, cm *corev1.ConfigMap, job *batch
 
 // wait polls the Job until it finishes. It returns errReplaced when the Job
 // is gone or another Job took its name.
-func (b KubeBuilder) wait(ctx context.Context, live *batchv1.Job) (*batchv1.Job, error) {
+func (b KubeBuilder) wait(ctx context.Context, live *batchv1.Job, progress Progress) (*batchv1.Job, error) {
 	jobs := b.Kube.BatchV1().Jobs(b.Config.Namespace)
+	logs := &logCursor{seen: map[string]int{}}
 	for {
+		if progress != nil {
+			b.streamLog(ctx, live, logs, progress)
+		}
 		if done, _ := jobState(live); done {
 			return live, nil
 		}
@@ -169,15 +173,9 @@ const (
 // cannot be read is said to be missing.
 func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
 	pods := b.Kube.CoreV1().Pods(b.Config.Namespace)
-	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
-	if err != nil || len(list.Items) == 0 {
+	newest, ok := b.newestPod(ctx, job)
+	if !ok {
 		return "\n(no build log: the build pod is gone)"
-	}
-	newest := list.Items[0]
-	for _, p := range list.Items[1:] {
-		if p.CreationTimestamp.After(newest.CreationTimestamp.Time) {
-			newest = p
-		}
 	}
 	container := pushContainer
 	if !succeeded(newest.Status.InitContainerStatuses, installContainer) {
@@ -194,6 +192,67 @@ func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
 		return "\n(the build log is empty)"
 	}
 	return "\nlast lines of the build log (" + container + "):\n" + tail
+}
+
+// Build logs streamed to a request (D93): at most this much per build.
+const maxStreamedLog = 256 << 10
+
+// logCursor is how much of each build container's log a request has seen.
+type logCursor struct {
+	seen map[string]int // pod/container -> bytes
+	sent int
+	cut  bool
+}
+
+// streamLog sends the build pod's new log output to progress: the install
+// container's, then the push container's. Logs only grow, so what is past the
+// cursor is new. Reading them is best effort: a build does not fail over its log.
+func (b KubeBuilder) streamLog(ctx context.Context, job *batchv1.Job, c *logCursor, progress Progress) {
+	if c.cut {
+		return
+	}
+	pod, ok := b.newestPod(ctx, job)
+	if !ok {
+		return
+	}
+	for _, container := range []string{installContainer, pushContainer} {
+		raw, err := b.Kube.CoreV1().Pods(b.Config.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+			Container: container, LimitBytes: ptrTo(int64(maxStreamedLog + 1)),
+		}).Do(ctx).Raw()
+		if err != nil {
+			continue // not started yet, or gone
+		}
+		key := pod.Name + "/" + container
+		if len(raw) <= c.seen[key] {
+			continue
+		}
+		text := string(raw[c.seen[key]:])
+		c.seen[key] = len(raw)
+		if c.sent+len(text) > maxStreamedLog {
+			text = text[:max(maxStreamedLog-c.sent, 0)] + "\n(the build log is longer; its end is shown if the build fails)\n"
+			c.cut = true
+		}
+		c.sent += len(text)
+		progress.Output(text)
+		if c.cut {
+			return
+		}
+	}
+}
+
+// newestPod is the Job's most recently created pod.
+func (b KubeBuilder) newestPod(ctx context.Context, job *batchv1.Job) (corev1.Pod, bool) {
+	list, err := b.Kube.CoreV1().Pods(b.Config.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
+	if err != nil || len(list.Items) == 0 {
+		return corev1.Pod{}, false
+	}
+	newest := list.Items[0]
+	for _, p := range list.Items[1:] {
+		if p.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = p
+		}
+	}
+	return newest, true
 }
 
 // succeeded reports whether the named container exited with status 0.

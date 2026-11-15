@@ -19,11 +19,14 @@ import (
 // Labels on every build Job and its ConfigMap. RoleLabel is what the build
 // namespace's NetworkPolicies select.
 const (
-	RoleLabel      = "frankie.dev/role"
-	RoleBuild      = "toolchain-build"
-	ImageTagLabel  = "frankie.dev/toolchain-tag"
-	contextMount   = "/ctx"
-	contextArchive = "context.tar"
+	RoleLabel     = "frankie.dev/role"
+	RoleBuild     = "toolchain-build"
+	ImageTagLabel = "frankie.dev/toolchain-tag"
+	// SafeToEvictAnnotation "false" on the build pod keeps a cluster autoscaler
+	// from evicting a build mid-way when it removes an underused node (D99).
+	SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+	contextMount          = "/ctx"
+	contextArchive        = "context.tar"
 	// outMount holds the layer between the install and the push.
 	outMount      = "/out"
 	agentHomeMise = "/home/agent/.local/share/mise"
@@ -215,7 +218,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 			ActiveDeadlineSeconds:   ptrTo(int64(c.Deadline.Seconds())),
 			TTLSecondsAfterFinished: ptrTo(int32(600)),
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{SafeToEvictAnnotation: "false"}},
 				Spec: corev1.PodSpec{
 					RuntimeClassName:             ptrTo(c.RuntimeClassName),
 					ServiceAccountName:           c.ServiceAccountName,

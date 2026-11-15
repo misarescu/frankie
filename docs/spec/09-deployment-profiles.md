@@ -54,6 +54,10 @@ Sidecar services (FR-SB-9) do not add to these numbers: their limits are taken o
 
 Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kernel and agent, typically a few hundred MiB per pod) or page cache. Measure it in M1 and adjust limits (open question).
 
+## On a cluster with an autoscaled node pool
+
+The concrete profile's sizing assumes one fixed node. On a managed cluster whose agent pool scales with demand (Scaleway Kapsule since M7), three settings keep the autoscaler from undoing work (D99): sandbox and build pods are never evicted when a node is removed (always set); `platform.nodeSelector` and `platform.tolerations` keep the platform on a small fixed pool, tainted so agent pods stay off it; and `persistence.storageClassName` picks a class that keeps volumes when their claims are deleted. The pool's nodes need `/dev/kvm` for Kata, and kata-deploy runs as a DaemonSet so nodes the autoscaler adds get Kata too.
+
 ## Dropped or deferred in the concrete profile
 
 | Dropped or deferred | In the concrete profile instead |

@@ -31,7 +31,11 @@ spec:
       annotations:
         checksum/allowlist: {{ .Values.egressProxy.allow | toJson | sha256sum }}
         checksum/project-allow: {{ .Values.egressProxy.projectAllow | toString | sha256sum }}
+        {{- with .Values.platform.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         # Numeric, so the kubelet can verify runAsNonRoot (distroless "nonroot" is 65532).

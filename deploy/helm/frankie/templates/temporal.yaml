@@ -18,7 +18,12 @@ spec:
     metadata:
       labels:
         {{- include "frankie.componentLabels" (list . "temporal") | nindent 8 }}
+      {{- with .Values.platform.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -52,6 +57,7 @@ spec:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        {{- include "frankie.storageClassName" . | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.temporal.storage }}

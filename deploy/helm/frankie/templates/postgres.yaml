@@ -49,7 +49,12 @@ spec:
     metadata:
       labels:
         {{- include "frankie.componentLabels" (list . "postgres") | nindent 8 }}
+      {{- with .Values.platform.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         # The official image's postgres user; numeric so runAsNonRoot is verifiable.
@@ -105,6 +110,7 @@ spec:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        {{- include "frankie.storageClassName" . | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.postgres.storage }}

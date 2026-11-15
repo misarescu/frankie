@@ -20,7 +20,12 @@ spec:
       labels:
         # Not "llm-gateway": the gateway Service must never route to this pod.
         {{- include "frankie.componentLabels" (list . "llm-gateway-migrate") | nindent 8 }}
+      {{- with .Values.platform.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       restartPolicy: Never
       automountServiceAccountToken: false
       securityContext:

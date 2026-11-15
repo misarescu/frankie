@@ -55,6 +55,9 @@ func TestBranchUpdatePod(t *testing.T) {
 	if pod.Labels[RoleLabel] != RoleGate || pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
 		t.Errorf("labels %v, automount %v", pod.Labels, pod.Spec.AutomountServiceAccountToken)
 	}
+	if pod.Annotations[SafeToEvictAnnotation] != "false" { // D99
+		t.Errorf("an autoscaler may evict the update: annotations = %v", pod.Annotations)
+	}
 	if *c.SecurityContext.AllowPrivilegeEscalation || pod.Spec.SecurityContext.RunAsNonRoot == nil || !*pod.Spec.SecurityContext.RunAsNonRoot {
 		t.Error("the update container is not locked down like the gate's")
 	}

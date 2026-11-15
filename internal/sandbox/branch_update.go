@@ -170,8 +170,9 @@ func BranchUpdatePod(s BranchUpdatePodSpec) (*corev1.Pod, error) {
 	)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.Name,
-			Namespace: s.Namespace,
+			Name:        s.Name,
+			Namespace:   s.Namespace,
+			Annotations: noEvict(),
 			Labels: map[string]string{
 				RoleLabel:      RoleBranchUpdate,
 				RunIDLabel:     s.RunID,

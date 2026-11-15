@@ -87,7 +87,11 @@ spec:
         {{- include "frankie.componentLabels" (list . "llm-gateway") | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.llmGateway.providers | toJson | sha256sum }}
+        {{- with .Values.platform.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- include "frankie.platformScheduling" . | nindent 6 }}
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true

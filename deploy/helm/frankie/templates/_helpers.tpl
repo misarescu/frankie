@@ -145,3 +145,22 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- end -}}
 {{- toJson $env -}}
 {{- end -}}
+
+{{/* Node placement for platform pods (not agent, gate or build pods): platform.nodeSelector and platform.tolerations. Renders nothing when both are empty. */}}
+{{- define "frankie.platformScheduling" -}}
+{{- with .Values.platform.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .Values.platform.tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{/* storageClassName for every claim, from persistence.storageClassName; nothing (the cluster's default class) when empty. */}}
+{{- define "frankie.storageClassName" -}}
+{{- with .Values.persistence.storageClassName }}
+storageClassName: {{ . | quote }}
+{{- end }}
+{{- end -}}

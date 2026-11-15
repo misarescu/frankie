@@ -60,3 +60,27 @@ func TestAgentVerdictDetailsPassed(t *testing.T) {
 		}
 	}
 }
+
+// M6 (D95): a gate that expects failure passes when a command ran and failed.
+func TestCommandGateDetailsExpectFail(t *testing.T) {
+	zero, one := 0, 1
+	tests := []struct {
+		name string
+		d    CommandGateDetails
+		want bool
+	}{
+		{"the test fails", CommandGateDetails{ExpectFail: true, Commands: []CommandResult{{Command: "mise run test", ExitCode: &one}}}, true},
+		{"the test passes", CommandGateDetails{ExpectFail: true, Commands: []CommandResult{{Command: "mise run test", ExitCode: &zero}}}, false},
+		{"the checkout failed", CommandGateDetails{ExpectFail: true, Error: "clone failed", Commands: []CommandResult{{Command: "mise run test"}}}, false},
+		{"nothing ran", CommandGateDetails{ExpectFail: true, Commands: []CommandResult{{Command: "mise run test"}}}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.d.Passed(); got != tt.want {
+			t.Errorf("%s: %v", tt.name, got)
+		}
+	}
+	if !(PreserveDetails{Step: "reproduce", Files: []string{"a_test.go"}}).Passed() ||
+		(PreserveDetails{Changed: []ChangedAgain{{File: "a_test.go", Status: "modified"}}}).Passed() || (PreserveDetails{Error: "x"}).Passed() {
+		t.Error("preserve details")
+	}
+}

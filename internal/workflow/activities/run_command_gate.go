@@ -144,6 +144,7 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 	}
 
 	details := a.gateDetails(ctx, finished, image, commands)
+	details.ExpectFail = req.ExpectFail
 	out, err = a.finishGate(ctx, step, details)
 	if err != nil {
 		return out, err
@@ -264,6 +265,9 @@ func summarize(d domain.CommandGateDetails) string {
 	if d.Error != "" {
 		return strings.SplitN(d.Error, "\n", 2)[0]
 	}
+	if d.ExpectFail {
+		return summarizeExpectFail(d)
+	}
 	var failed []string
 	for _, c := range d.Commands {
 		switch {
@@ -279,11 +283,31 @@ func summarize(d domain.CommandGateDetails) string {
 	return strings.Join(failed, "; ")
 }
 
+// summarizeExpectFail is the reason for a gate that expects failure: which
+// command failed as it should, or that nothing did.
+func summarizeExpectFail(d domain.CommandGateDetails) string {
+	for _, c := range d.Commands {
+		if c.ExitCode != nil && *c.ExitCode != 0 {
+			return fmt.Sprintf("%s failed as expected (exit %d)", c.Command, *c.ExitCode)
+		}
+	}
+	return "every command passed, but this gate expects them to fail"
+}
+
 // feedback is what an agent sent back by a failed gate needs: which commands
 // failed and how their output ended. Empty when the gate passed.
 func feedback(d domain.CommandGateDetails) string {
 	if d.Passed() {
 		return ""
+	}
+	if d.ExpectFail && d.Error == "" {
+		var cmds []string
+		for _, c := range d.Commands {
+			cmds = append(cmds, "`"+c.Command+"`")
+		}
+		return fmt.Sprintf("%s passed on your commit, but the bug is not fixed yet, so a test that shows it must fail. "+
+			"Write or correct the test so that it fails because of the bug (not because it does not compile), and change no code under test.\n",
+			strings.Join(cmds, ", "))
 	}
 	var b strings.Builder
 	if d.Error != "" {

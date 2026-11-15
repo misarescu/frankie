@@ -64,7 +64,7 @@ func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) 
 	if in.Snapshot.Error != "" {
 		out.Reason = in.Snapshot.Error
 	} else {
-		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}, findings: map[string]domain.BugFindings{}}
+		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}, findings: map[string]domain.BugFindings{}, pushed: map[string][2]string{}}
 		out.Reason = it.execute(ctx)
 		out.Succeeded, out.ChangeRequestURL = out.Reason == "", it.changeRequest
 		out.Merged = it.merged
@@ -103,6 +103,9 @@ type interpreter struct {
 	merged bool
 	// findings are what investigating steps found, by step ID (D94).
 	findings map[string]domain.BugFindings
+	// pushed is the commit range each agent step's last execution pushed, by
+	// step ID, for preserve gates (D95).
+	pushed map[string][2]string
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -193,9 +196,34 @@ func (it *interpreter) agent(ctx workflow.Context, s config.Step) string {
 	}
 	it.finishStep(ctx, stepRunID, reason == "")
 	if reason == "" {
+		from := cmp.Or(it.session.CommitSHA, it.in.Snapshot.BaseSHA, it.in.Issue.BaseBranch)
+		it.pushed[s.ID] = [2]string{from, session.CommitSHA}
 		it.session, it.feedback = session, ""
 	}
 	return reason
+}
+
+// preserveGate checks that none of the files the gate's step changed have
+// changed since (D95), e.g. that a fix left the reproducing test alone; a
+// failure applies the gate's onFail like any gate.
+func (it *interpreter) preserveGate(ctx workflow.Context, pc int, s config.Step) (int, string) {
+	if workflow.GetVersion(ctx, "bug-gates", workflow.DefaultVersion, 1) < 1 {
+		return 0, "this run cannot check a preserve gate"
+	}
+	stepRunID, err := it.startStep(ctx, s.ID, domain.StepGate)
+	if err != nil {
+		return 0, err.Error()
+	}
+	r := it.pushed[s.Gate.Step]
+	var outcome activities.GateOutcome
+	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, shortOptions), it.a.CheckPreserved, it.in.Issue, activities.PreserveRequest{
+		RunID: it.run.RunID, StepRunID: stepRunID, Step: s.Gate.Step, From: r[0], To: r[1], Head: it.session.CommitSHA,
+	}).Get(ctx, &outcome)
+	if err != nil {
+		it.finishStep(ctx, stepRunID, false)
+		return 0, "gate could not run: " + err.Error()
+	}
+	return it.judge(ctx, pc, s, outcome)
 }
 
 // investigate runs one execution of an investigating step (D94): the agent
@@ -375,6 +403,8 @@ func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, s
 	switch g.Type {
 	case domain.GateHuman:
 		return it.humanGate(ctx, pc, s)
+	case domain.GatePreserve:
+		return it.preserveGate(ctx, pc, s)
 	case domain.GateCommand:
 	default:
 		return 0, fmt.Sprintf("%s gates are not supported here", g.Type)
@@ -394,7 +424,7 @@ func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, s
 	var outcome activities.GateOutcome
 	err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunGate, it.in.Issue, activities.GateRequest{
 		RunID: it.run.RunID, StepRunID: stepRunID, StepID: s.ID, Commands: g.Run, Timeout: time.Duration(g.Timeout),
-		Branch: it.session.Branch, CommitSHA: it.session.CommitSHA,
+		Branch: it.session.Branch, CommitSHA: it.session.CommitSHA, ExpectFail: g.Expect == config.ExpectFail,
 	}).Get(ctx, &outcome)
 	if err != nil {
 		it.finishStep(ctx, stepRunID, false)
@@ -536,20 +566,24 @@ func (it *interpreter) enqueue(ctx workflow.Context, pc int, s config.Step) (int
 // loops and has loops left (D89, D92), with feedback; otherwise the run fails
 // with failed. leaveQueue moves the issue out of the queue first.
 func (it *interpreter) loopBack(ctx workflow.Context, s config.Step, failed, feedback string, leaveQueue bool) (int, string) {
-	o := s.OnFail
+	return it.sendBackTo(ctx, s.ID, s.OnFail, failed, feedback, leaveQueue)
+}
+
+// sendBackTo loops back from step id as o says, when it has loops left.
+func (it *interpreter) sendBackTo(ctx workflow.Context, id string, o *config.OnFail, failed, feedback string, leaveQueue bool) (int, string) {
 	if o == nil || o.Action != config.OnFailGoto {
 		return 0, failed
 	}
-	if it.loops[s.ID] >= o.MaxLoops {
-		return 0, fmt.Sprintf("%s (sent back to %s %d times, the limit)", failed, o.Goto, it.loops[s.ID])
+	if it.loops[id] >= o.MaxLoops {
+		return 0, fmt.Sprintf("%s (sent back to %s %d times, the limit)", failed, o.Goto, it.loops[id])
 	}
 	target, branch := it.locate(o.Goto)
 	if target < 0 {
 		return 0, fmt.Sprintf("onFail goes to %q, which is not a step", o.Goto)
 	}
-	it.loops[s.ID]++
+	it.loops[id]++
 	short := workflow.WithActivityOptions(ctx, shortOptions)
-	if err := workflow.ExecuteActivity(short, it.a.RecordLoop, it.run.RunID, s.ID, it.loops[s.ID]).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(short, it.a.RecordLoop, it.run.RunID, id, it.loops[id]).Get(ctx, nil); err != nil {
 		return 0, "recording the loop failed: " + err.Error()
 	}
 	if leaveQueue {
@@ -605,7 +639,9 @@ func (it *interpreter) queueGates() []QueueGate {
 	var gates []QueueGate
 	for _, s := range it.in.Snapshot.Workflow.Steps {
 		g := s.Gate
-		if g == nil || g.Type != domain.GateCommand || g.Policy == domain.GateAdvisory {
+		// A gate that must fail checked the bug before its fix; the queue
+		// checks the fixed change.
+		if g == nil || g.Type != domain.GateCommand || g.Policy == domain.GateAdvisory || g.Expect == config.ExpectFail {
 			continue
 		}
 		gates = append(gates, QueueGate{StepID: s.ID, Commands: g.Run, Timeout: time.Duration(g.Timeout)})

@@ -90,3 +90,12 @@ test("M6: an investigation's findings read as such", () => {
     .toBe("root cause (high confidence): stats sum shelf rows\na test can show it");
   expect(summary(ev("findings", { error: "the final message holds no JSON findings" }))).toBe("no valid findings: the final message holds no JSON findings");
 });
+
+test("M6: gates for bugs say what they expect and keep", () => {
+  expect(summary(ev("gate_result", { type: "command", verdict: "pass", details: { expect_fail: true, commands: [{ command: "mise run test", exitCode: 1 }] } })))
+    .toBe("command gate passed\nexpects the commands to fail (a test that shows the bug)\nmise run test: exit 1");
+  expect(summary(ev("gate_result", { type: "preserve", verdict: "fail", details: { step: "reproduce", files: ["a_test.go"], changed: [{ file: "a_test.go", status: "modified" }] } })))
+    .toBe("preserve gate failed\na_test.go: modified after reproduce wrote it");
+  expect(summary(ev("gate_result", { type: "preserve", verdict: "pass", details: { step: "reproduce", files: ["a_test.go"] } })))
+    .toBe("preserve gate passed\nkeeps the 1 files reproduce changed");
+});

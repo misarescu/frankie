@@ -182,6 +182,14 @@ func TestParseWorkflowRejects(t *testing.T) {
 		{"when on a later step", head + "  - id: g\n    gate: {type: command}\n    when: {step: implement, field: testable, equals: true}\n" + impl, `"implement" is not an earlier agent step`},
 		{"when without a field", head + impl + "  - id: g\n    gate: {type: command}\n    when: {step: implement, equals: true}\n", "needs a step and a field"},
 		{"when with a list", head + impl + "  - id: g\n    gate: {type: command}\n    when: {step: implement, field: testable, equals: [1]}\n", "must be true, false or a string"},
+		{"expect on a human gate", head + "  - id: g\n    gate: {type: human, expect: fail}\n", "expect: applies to command gates only"},
+		{"unknown expectation", head + "  - id: g\n    gate: {type: command, expect: maybe}\n", `"maybe" must be pass or fail`},
+		{"preserve without a step", head + "  - id: g\n    gate: {type: preserve}\n", `"" is not an earlier agent step`},
+		{"preserve a later step", head + "  - id: g\n    gate: {type: preserve, step: implement}\n" + impl, `"implement" is not an earlier agent step`},
+		{"step on a command gate", head + impl + "  - id: g\n    gate: {type: command, step: implement}\n", "step: applies to preserve gates only"},
+		{"sendBack on a command gate", head + impl + "  - id: g\n    gate: {type: command, sendBack: {goto: implement, maxLoops: 1}}\n", "sendBack: applies to human gates only"},
+		{"sendBack that fails", head + impl + "  - id: g\n    gate: {type: human, sendBack: fail}\n", "sendBack: must be {goto, maxLoops}"},
+		{"sendBack without a bound", head + impl + "  - id: g\n    gate: {type: human, sendBack: {goto: implement}}\n", "sendBack.maxLoops"},
 		{"enqueue escalates", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: escalate\n", "the queue's onFail is fail or {goto, maxLoops}"},
 		{"enqueue loops forward", head + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: {goto: later, maxLoops: 1}\n", `"later" is not an earlier step`},
 		{"enqueue loops without a bound", head + impl + "  - id: o\n    action: change-request.open\n  - id: q\n    action: merge-queue.enqueue\n    onFail: {goto: implement}\n", "steps[2].onFail.maxLoops"},
@@ -254,5 +262,42 @@ func TestParseWorkflowEnqueueOnFail(t *testing.T) {
 	}
 	if o := w.Steps[2].OnFail; o.Action != OnFailGoto || o.Goto != "implement" || o.MaxLoops != 2 {
 		t.Errorf("onFail = %+v", o)
+	}
+}
+
+// M6 (D95): a command gate that must fail, a gate that keeps a step's
+// changes, and a human gate that can send the change back.
+func TestParseWorkflowBugGates(t *testing.T) {
+	w, err := ParseWorkflow([]byte(`
+name: w
+version: 1
+steps:
+  - id: reproduce
+    agent: {role: coder}
+  - id: shows-bug
+    gate: {type: command, run: ["mise run test"], expect: fail, onFail: {goto: reproduce, maxLoops: 2}}
+  - id: fix
+    agent: {role: coder}
+  - id: keeps-test
+    gate: {type: preserve, step: reproduce, onFail: {goto: fix, maxLoops: 2}}
+  - id: decide
+    gate: {type: human, sendBack: {goto: reproduce, maxLoops: 1}}
+  - id: checks
+    gate: {type: command}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := w.Steps[1].Gate; g.Expect != ExpectFail {
+		t.Errorf("shows-bug = %+v", g)
+	}
+	if g := w.Steps[5].Gate; g.Expect != ExpectPass {
+		t.Errorf("checks expect = %q, want the default pass", g.Expect)
+	}
+	if g := w.Steps[3].Gate; g.Step != "reproduce" || g.OnFail.Goto != "fix" {
+		t.Errorf("keeps-test = %+v", g)
+	}
+	if g := w.Steps[4].Gate; g.SendBack == nil || g.SendBack.Goto != "reproduce" || g.SendBack.MaxLoops != 1 {
+		t.Errorf("decide = %+v", g)
 	}
 }

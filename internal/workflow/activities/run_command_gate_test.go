@@ -319,3 +319,32 @@ func TestRunCommandGateCarriesTheEgressToken(t *testing.T) {
 		}
 	}
 }
+
+// M6 (D95): a gate that expects failure passes when the test fails on the
+// commit, and sends the agent back when it passes.
+func TestRunGateExpectingFailure(t *testing.T) {
+	for _, tt := range []struct {
+		exit    int32
+		passed  bool
+		summary string
+	}{
+		{1, true, "mise run test failed as expected (exit 1)"},
+		{0, false, "every command passed, but this gate expects them to fail"},
+	} {
+		f := newGateFixture(t, code(0), code(tt.exit))
+		stepRunID := startStep(t, f.a, StepStart{RunID: f.run.RunID, StepID: "shows-bug", Kind: domain.StepGate, Attempt: 1})
+		v, err := activityEnv(f.a).ExecuteActivity(f.a.RunGate, f.in, GateRequest{RunID: f.run.RunID, StepRunID: stepRunID, StepID: "shows-bug",
+			Commands: []string{"mise run test"}, Branch: f.session.Branch, CommitSHA: pushedSHA, ExpectFail: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out GateOutcome
+		_ = v.Get(&out)
+		if out.Passed != tt.passed || out.Summary != tt.summary {
+			t.Errorf("exit %d: outcome = %+v", tt.exit, out)
+		}
+		if !tt.passed && !strings.Contains(out.Feedback, "a test that shows it must fail") {
+			t.Errorf("feedback = %q", out.Feedback)
+		}
+	}
+}

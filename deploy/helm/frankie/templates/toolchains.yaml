@@ -1,5 +1,5 @@
 # Toolchain images (D15, D30): an in-cluster registry for them and a namespace
-# where one-off BuildKit Jobs build them.
+# where one-off Jobs build them by appending a layer (D81).
 {{- $full := include "frankie.fullname" . }}
 {{- $name := printf "%s-registry" $full }}
 {{- $b := .Values.toolchains.build }}

@@ -80,6 +80,7 @@ cmd/
   runner/           in-pod runner
   factoryctl/       CLI (start issues, approve gates, tail runs)
   egress-proxy/     hostname-allowlisting CONNECT proxy for agent pods
+  imagebuild/       frankie-imagebuild, in the runner base image: builds an image by appending a layer (D81)
 internal/
   api/              HTTP API for the UI and CLI: runs, transcript replay, live stream (SSE)
   domain/           entities, state machines (no provider types)
@@ -98,7 +99,8 @@ internal/
   drivers/          driver host + built-in drivers (flux, flux-preview, flagd)
   gateway/          LiteLLM admin client (virtual keys, budgets)
   events/
-  images/
+  images/           which image a step runs in; builds missing ones with a one-off Job (D30, D45, D81)
+  imagebuild/       the layer and push steps of an image build (D81)
   gitproxy/         git smart-HTTP proxy for agent pods
   egress/           egress proxy policy and server
   config/           YAML schemas, validation

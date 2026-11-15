@@ -43,7 +43,7 @@ var _ = Describe("Dependency images", Ordered, Label("dependencies"), func() {
 			Builder: images.KubeBuilder{
 				Kube: cs,
 				Config: images.BuildConfig{
-					Namespace: "frankie-build", BuildKitImage: envOr("FRANKIE_E2E_BUILDKIT_IMAGE", "moby/buildkit:v0.35.0"),
+					Namespace:        "frankie-build",
 					RuntimeClassName: "kata", ServiceAccountName: "frankie-build",
 					PushHost:       "frankie-registry." + platformNS + ".svc:5000",
 					EgressProxyURL: proxyURL, Deadline: 25 * time.Minute,

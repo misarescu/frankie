@@ -13,6 +13,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -95,16 +97,43 @@ func (in Inputs) Tag() string {
 	return "tc-" + in.Hash()[:32]
 }
 
-// Context implements Spec: mise.toml (as ToolsToml gives it, so the image is
-// built from exactly what was hashed), mise.lock and the Dockerfile that
-// installs their tools on the base image.
-func (in Inputs) Context(_ string, args []string) (map[string][]byte, error) {
+// Recipe implements Spec: mise.toml (as ToolsToml gives it, so the image is
+// built from exactly what was hashed) and mise.lock go to ~/toolchain, and
+// mise installs their tools on the base image, which is mirrored into the
+// cluster's registry once.
+func (in Inputs) Recipe(string) (Recipe, error) {
 	if err := in.Validate(); err != nil {
-		return nil, err
+		return Recipe{}, err
 	}
-	files := map[string][]byte{dockerfileName: []byte(Dockerfile(in.Base, args)), "mise.toml": in.ToolsToml()}
+	files := map[string][]byte{"mise.toml": in.ToolsToml()}
 	if len(in.MiseLock) > 0 {
 		files["mise.lock"] = in.MiseLock
 	}
-	return files, nil
+	return Recipe{
+		Image: in.Base, Base: in.Base, Mirror: mirrorRepository(in.Base),
+		Dir: toolchainDir, Files: files,
+		Run: "mise trust && mise install",
+		// mise's download cache stays out of the image.
+		RunEnv:      map[string]string{"MISE_DATA_DIR": agentHomeMise, "MISE_CACHE_DIR": "/tmp/mise-cache"},
+		ImageEnv:    map[string]string{"MISE_DATA_DIR": agentHomeMise, "MISE_TRUSTED_CONFIG_PATHS": "/workspace"},
+		PrependPath: agentHomeMise + "/shims",
+		CreatedBy:   "frankie toolchain: mise install",
+	}, nil
+}
+
+// mirrorRepository is where a base image is mirrored on the push host:
+// base/ and the last path element of its repository, e.g. base/frankie-runner.
+func mirrorRepository(ref string) string {
+	repo := ref
+	if i := strings.Index(repo, "@"); i >= 0 {
+		repo = repo[:i]
+	}
+	if i := strings.LastIndex(repo, ":"); i > strings.LastIndex(repo, "/") {
+		repo = repo[:i]
+	}
+	r := "base/" + strings.ToLower(path.Base(repo))
+	if !repositoryRE.MatchString(r) {
+		return "base/runner"
+	}
+	return r
 }

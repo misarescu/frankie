@@ -16,8 +16,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// KubeBuilder builds toolchain images with a one-off BuildKit Job per image
-// (docs/spec/09: no standing BuildKit service on the concrete profile).
+// KubeBuilder builds images with a one-off Job per image, which appends a
+// layer to the image it extends (D81; docs/spec/09: no standing build service
+// on the concrete profile).
 type KubeBuilder struct {
 	Kube   kubernetes.Interface
 	Config BuildConfig
@@ -36,8 +37,8 @@ const maxRejoins = 3
 // errReplaced means the Job a request waited for was removed or replaced.
 var errReplaced = errors.New("build job replaced")
 
-// Build implements Builder. The digest comes from the build container's
-// termination message (MetadataFile), as the kubelet recorded it.
+// Build implements Builder. The digest comes from the push container's
+// termination message, as the kubelet recorded it.
 //
 // Requests for the same image share one Job (D78). A failed Job is kept, so
 // every request that waited for it reports its failure; a request that starts
@@ -155,8 +156,8 @@ func failureTime(j *batchv1.Job) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// Bounds on the part of a failed build's log its error carries: BuildKit ends
-// with the failing step's output and the error.
+// Bounds on the part of a failed build's log its error carries: the install
+// ends with the failing command's output and the error.
 const (
 	buildLogTailLines = 40
 	buildLogTailBytes = 6 << 10
@@ -164,7 +165,8 @@ const (
 
 // failureLog is the end of a failed build's log, introduced for the error, so
 // a run's transcript says why its image did not build (M5.2). It reads the
-// newest pod of the Job; a log that cannot be read is said to be missing.
+// newest pod of the Job, from the install unless that succeeded; a log that
+// cannot be read is said to be missing.
 func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
 	pods := b.Kube.CoreV1().Pods(b.Config.Namespace)
 	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
@@ -177,8 +179,12 @@ func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
 			newest = p
 		}
 	}
+	container := pushContainer
+	if !succeeded(newest.Status.InitContainerStatuses, installContainer) {
+		container = installContainer
+	}
 	raw, err := pods.GetLogs(newest.Name, &corev1.PodLogOptions{
-		Container: buildContainer, TailLines: ptrTo(int64(buildLogTailLines)), LimitBytes: ptrTo(int64(buildLogTailBytes)),
+		Container: container, TailLines: ptrTo(int64(buildLogTailLines)), LimitBytes: ptrTo(int64(buildLogTailBytes)),
 	}).Do(ctx).Raw()
 	if err != nil {
 		return "\n(no build log: " + err.Error() + ")"
@@ -187,11 +193,21 @@ func (b KubeBuilder) failureLog(ctx context.Context, job *batchv1.Job) string {
 	if tail == "" {
 		return "\n(the build log is empty)"
 	}
-	return "\nlast lines of the build log:\n" + tail
+	return "\nlast lines of the build log (" + container + "):\n" + tail
+}
+
+// succeeded reports whether the named container exited with status 0.
+func succeeded(statuses []corev1.ContainerStatus, name string) bool {
+	for _, s := range statuses {
+		if s.Name == name {
+			return s.State.Terminated != nil && s.State.Terminated.ExitCode == 0
+		}
+	}
+	return false
 }
 
 // reportedDigest reads containerimage.digest from the termination message of
-// the Job's succeeded build container.
+// the Job's succeeded push container.
 func (b KubeBuilder) reportedDigest(ctx context.Context, job *batchv1.Job) (string, error) {
 	pods, err := b.Kube.CoreV1().Pods(b.Config.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "batch.kubernetes.io/job-name=" + job.Name})
 	if err != nil {
@@ -202,7 +218,7 @@ func (b KubeBuilder) reportedDigest(ctx context.Context, job *batchv1.Job) (stri
 			continue
 		}
 		for _, c := range p.Status.ContainerStatuses {
-			if c.Name != buildContainer || c.State.Terminated == nil {
+			if c.Name != pushContainer || c.State.Terminated == nil {
 				continue
 			}
 			var meta map[string]any

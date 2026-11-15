@@ -94,7 +94,13 @@ app.kubernetes.io/component: {{ index . 1 }}
     "egressProxyURL" (printf "http://%s-egress-proxy.%s.svc:%v" $full .Release.Namespace .Values.egressProxy.port)
     "cpu" (toString $tc.build.limits.cpu) "memory" (toString $tc.build.limits.memory)
     "cpuRequest" (toString (dig "requests" "cpu" "" $tc.build))
-    "scratchSize" $tc.build.scratchSize "deadline" $tc.build.deadline)
+    "scratchSize" $tc.build.scratchSize "deadline" $tc.build.deadline
+    "collect" (dict
+      "interval" (toString (dig "collect" "interval" "" $tc.registry))
+      "minAge" (toString (dig "collect" "minAge" "" $tc.registry))
+      "keep" (int (dig "collect" "keep" 0 $tc.registry))
+      "registryNamespace" .Release.Namespace
+      "registryDeployment" (printf "%s-registry" $full)))
 -}}
 {{- toPrettyJson $cfg -}}
 {{- end -}}

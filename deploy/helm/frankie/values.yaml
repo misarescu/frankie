@@ -58,6 +58,15 @@ toolchains:
     resources:
       requests: { cpu: 10m, memory: 128Mi }
       limits: { cpu: 500m, memory: 512Mi }
+    # Registry collection (D84): every interval, when no build runs, the control
+    # plane deletes the images nothing needs (beyond the newest `keep` per
+    # repository and any built within minAge, and every base mirror but the
+    # deployed runner's), then restarts the registry, whose init container
+    # collects the garbage. An empty interval turns it off.
+    collect:
+      interval: 24h
+      keep: 3
+      minAge: 24h
   build:
     namespace: frankie-build
     # Builds append a layer as the unprivileged agent user (D81), so the

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +103,14 @@ type fileConfig struct {
 		CPURequest     string   `json:"cpuRequest"` // D77; empty means the CPU limit
 		ScratchSize    string   `json:"scratchSize"`
 		Deadline       string   `json:"deadline"`
+		// Collect configures registry collection (D84); an empty interval disables it.
+		Collect struct {
+			Interval           string `json:"interval"`
+			MinAge             string `json:"minAge"`
+			Keep               int    `json:"keep"`
+			RegistryNamespace  string `json:"registryNamespace"`
+			RegistryDeployment string `json:"registryDeployment"`
+		} `json:"collect"`
 	} `json:"toolchains"`
 	// EgressProjectAllow is egressProxy.projectAllow (D80).
 	EgressProjectAllow bool `json:"egressProjectAllow"`
@@ -217,6 +226,40 @@ type ToolchainConfig struct {
 	RegistryURL string // control plane -> registry, e.g. http://frankie-registry.frankie.svc:5000
 	PullHost    string // node -> registry, e.g. localhost:30500
 	Build       images.BuildConfig
+	Collect     CollectConfig
+}
+
+// CollectConfig is when registry collection runs and what it keeps (D84); a
+// zero Interval disables it.
+type CollectConfig struct {
+	Interval, MinAge   time.Duration
+	Keep               int
+	RegistryNamespace  string
+	RegistryDeployment string
+}
+
+// minCollectInterval keeps collections, which restart the registry, rare.
+const minCollectInterval = time.Hour
+
+func (fc fileConfig) collect() (CollectConfig, error) {
+	c := fc.Toolchains.Collect
+	if c.Interval == "" {
+		return CollectConfig{}, nil
+	}
+	interval, err1 := time.ParseDuration(c.Interval)
+	minAge, err2 := time.ParseDuration(cmp.Or(c.MinAge, "0s"))
+	if err := errors.Join(err1, err2); err != nil {
+		return CollectConfig{}, fmt.Errorf("controlplane: config: toolchains.collect interval %q or minAge %q invalid: %w", c.Interval, c.MinAge, err)
+	}
+	switch {
+	case interval < minCollectInterval:
+		return CollectConfig{}, fmt.Errorf("controlplane: config: toolchains.collect.interval %s is under %s", interval, minCollectInterval)
+	case minAge < 0 || c.Keep < 1:
+		return CollectConfig{}, fmt.Errorf("controlplane: config: toolchains.collect needs keep >= 1 (got %d) and minAge >= 0 (got %s)", c.Keep, minAge)
+	case c.RegistryNamespace == "" || c.RegistryDeployment == "":
+		return CollectConfig{}, errors.New("controlplane: config: toolchains.collect needs registryNamespace and registryDeployment")
+	}
+	return CollectConfig{Interval: interval, MinAge: minAge, Keep: c.Keep, RegistryNamespace: c.RegistryNamespace, RegistryDeployment: c.RegistryDeployment}, nil
 }
 
 // Enabled reports whether toolchain images are configured.
@@ -248,6 +291,9 @@ func (fc fileConfig) toolchain() (ToolchainConfig, error) {
 		return ToolchainConfig{}, errors.New("controlplane: config: toolchains.pullHost is required with toolchains.registryURL")
 	}
 	if cfg.Build.CPURequest, err1 = cpuRequest("toolchains", t.CPURequest, cfg.Build.Limits); err1 != nil {
+		return ToolchainConfig{}, err1
+	}
+	if cfg.Collect, err1 = fc.collect(); err1 != nil {
 		return ToolchainConfig{}, err1
 	}
 	return cfg, nil

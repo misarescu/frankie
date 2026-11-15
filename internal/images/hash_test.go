@@ -134,7 +134,7 @@ func TestInputsRecipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "ghcr.io/misarescu/frankie-runner:sha-abc"
-	if r.Image != base || r.Base != base || r.Mirror != "base/frankie-runner" {
+	if r.Image != base || r.Base != base || r.Mirror != "base/frankie-runner:sha-abc" {
 		t.Errorf("image %q, base %q, mirror %q", r.Image, r.Base, r.Mirror)
 	}
 	if r.Dir != "/home/agent/toolchain" || r.Run != "mise trust && mise install" || string(r.Files["mise.lock"]) != "lock" {
@@ -153,16 +153,22 @@ func TestInputsRecipe(t *testing.T) {
 	}
 }
 
-func TestMirrorRepository(t *testing.T) {
-	for ref, want := range map[string]string{
-		"ghcr.io/misarescu/frankie-runner:sha-abc":                           "base/frankie-runner",
-		"ghcr.io/misarescu/Frankie-Runner@sha256:" + strings.Repeat("a", 64): "base/frankie-runner",
-		"localhost:5000/runner":                                              "base/runner",
-		"registry:5000/team/factory-base:v1":                                 "base/factory-base",
-		"weird/Name With Spaces:1":                                           "base/runner",
+// M6 (D84): the mirror is tagged after its base, so collection can tell the
+// deployed base's mirror from older ones.
+func TestMirrorOf(t *testing.T) {
+	hex := strings.Repeat("a", 64)
+	for ref, want := range map[string][2]string{
+		"ghcr.io/misarescu/frankie-runner:sha-abc":          {"base/frankie-runner", "sha-abc"},
+		"ghcr.io/misarescu/Frankie-Runner@sha256:" + hex:    {"base/frankie-runner", "sha256-" + hex},
+		"ghcr.io/misarescu/frankie-runner:v2@sha256:" + hex: {"base/frankie-runner", "v2"},
+		"localhost:5000/runner":                             {"base/runner", "latest"},
+		"registry:5000/team/factory-base:v1":                {"base/factory-base", "v1"},
+		"weird/Name With Spaces:1":                          {"base/runner", "1"},
+		"ghcr.io/x/runner:" + strings.Repeat("t", 129):      {"base/runner", "latest"},
 	} {
-		if got := mirrorRepository(ref); got != want {
-			t.Errorf("mirrorRepository(%q) = %q, want %q", ref, got, want)
+		repo, tag := MirrorOf(ref)
+		if repo != want[0] || tag != want[1] {
+			t.Errorf("MirrorOf(%q) = %q, %q, want %q, %q", ref, repo, tag, want[0], want[1])
 		}
 	}
 }

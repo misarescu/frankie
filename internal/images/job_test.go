@@ -122,7 +122,7 @@ func TestBuildResources(t *testing.T) {
 		}
 		for flag, want := range map[string]string{
 			"--base": base, "--layer": "/out/layer.tar",
-			"--mirror":       "frankie-registry.frankie.svc:5000/base/frankie-runner",
+			"--mirror":       "frankie-registry.frankie.svc:5000/base/frankie-runner:sha-abc",
 			"--target":       "frankie-registry.frankie.svc:5000/toolchains/misarescu/repo",
 			"--insecure":     "frankie-registry.frankie.svc:5000",
 			"--prepend-path": "/home/agent/.local/share/mise/shims",

@@ -172,12 +172,26 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	gh := github.NewClient(cfg.GitHubToken, "")
 	var toolchain *images.Ensurer
 	if cfg.Toolchain.Enabled() {
+		registry := images.HTTPRegistry{BaseURL: cfg.Toolchain.RegistryURL, Client: &http.Client{Timeout: 15 * time.Second}}
+		heartbeat := func(ctx context.Context, details ...any) { activity.RecordHeartbeat(ctx, details...) }
 		toolchain = &images.Ensurer{
-			Registry: images.HTTPRegistry{BaseURL: cfg.Toolchain.RegistryURL, Client: &http.Client{Timeout: 15 * time.Second}},
-			Digests:  store.ToolchainDigests{Store: st},
-			Builder: images.KubeBuilder{Kube: cfg.Kube, Config: cfg.Toolchain.Build,
-				Heartbeat: func(ctx context.Context, details ...any) { activity.RecordHeartbeat(ctx, details...) }},
-			PullHost: cfg.Toolchain.PullHost,
+			Registry:    registry,
+			Digests:     store.ToolchainDigests{Store: st},
+			Builder:     images.KubeBuilder{Kube: cfg.Kube, Config: cfg.Toolchain.Build, Heartbeat: heartbeat},
+			PullHost:    cfg.Toolchain.PullHost,
+			Maintenance: &images.Maintenance{},
+			Heartbeat:   heartbeat,
+		}
+		if c := cfg.Toolchain.Collect; c.Interval > 0 {
+			collector := &images.Collector{
+				Catalog: registry, Records: toolchainRecords{store.ToolchainDigests{Store: st}},
+				Host: images.KubeRegistryHost{Kube: cfg.Kube, Namespace: c.RegistryNamespace, Deployment: c.RegistryDeployment,
+					BuildNamespace: cfg.Toolchain.Build.Namespace},
+				Maintenance: toolchain.Maintenance, Base: cfg.Agent.RunnerImage,
+				Keep: c.Keep, MinAge: c.MinAge, Interval: c.Interval, Log: log.With("component", "registry-collector"),
+			}
+			go collector.Run(ctx)
+			log.Info("registry collection", "interval", c.Interval, "keep", c.Keep, "minAge", c.MinAge)
 		}
 	}
 	// On shutdown, give running Activities time to finish before the pod exits

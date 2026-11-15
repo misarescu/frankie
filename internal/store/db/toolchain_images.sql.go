@@ -9,6 +9,20 @@ import (
 	"context"
 )
 
+const deleteToolchainImage = `-- name: DeleteToolchainImage :exec
+DELETE FROM toolchain_images WHERE repository = $1 AND tag = $2
+`
+
+type DeleteToolchainImageParams struct {
+	Repository string
+	Tag        string
+}
+
+func (q *Queries) DeleteToolchainImage(ctx context.Context, arg DeleteToolchainImageParams) error {
+	_, err := q.db.Exec(ctx, deleteToolchainImage, arg.Repository, arg.Tag)
+	return err
+}
+
 const getToolchainImageDigest = `-- name: GetToolchainImageDigest :one
 SELECT digest FROM toolchain_images WHERE repository = $1 AND tag = $2
 `
@@ -23,6 +37,36 @@ func (q *Queries) GetToolchainImageDigest(ctx context.Context, arg GetToolchainI
 	var digest string
 	err := row.Scan(&digest)
 	return digest, err
+}
+
+const listToolchainImages = `-- name: ListToolchainImages :many
+SELECT repository, tag, digest, built_at FROM toolchain_images ORDER BY repository, built_at DESC, tag
+`
+
+// Registry collection (D84) lists every image on record.
+func (q *Queries) ListToolchainImages(ctx context.Context) ([]ToolchainImage, error) {
+	rows, err := q.db.Query(ctx, listToolchainImages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ToolchainImage
+	for rows.Next() {
+		var i ToolchainImage
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Tag,
+			&i.Digest,
+			&i.BuiltAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const recordToolchainImageDigest = `-- name: RecordToolchainImageDigest :exec

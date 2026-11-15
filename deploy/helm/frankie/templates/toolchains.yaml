@@ -42,6 +42,24 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
+      # Garbage collection needs a registry that serves no writes, so it runs
+      # before the registry starts; the control plane restarts the registry to
+      # collect (D84). Untagged manifests go too: builds tag what they keep.
+      initContainers:
+        - name: collect-garbage
+          image: {{ $r.image }}
+          command: [registry, garbage-collect, --delete-untagged, /etc/docker/registry/config.yml]
+          env:
+            - { name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY, value: /var/lib/registry }
+            - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true" }
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/registry }
       containers:
         - name: registry
           image: {{ $r.image }}
@@ -205,3 +223,32 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ $full }}-controlplane-builds
+---
+# Registry collection (D84): the control plane restarts the registry, so it
+# collects its garbage, by annotating this Deployment's pod template.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $full }}-controlplane-registry
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [{{ $name }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $full }}-controlplane-registry
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $full }}-controlplane
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $full }}-controlplane-registry

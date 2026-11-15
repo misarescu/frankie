@@ -27,7 +27,9 @@ type PushOptions struct {
 	// digest, and appended to from there: a base image from outside the
 	// cluster is uploaded once, and every image built on it shares its layers
 	// in the registry. The digest is Base's own, so an image another build
-	// pushed into Mirror cannot stand in for it.
+	// pushed into Mirror cannot stand in for it. A tag on Mirror
+	// (repository:tag) is set on the copy, so registry collection can tell the
+	// deployed base's mirror from older ones (D84); nothing builds from it.
 	Mirror string
 	// Layer is the tar archive Layer wrote.
 	Layer string
@@ -123,13 +125,14 @@ func (o PushOptions) image(s string, opts []remote.Option) (v1.Image, error) {
 }
 
 // mirror copies base into the mirror repository unless it is there already,
-// and returns it from there.
+// tags it when the mirror names a tag, and returns it from there.
 func (o PushOptions) mirror(base v1.Image, opts []remote.Option, logw io.Writer) (v1.Image, error) {
 	digest, err := base.Digest()
 	if err != nil {
 		return nil, fmt.Errorf("imagebuild: base image digest: %w", err)
 	}
-	ref, err := o.ref(o.Mirror + "@" + digest.String())
+	repository, tag := splitTag(o.Mirror)
+	ref, err := o.ref(repository + "@" + digest.String())
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +152,24 @@ func (o PushOptions) mirror(base v1.Image, opts []remote.Option, logw io.Writer)
 	if err != nil {
 		return nil, fmt.Errorf("imagebuild: base image %s: %w", ref, err)
 	}
+	if tag != "" {
+		t, err := o.ref(repository + ":" + tag)
+		if err != nil {
+			return nil, err
+		}
+		if err := remote.Tag(t.Context().Tag(tag), img, opts...); err != nil {
+			return nil, fmt.Errorf("imagebuild: tag base image %s: %w", t, err)
+		}
+	}
 	return img, nil
+}
+
+// splitTag splits repository:tag; a repository without a tag returns "".
+func splitTag(ref string) (repository, tag string) {
+	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, ""
 }
 
 // append adds the layer, in the base manifest's media type family, and the

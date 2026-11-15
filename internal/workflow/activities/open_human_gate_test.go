@@ -38,4 +38,9 @@ func TestOpenHumanGate(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].Reason != req.Reason || pending[0].ChangeRequestURL != req.ChangeRequestURL {
 		t.Fatalf("inbox = %+v, %v", pending, err)
 	}
+	// M6 (D91): the issue says it waits for a person.
+	run, _ := a.Store.GetRun(t.Context(), uuid.MustParse(req.RunID))
+	if is, _ := a.Store.GetIssue(t.Context(), run.IssueID); is.Status != domain.IssueAwaitingHuman {
+		t.Errorf("issue %s, want awaiting_human", is.Status)
+	}
 }

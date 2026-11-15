@@ -50,9 +50,13 @@ func (a *Activities) CloseHumanGate(ctx context.Context, in HumanGateClose) erro
 		return err
 	}
 	step, err := a.Store.GetStepRun(ctx, id)
-	if err != nil || step.Status.Terminal() {
+	if err != nil {
 		return err
 	}
-	_, err = a.Store.TransitionStepRun(ctx, id, step.Status, status)
-	return err
+	if !step.Status.Terminal() {
+		if _, err := a.Store.TransitionStepRun(ctx, id, step.Status, status); err != nil {
+			return err
+		}
+	}
+	return a.syncWaiting(ctx, id)
 }

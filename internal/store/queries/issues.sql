@@ -194,3 +194,12 @@ LIMIT @max_issues;
 
 -- name: MarkSourceClosed :exec
 UPDATE issues SET source_closed_at = now() WHERE id = @id AND source_closed_at IS NULL;
+
+-- Whether the issue's running run waits for a person (D91): a pending human
+-- gate decision or an unanswered ask-human question on a step still running.
+-- name: IssueWaitsForPerson :one
+SELECT (EXISTS (SELECT 1 FROM approvals a JOIN step_runs s ON s.id = a.step_run_id JOIN runs r ON r.id = a.run_id
+                WHERE r.issue_id = @issue_id AND r.status = 'running' AND s.status = 'running' AND a.status = 'pending')
+     OR EXISTS (SELECT 1 FROM questions q JOIN step_runs s ON s.id = q.step_run_id JOIN runs r ON r.id = q.run_id
+                WHERE r.issue_id = @issue_id AND r.status = 'running' AND s.status = 'running' AND q.status = 'pending'))::boolean AS waits,
+       EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = @issue_id AND r.status = 'running')::boolean AS running;

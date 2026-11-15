@@ -197,6 +197,10 @@ func TestInterveneSessionAnswers(t *testing.T) {
 	if len(f.answers) != 1 || f.answers["q1"] != "8080" {
 		t.Errorf("runner got answers %v", f.answers)
 	}
+	// M6 (D91): with both questions settled the issue is running again.
+	if is, _ := st.GetIssue(t.Context(), uuid.MustParse(in.IssueID)); is.Status != domain.IssueRunning {
+		t.Errorf("issue %s after the answers, want running", is.Status)
+	}
 	if pending, err = st.ListPendingQuestions(t.Context()); err != nil || len(pending) != 0 {
 		t.Errorf("pending questions = %+v, %v", pending, err)
 	}

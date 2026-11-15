@@ -58,3 +58,15 @@ func TestCloseHumanGateKeepsTheFirstDecision(t *testing.T) {
 		t.Errorf("approval = %s, want the first decision", got.Status)
 	}
 }
+
+// M6 (D91): once decided, the issue is running again.
+func TestCloseHumanGateResumesTheIssue(t *testing.T) {
+	a, req := humanGate(t)
+	if _, err := activityEnv(a).ExecuteActivity(a.CloseHumanGate, HumanGateClose{StepRunID: req.StepRunID, Status: domain.ApprovalApproved, By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := a.Store.GetRun(t.Context(), uuid.MustParse(req.RunID))
+	if is, _ := a.Store.GetIssue(t.Context(), run.IssueID); is.Status != domain.IssueRunning {
+		t.Errorf("issue %s, want running", is.Status)
+	}
+}

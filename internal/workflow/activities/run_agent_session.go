@@ -355,8 +355,10 @@ func (a *Activities) openQuestion(ctx context.Context, stepRunID uuid.UUID, payl
 		a.Log.Warn("unusable question event", "step", stepRunID, "payload", string(payload))
 		return nil
 	}
-	_, err := a.Store.OpenQuestion(ctx, store.NewQuestion{StepRunID: stepRunID, QuestionID: q.QuestionID, Question: q.Question})
-	return err
+	if _, err := a.Store.OpenQuestion(ctx, store.NewQuestion{StepRunID: stepRunID, QuestionID: q.QuestionID, Question: q.Question}); err != nil {
+		return err
+	}
+	return a.syncWaiting(ctx, stepRunID)
 }
 
 // issueAnswers are the ask-human questions people answered for the issue,

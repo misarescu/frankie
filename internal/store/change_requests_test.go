@@ -51,9 +51,21 @@ func mustChangeRequest(t *testing.T, s *Store, status domain.IssueStatus, number
 // D61: only open change requests of issues waiting for a person are watched.
 func TestListChangeRequestsAwaitingMerge(t *testing.T) {
 	s := newTestStore(t)
-	_, _, waiting := mustChangeRequest(t, s, domain.IssueAwaitingHuman, 1)
+	_, waitingRun, waiting := mustChangeRequest(t, s, domain.IssueAwaitingHuman, 1)
+	// The run that opened it has ended, leaving the issue to a person.
+	for _, to := range []domain.ExecStatus{domain.ExecRunning, domain.ExecSucceeded} {
+		from := map[domain.ExecStatus]domain.ExecStatus{domain.ExecRunning: domain.ExecPending, domain.ExecSucceeded: domain.ExecRunning}[to]
+		if _, err := s.TransitionRun(t.Context(), waitingRun.ID, from, to); err != nil {
+			t.Fatal(err)
+		}
+	}
 	mustChangeRequest(t, s, domain.IssueRunning, 2)
 	_, _, closed := mustChangeRequest(t, s, domain.IssueAwaitingHuman, 3)
+	// D91: an issue waiting inside a run that is still going is not watched.
+	_, busyRun, _ := mustChangeRequest(t, s, domain.IssueAwaitingHuman, 4)
+	if _, err := s.TransitionRun(t.Context(), busyRun.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RecordChangeRequestClosed(t.Context(), closed.ID); err != nil {
 		t.Fatal(err)
 	}

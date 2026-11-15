@@ -40,6 +40,14 @@ func openCR(t *testing.T, s *store.Store, p domain.Project, status domain.IssueS
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The run that opened the change request has ended (D91: a run still
+	// going handles merges itself).
+	if _, err := s.TransitionRun(t.Context(), run.ID, domain.ExecPending, domain.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TransitionRun(t.Context(), run.ID, domain.ExecRunning, domain.ExecSucceeded); err != nil {
+		t.Fatal(err)
+	}
 	cr, err := s.UpsertChangeRequest(t.Context(), store.NewChangeRequest{IssueID: is.ID, RunID: run.ID, Repo: "o/r", Number: number,
 		ProviderRef: fmt.Sprintf("https://github.com/o/r/pull/%d", number), Branch: "agent/" + is.Key + "/x", HeadSHA: "abc"})
 	if err != nil {

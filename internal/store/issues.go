@@ -233,3 +233,36 @@ func issueFromRow(r db.Issue) domain.Issue {
 		UpdatedAt:          r.UpdatedAt,
 	}
 }
+
+// SyncIssueWaiting moves an issue whose run is going between running and
+// awaiting_human, to match whether the run waits for a person: a pending human
+// gate decision or an unanswered question (D91). An issue without a running
+// run, or in another status (e.g. queued), keeps its status. It returns the
+// issue as it is afterwards.
+func (s *Store) SyncIssueWaiting(ctx context.Context, issueID uuid.UUID) (domain.Issue, error) {
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		w, err := q.IssueWaitsForPerson(ctx, issueID)
+		if err != nil {
+			return mapErr("issue waits for person", err)
+		}
+		if !w.Running {
+			return nil
+		}
+		from, to := domain.IssueAwaitingHuman, domain.IssueRunning
+		if w.Waits {
+			from, to = domain.IssueRunning, domain.IssueAwaitingHuman
+		}
+		_, err = q.TransitionIssue(ctx, db.TransitionIssueParams{ID: issueID, FromStatus: string(from), ToStatus: string(to)})
+		if errors.Is(mapErr("", err), ErrNotFound) {
+			return nil // already there, or in another status
+		}
+		if err != nil {
+			return mapErr("transition issue", err)
+		}
+		return appendStateChange(ctx, q, nil, nil, domain.StateChange{Entity: "issue", ID: issueID, From: string(from), To: string(to)})
+	})
+	if err != nil {
+		return domain.Issue{}, err
+	}
+	return s.GetIssue(ctx, issueID)
+}

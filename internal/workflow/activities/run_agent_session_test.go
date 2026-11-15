@@ -163,6 +163,10 @@ func TestOpenQuestionRecordsTheQuestion(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].QuestionID != "q1" || pending[0].Text != "Which port?" || pending[0].StepRunID != step {
 		t.Errorf("pending = %+v, %v", pending, err)
 	}
+	// M6 (D91): the issue waits for the answer.
+	if is, _ := st.GetIssue(t.Context(), uuid.MustParse(in.IssueID)); is.Status != domain.IssueAwaitingHuman {
+		t.Errorf("issue %s, want awaiting_human", is.Status)
+	}
 }
 
 // runningAgentStep starts the run's implement step and marks it running, as

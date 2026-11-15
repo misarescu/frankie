@@ -145,6 +145,9 @@ test("M5.1: the issue page offers Start only where it does something", () => {
   const waiting = issueActions({ ...leaf, status: "awaiting_human",
     change_requests: [{ repo: "o/r", number: 3, url: "u3", status: "closed" }, { repo: "o/r", number: 4, url: "u4", status: "open" }] });
   expect([waiting.start, waiting.note, waiting.changeRequest]).toEqual([undefined, "Waiting for a person: review the change request", "u4"]);
+  // M6 (D91): inside a run, the issue waits for a gate decision or an answer.
+  const inRun = issueActions({ ...leaf, status: "awaiting_human", runs: [{ id: "r", status: "running", workflow: "w", created_at: "", cost_usd: 0 }] });
+  expect([inRun.note, inRun.changeRequest]).toEqual(["Its run waits for a person: decide or answer in the approvals inbox", undefined]);
   expect(issueActions({ ...leaf, status: "failed" })).toEqual({ retry: true, complete: false, cancel: true });
   expect(issueActions({ ...leaf, status: "refining", spec_proposal: { spec: "s", acceptance_criteria: [] } }).note).toContain("waits for approval");
   expect(issueActions({ ...leaf, status: "merged" })).toEqual({ retry: false, complete: false, cancel: false });

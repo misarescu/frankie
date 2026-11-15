@@ -157,6 +157,30 @@ func (s *Store) GetStepRun(ctx context.Context, id uuid.UUID) (domain.StepRun, e
 	return stepRunFromRow(row), nil
 }
 
+// Waits says what a step execution waits for from a person (M5.1).
+type Waits string
+
+// What a step can wait for.
+const (
+	WaitsForApproval Waits = "approval" // a human gate's decision
+	WaitsForAnswer   Waits = "answer"   // an answer to an ask-human question
+)
+
+// ListRunWaits returns, for each step execution of the run that waits for a
+// person, what it waits for: a pending human gate decision or a pending
+// ask-human answer.
+func (s *Store) ListRunWaits(ctx context.Context, runID uuid.UUID) (map[uuid.UUID]Waits, error) {
+	rows, err := s.q.ListRunWaits(ctx, runID)
+	if err != nil {
+		return nil, mapErr("list run waits", err)
+	}
+	out := make(map[uuid.UUID]Waits, len(rows))
+	for _, r := range rows {
+		out[r.StepRunID] = Waits(r.WaitsFor)
+	}
+	return out, nil
+}
+
 // ListStepRuns returns a Run's StepRuns in creation order.
 func (s *Store) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]domain.StepRun, error) {
 	rows, err := s.q.ListStepRuns(ctx, runID)

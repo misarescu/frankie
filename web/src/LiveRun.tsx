@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { eventTypes, label, parseStreamEvent, summary, type RunEvent } from "./events";
 import { StatusChip } from "./IssuesPage";
 import { clip, duration, keepLatest, type LiveRunRef } from "./live";
-import { stepName, upcoming, usd, who, type PlanStep, type Step } from "./steps";
+import { shownStatus, stepName, upcoming, usd, waitNote, who, type PlanStep, type Step } from "./steps";
 
 // LiveRun follows one run on the issue page (M5.1): its step timeline with
 // status and duration, and the agent's latest messages and tool calls, from the
@@ -74,13 +74,14 @@ export function LiveRun({ run, showIssue }: { run: LiveRunRef; showIssue: boolea
       {steps.length === 0 && rest.length === 0 ? <p className="status">{end ? "No steps ran." : "Starting: waiting for the first step…"}</p> : (
         <ol className="timeline">
           {[...steps, ...rest].map((s) => (
-            <li key={s.id} className={s.status === "not started" ? "upcoming" : `st-${s.status}`}>
-              <strong>{stepName(s)}</strong> <StatusChip status={s.status} />
+            <li key={s.id} className={s.status === "not started" ? "upcoming" : `st-${shownStatus(s)}`}>
+              <strong>{stepName(s)}</strong> <StatusChip status={shownStatus(s)} />
               <span className="type">
                 {" "}{duration(s.started_at, s.finished_at, now)}
                 {who(s) && ` · ${who(s)}`}
                 {s.kind === "agent" && s.status !== "not started" && ` · ${usd(s.cost_usd)}`}
               </span>
+              {waitNote(s) && <> · <a href={waitNote(s)!.href}>{waitNote(s)!.text}</a></>}
             </li>
           ))}
         </ol>

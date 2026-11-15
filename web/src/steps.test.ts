@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { abort, runningAgentStep, steer, stepName, totals, upcoming, usd, who, type Step } from "./steps";
+import { abort, runningAgentStep, shownStatus, steer, stepName, totals, upcoming, usd, waitNote, who, type Step } from "./steps";
 
 const step = (step_id: string, kind: string, status: string, cost_usd = 0, input_tokens = 0, output_tokens = 0): Step =>
   ({ id: `id-${step_id}`, step_id, attempt: 1, kind, status, cost_usd, input_tokens, output_tokens });
@@ -70,5 +70,17 @@ test("M5.1: the steps not reached yet follow the ones that ran, in plan order", 
     ["code-reviewer", "not started", "code-reviewer · default model"], ["review", "not started", "agent-verdict gate"],
   ]);
   expect(upcoming(plan, plan.map((p) => step(p.step_id, p.kind, "succeeded")))).toEqual([]);
+});
+
+test("M5.1: a step waiting for a person shows as awaiting a human, with where to act", () => {
+  const gate = { ...step("protected-changes", "gate", "running"), waits_for: "approval" as const };
+  expect(shownStatus(gate)).toBe("awaiting_human");
+  expect(waitNote(gate)).toEqual({ text: "decide it in Approvals", href: "#/approvals" });
+  const asking = { ...step("implement", "agent", "running"), waits_for: "answer" as const };
+  expect(shownStatus(asking)).toBe("awaiting_human");
+  expect(waitNote(asking)?.text).toBe("answer it in Approvals");
+  expect(shownStatus(step("checks", "gate", "running"))).toBe("running");
+  expect(waitNote(step("checks", "gate", "running"))).toBeUndefined();
+  expect(shownStatus({ ...gate, status: "succeeded" })).toBe("succeeded");
 });
 

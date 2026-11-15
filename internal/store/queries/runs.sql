@@ -109,3 +109,13 @@ SELECT coalesce(sum(s.cost_usd), 0)::float8 AS cost_usd,
        coalesce(sum(s.output_tokens), 0)::bigint AS output_tokens
 FROM step_runs s JOIN runs r ON r.id = s.run_id
 WHERE r.issue_id = @issue_id;
+
+-- What a run's steps wait for from a person (M5.1): a pending human gate
+-- decision ('approval') or a pending ask-human answer ('answer').
+-- name: ListRunWaits :many
+SELECT a.step_run_id, 'approval'::text AS waits_for
+FROM approvals a WHERE a.run_id = @run_id AND a.status = 'pending'
+UNION ALL
+SELECT q.step_run_id, 'answer'::text AS waits_for
+FROM questions q JOIN step_runs s ON s.id = q.step_run_id
+WHERE s.run_id = @run_id AND q.status = 'pending';

@@ -38,6 +38,9 @@ type stepJSON struct {
 	OutputTokens int64      `json:"output_tokens"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	// WaitsFor says what a running step waits for from a person: "approval" (a
+	// human gate's decision) or "answer" (an ask-human question).
+	WaitsFor string `json:"waits_for,omitempty"`
 	stepDetail
 }
 
@@ -142,12 +145,17 @@ func (s *Server) listSteps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
+	waits, err := s.Store.ListRunWaits(r.Context(), run.ID)
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
 	details := stepDetails(run.WorkflowSnapshot)
 	out := make([]stepJSON, 0, len(steps))
 	for _, st := range steps {
 		out = append(out, stepJSON{ID: st.ID, StepID: st.StepID, Attempt: st.Attempt, Kind: string(st.Kind), Status: string(st.Status),
 			CommitSHA: st.CommitSHA, CostUSD: st.Usage.CostUSD, InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
-			StartedAt: st.StartedAt, FinishedAt: st.FinishedAt, stepDetail: details[st.StepID]})
+			StartedAt: st.StartedAt, FinishedAt: st.FinishedAt, WaitsFor: string(waits[st.ID]), stepDetail: details[st.StepID]})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

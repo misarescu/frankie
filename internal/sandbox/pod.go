@@ -50,6 +50,7 @@ type PodSpec struct {
 	StepRunID          string
 	IssueKey           string
 	Limits             corev1.ResourceList // cpu and memory, from the profile (FR-SB-7)
+	CPURequest         resource.Quantity   // reserved of the CPU limit; zero means the limit (D77)
 	WorkspaceSize      resource.Quantity   // emptyDir and ephemeral-storage limit
 	Deadline           time.Duration       // activeDeadlineSeconds (FR-SB-8)
 	EgressProxyURL     string              // e.g. http://frankie-egress-proxy.frankie.svc:3128
@@ -84,6 +85,9 @@ func (s PodSpec) validate() error {
 	if _, ok := s.Limits[corev1.ResourceMemory]; !ok {
 		errs = append(errs, errors.New("memory limit is required"))
 	}
+	if err := validateCPURequest(s.CPURequest, s.Limits); err != nil {
+		errs = append(errs, err)
+	}
 	if s.WorkspaceSize.IsZero() {
 		errs = append(errs, errors.New("workspace size is required"))
 	}
@@ -107,8 +111,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 	}
 	limits[corev1.ResourceEphemeralStorage] = s.WorkspaceSize
 	sidecars, sidecarVolumes := serviceContainers(s.Services)
-	// Requests equal limits: agent pods are Guaranteed and never overcommit the node.
-	requests := limits.DeepCopy()
+	requests := requestsFor(limits, s.CPURequest)
 
 	env := proxyEnv(s.EgressProxyURL, s.NoProxy)
 	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
@@ -160,6 +163,28 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func validateCPURequest(req resource.Quantity, limits corev1.ResourceList) error {
+	if req.Sign() < 0 {
+		return fmt.Errorf("cpu request %s is negative", req.String())
+	}
+	if lim, ok := limits[corev1.ResourceCPU]; ok && req.Cmp(lim) > 0 {
+		return fmt.Errorf("cpu request %s exceeds the cpu limit %s", req.String(), lim.String())
+	}
+	return nil
+}
+
+// requestsFor is what a container with these limits requests (D77): memory
+// at its limit, so a pod is never killed for memory the node lent it, and CPU
+// at cpuRequest (capped at the limit), so pods that mostly wait do not keep
+// others Pending. A zero cpuRequest requests the CPU limit.
+func requestsFor(limits corev1.ResourceList, cpuRequest resource.Quantity) corev1.ResourceList {
+	requests := limits.DeepCopy()
+	if lim, ok := limits[corev1.ResourceCPU]; ok && !cpuRequest.IsZero() && cpuRequest.Cmp(lim) < 0 {
+		requests[corev1.ResourceCPU] = cpuRequest
+	}
+	return requests
+}
 
 // proxyEnv routes a pod's traffic through the egress proxy (D20), except
 // cluster-internal names.

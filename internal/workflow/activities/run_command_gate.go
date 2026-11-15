@@ -116,7 +116,7 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 		Name: stepPodName(in.IssueKey, req.StepID, step.ID.String()), Namespace: a.Agent.Namespace, Image: image,
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: req.RunID, StepRunID: step.ID.String(), IssueKey: in.IssueKey,
-		Limits: a.Gate.Limits, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
+		Limits: a.Gate.Limits, CPURequest: a.Gate.CPURequest, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
 		Branch: req.Branch, CommitSHA: req.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,

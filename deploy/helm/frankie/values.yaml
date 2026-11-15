@@ -11,13 +11,19 @@ previews:
   # Maximum concurrent preview environments; 0 disables previews.
   maxConcurrent: 4
 
-# Pod limits per pod type. The concrete-profile numbers are the documented baseline (FR-PR-3).
+# Pod resources per pod type. The concrete-profile numbers are the documented baseline (FR-PR-3).
+# Memory is requested at its limit; CPU requests are below the limits (D77), sized
+# from the M5.1 samples (docs/spec/09), so pods that mostly wait for a model or
+# for I/O do not keep others Pending on a node with idle cores.
 podResources:
   coder:
+    requests: { cpu: 500m }
     limits: { cpu: "2", memory: 3Gi }
+  # Read-only agent steps (reviewers, the refiner) run with the coder's limits.
   reviewer:
-    limits: { cpu: "1", memory: 2Gi }
+    requests: { cpu: 250m }
   commandGate:
+    requests: { cpu: "1" }
     limits: { cpu: "2", memory: 3Gi }
 
 # Platform images (D23). Set images.tag per deployment, e.g. sha-87f0290.
@@ -63,7 +69,9 @@ toolchains:
     # the warm-up adds module and build caches: Frankie's went over 10Gi.
     deadline: 50m
     scratchSize: 30Gi
-    limits: { cpu: "2", memory: 3Gi }
+    # Builds are I/O-bound (median 0.15 CPU) but reached 2.87Gi of a 3Gi limit in M5.1.
+    requests: { cpu: 250m }
+    limits: { cpu: "2", memory: 4Gi }
 
 # Control plane (docs/spec/01). Agents may reach only its git proxy port.
 controlPlane:

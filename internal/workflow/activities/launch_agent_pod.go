@@ -42,11 +42,16 @@ func stepPodName(issueKey, stepID, stepRunID string) string {
 // repo's toolchain image when the workflow resolved one, else the base image,
 // with the services the repo declares.
 func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services []sandbox.Service) (*corev1.Pod, error) {
+	// Read-only steps mostly wait for the model (D77).
+	cpuRequest := a.Agent.CPURequest
+	if a.sessionSettings(run).readOnly {
+		cpuRequest = a.Agent.ReviewerCPURequest
+	}
 	return sandbox.AgentPod(sandbox.PodSpec{
 		Name: podName(in, run), Namespace: a.Agent.Namespace, Image: cmp.Or(run.ToolchainImage, a.Agent.RunnerImage),
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
-		Limits: a.Agent.Limits, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
+		Limits: a.Agent.Limits, CPURequest: cpuRequest, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env,
 	})
 }

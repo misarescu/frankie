@@ -40,12 +40,15 @@ Available for agents, gates, previews: 16 - 5.0 = **11.0 GiB** (worst case).
 
 Concurrent pods:
 
-| Pod type | Limit each (GiB) | Count at once | Total (GiB) | Notes |
-|---|---|---|---|---|
-| Coder / test writer | 3 | 2 | 6 | Builders compile and run tests; **CPU is the real limit on 4 cores** |
-| Reviewer | 2 | 0 | 0 | Run reviewers one after another, after the builders finish |
-| Command gate | 3 | 1 | 3 | Fresh build and tests from the pushed commit |
-| **Total** | | **3** | **9** | Fits in 11.0 GiB with 2.0 GiB headroom |
+| Pod type | Limit each (GiB) | CPU request / limit | Count at once | Total (GiB) | Notes |
+|---|---|---|---|---|---|
+| Coder / test writer | 3 | 0.5 / 2 | 2 | 6 | Builders compile and run tests; **CPU is the real limit on 4 cores** |
+| Reviewer, refiner | 3 | 0.25 / 2 | 0 | 0 | Run reviewers one after another, after the builders finish; same limits as a coder |
+| Command gate | 3 | 1 / 2 | 1 | 3 | Fresh build and tests from the pushed commit |
+| Image build | 4 | 0.25 / 2 | 0 | 0 | Only when a toolchain or dependency image changes; it takes a coder's place while the coder waits for it |
+| **Total** | | | **3** | **9** | Fits in 11.0 GiB with 2.0 GiB headroom |
+
+Memory is requested at its limit; CPU is requested below it (D77), from the M5.1 samples (`docs/notes/m5.1-resource-samples.csv`): agents used a median 0.86 CPU (p90 1.81) and up to 2.6 GiB, reviewers under 0.2 CPU and 0.3 GiB, gates a median 1.81 CPU and under 1 GiB, builds a median 0.15 CPU and up to 2.87 GiB. With requests equal to limits, pods waited `Pending` on a node using 2.5 of its 4 CPUs.
 
 Sidecar services (FR-SB-9) do not add to these numbers: their limits are taken out of their pod's limit (D35). The concrete profile allows one service per pod at 0.5 GiB, leaving 2.5 GiB for the step.
 

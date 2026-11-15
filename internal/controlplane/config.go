@@ -55,6 +55,8 @@ type fileConfig struct {
 		NoProxy        []string `json:"noProxy"`
 		CPU            string   `json:"cpu"`
 		Memory         string   `json:"memory"`
+		CPURequest     string   `json:"cpuRequest"`         // D77; empty means the CPU limit
+		ReviewerCPU    string   `json:"reviewerCPURequest"` // read-only steps; empty means cpuRequest
 		WorkspaceSize  string   `json:"workspaceSize"`
 		PodDeadline    string   `json:"podDeadline"`
 		GitProxyURL    string   `json:"gitProxyURL"`
@@ -72,6 +74,7 @@ type fileConfig struct {
 		Commands      []string `json:"commands"`
 		CPU           string   `json:"cpu"`
 		Memory        string   `json:"memory"`
+		CPURequest    string   `json:"cpuRequest"` // D77; empty means the CPU limit
 		WorkspaceSize string   `json:"workspaceSize"`
 		Deadline      string   `json:"deadline"`
 	} `json:"gate"`
@@ -97,6 +100,7 @@ type fileConfig struct {
 		NoProxy        []string `json:"noProxy"`
 		CPU            string   `json:"cpu"`
 		Memory         string   `json:"memory"`
+		CPURequest     string   `json:"cpuRequest"` // D77; empty means the CPU limit
 		ScratchSize    string   `json:"scratchSize"`
 		Deadline       string   `json:"deadline"`
 	} `json:"toolchains"`
@@ -135,7 +139,31 @@ func (fc fileConfig) gate() (activities.GateConfig, error) {
 		}
 		out.WorkspaceSize = q
 	}
+	var err error
+	if out.CPURequest, err = cpuRequest("gate", g.CPURequest, out.Limits); err != nil {
+		return out, err
+	}
 	return out, nil
+}
+
+// cpuRequest parses what a pod type requests of its CPU limit (D77): empty
+// means the limit; otherwise it must be positive and at most the limit.
+func cpuRequest(what, raw string, limits corev1.ResourceList) (resource.Quantity, error) {
+	if raw == "" {
+		return resource.Quantity{}, nil
+	}
+	q, err := resource.ParseQuantity(raw)
+	if err != nil || q.Sign() <= 0 {
+		return resource.Quantity{}, fmt.Errorf("controlplane: config: %s cpuRequest %q invalid", what, raw)
+	}
+	lim, ok := limits[corev1.ResourceCPU]
+	if !ok {
+		return resource.Quantity{}, fmt.Errorf("controlplane: config: %s cpuRequest needs a cpu limit", what)
+	}
+	if q.Cmp(lim) > 0 {
+		return resource.Quantity{}, fmt.Errorf("controlplane: config: %s cpuRequest %s exceeds its cpu limit %s", what, q.String(), lim.String())
+	}
+	return q, nil
 }
 
 // services parses the sidecar policy; without it no service may be declared.
@@ -218,6 +246,9 @@ func (fc fileConfig) toolchain() (ToolchainConfig, error) {
 	if t.PullHost == "" {
 		return ToolchainConfig{}, errors.New("controlplane: config: toolchains.pullHost is required with toolchains.registryURL")
 	}
+	if cfg.Build.CPURequest, err1 = cpuRequest("toolchains", t.CPURequest, cfg.Build.Limits); err1 != nil {
+		return ToolchainConfig{}, err1
+	}
 	return cfg, nil
 }
 
@@ -281,6 +312,12 @@ func LoadConfigFile(path string, cfg *Config) error {
 			return fmt.Errorf("controlplane: config: workspace size %q: %w", a.WorkspaceSize, err)
 		}
 		agent.WorkspaceSize = q
+	}
+	if agent.CPURequest, err = cpuRequest("agent", a.CPURequest, agent.Limits); err != nil {
+		return err
+	}
+	if agent.ReviewerCPURequest, err = cpuRequest("agent reviewer", firstNonEmpty(a.ReviewerCPU, a.CPURequest), agent.Limits); err != nil {
+		return err
 	}
 	cfg.Agent = agent
 	if cfg.Gate, err = fc.gate(); err != nil {

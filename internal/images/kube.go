@@ -3,6 +3,7 @@ package images
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -22,59 +24,134 @@ type KubeBuilder struct {
 	PollInterval time.Duration
 	// Heartbeat, when set, is called on every poll so a Temporal Activity stays alive.
 	Heartbeat func(ctx context.Context, details ...any)
+	// Now is the clock a request's start is taken from; nil means time.Now.
+	Now func() time.Time
 }
+
+// maxRejoins bounds how often one request follows a build that another
+// request replaced while it waited.
+const maxRejoins = 3
+
+// errReplaced means the Job a request waited for was removed or replaced.
+var errReplaced = errors.New("build job replaced")
 
 // Build implements Builder. The digest comes from the build container's
 // termination message (MetadataFile), as the kubelet recorded it.
+//
+// Requests for the same image share one Job (D78). A failed Job is kept, so
+// every request that waited for it reports its failure; a request that starts
+// after a Job failed replaces it and builds again. A request whose Job was
+// replaced while it waited follows the new one.
 func (b KubeBuilder) Build(ctx context.Context, r BuildRequest) (string, error) {
 	cm, job, err := BuildResources(b.Config, r)
 	if err != nil {
 		return "", err
 	}
+	now := time.Now
+	if b.Now != nil {
+		now = b.Now
+	}
+	since := now()
+	for range maxRejoins + 1 {
+		live, err := b.start(ctx, cm, job, since)
+		if err != nil {
+			return "", err
+		}
+		live, err = b.wait(ctx, live)
+		if errors.Is(err, errReplaced) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if _, failure := jobState(live); failure != "" {
+			return "", fmt.Errorf("build job %s failed: %s", job.Name, failure)
+		}
+		return b.reportedDigest(ctx, live)
+	}
+	return "", fmt.Errorf("build job %s was replaced %d times while this request waited", job.Name, maxRejoins+1)
+}
+
+func (b KubeBuilder) interval() time.Duration {
+	if b.PollInterval == 0 {
+		return 3 * time.Second
+	}
+	return b.PollInterval
+}
+
+// start creates the build's ConfigMap and Job, or joins the Job another
+// request created. A Job that failed before since is an earlier request's
+// outcome: it is removed and the build starts again.
+func (b KubeBuilder) start(ctx context.Context, cm *corev1.ConfigMap, job *batchv1.Job, since time.Time) (*batchv1.Job, error) {
 	jobs := b.Kube.BatchV1().Jobs(b.Config.Namespace)
 	cms := b.Kube.CoreV1().ConfigMaps(b.Config.Namespace)
-	interval := b.PollInterval
-	if interval == 0 {
-		interval = 3 * time.Second
+	for range maxRejoins + 1 {
+		if _, err := cms.Create(ctx, cm.DeepCopy(), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			return nil, fmt.Errorf("create build context: %w", err)
+		}
+		live, err := jobs.Create(ctx, job.DeepCopy(), metav1.CreateOptions{})
+		if apierrors.IsAlreadyExists(err) {
+			// Another request, or an earlier attempt of this one, started the build.
+			live, err = jobs.Get(ctx, job.Name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				continue // removed in between: create it again
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("start build job: %w", err)
+		}
+		if failedAt, failed := failureTime(live); failed && failedAt.Before(since.Truncate(time.Second)) {
+			if err := b.remove(ctx, live); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err := b.adopt(ctx, cm, live); err != nil {
+			return nil, err
+		}
+		return live, nil
 	}
+	return nil, fmt.Errorf("start build job %s: it kept being replaced", job.Name)
+}
 
-	if _, err := cms.Create(ctx, cm, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return "", fmt.Errorf("create build context: %w", err)
-	}
-	live, err := jobs.Create(ctx, job, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
-		// Another request, or an earlier attempt of this one, started the build.
-		live, err = jobs.Get(ctx, job.Name, metav1.GetOptions{})
-	}
-	if err != nil {
-		return "", fmt.Errorf("start build job: %w", err)
-	}
-	if err := b.adopt(ctx, cm.Name, live); err != nil {
-		return "", err
-	}
-
-	done, failure := jobState(live)
-	for !done {
+// wait polls the Job until it finishes. It returns errReplaced when the Job
+// is gone or another Job took its name.
+func (b KubeBuilder) wait(ctx context.Context, live *batchv1.Job) (*batchv1.Job, error) {
+	jobs := b.Kube.BatchV1().Jobs(b.Config.Namespace)
+	for {
+		if done, _ := jobState(live); done {
+			return live, nil
+		}
 		if b.Heartbeat != nil {
-			b.Heartbeat(ctx, job.Name)
+			b.Heartbeat(ctx, live.Name)
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(interval):
+			return nil, ctx.Err()
+		case <-time.After(b.interval()):
 		}
-		if live, err = jobs.Get(ctx, job.Name, metav1.GetOptions{}); err != nil {
-			return "", fmt.Errorf("get build job: %w", err)
+		got, err := jobs.Get(ctx, live.Name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil, errReplaced
 		}
-		done, failure = jobState(live)
+		if err != nil {
+			return nil, fmt.Errorf("get build job: %w", err)
+		}
+		if got.UID != live.UID {
+			return nil, errReplaced
+		}
+		live = got
 	}
-	if failure != "" {
-		// Remove the failed Job so the next request builds again instead of
-		// finding the same failure.
-		_ = b.cleanup(context.WithoutCancel(ctx), job.Name)
-		return "", fmt.Errorf("build job %s failed: %s", job.Name, failure)
+}
+
+// failureTime reports whether the Job failed and when.
+func failureTime(j *batchv1.Job) (time.Time, bool) {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
+			return c.LastTransitionTime.Time, true
+		}
 	}
-	return b.reportedDigest(ctx, live)
+	return time.Time{}, false
 }
 
 // reportedDigest reads containerimage.digest from the termination message of
@@ -123,31 +200,88 @@ func jobState(j *batchv1.Job) (done bool, failure string) {
 }
 
 // adopt makes the Job own its ConfigMap, so the context is garbage collected
-// with it.
-func (b KubeBuilder) adopt(ctx context.Context, cmName string, job *batchv1.Job) error {
+// with it. A ConfigMap still owned by a failed Job that was replaced is taken
+// over, and one removed in between is created again.
+func (b KubeBuilder) adopt(ctx context.Context, cm *corev1.ConfigMap, job *batchv1.Job) error {
 	cms := b.Kube.CoreV1().ConfigMaps(b.Config.Namespace)
-	cm, err := cms.Get(ctx, cmName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get build context: %w", err)
+	owner := []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID}}
+	for range maxRejoins + 1 {
+		live, err := cms.Get(ctx, cm.Name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			fresh := cm.DeepCopy()
+			fresh.OwnerReferences = owner
+			_, err = cms.Create(ctx, fresh, metav1.CreateOptions{})
+			if apierrors.IsAlreadyExists(err) {
+				continue
+			}
+			return wrapErr("create build context", err)
+		}
+		if err != nil {
+			return fmt.Errorf("get build context: %w", err)
+		}
+		if ownedBy(live, job.UID) {
+			return nil
+		}
+		live.OwnerReferences = owner
+		_, err = cms.Update(ctx, live, metav1.UpdateOptions{})
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			continue
+		}
+		return wrapErr("adopt build context", err)
 	}
-	if len(cm.OwnerReferences) > 0 {
-		return nil
-	}
-	cm.OwnerReferences = []metav1.OwnerReference{{
-		APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID,
-	}}
-	if _, err := cms.Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("adopt build context: %w", err)
-	}
-	return nil
+	return fmt.Errorf("adopt build context %s: it kept changing", cm.Name)
 }
 
-// cleanup removes a failed build so a later request builds again.
-func (b KubeBuilder) cleanup(ctx context.Context, name string) error {
-	policy := metav1.DeletePropagationBackground
-	err := b.Kube.BatchV1().Jobs(b.Config.Namespace).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &policy})
-	if apierrors.IsNotFound(err) {
+func ownedBy(obj metav1.Object, uid types.UID) bool {
+	for _, r := range obj.GetOwnerReferences() {
+		if r.UID == uid {
+			return true
+		}
+	}
+	return false
+}
+
+func wrapErr(what string, err error) error {
+	if err == nil {
 		return nil
 	}
-	return err
+	return fmt.Errorf("%s: %w", what, err)
+}
+
+// remove deletes a failed build and the context it owns, then waits until the
+// Job is gone. Preconditions leave alone a Job, or a ConfigMap, that another
+// request created or adopted meanwhile.
+func (b KubeBuilder) remove(ctx context.Context, job *batchv1.Job) error {
+	jobs := b.Kube.BatchV1().Jobs(b.Config.Namespace)
+	cms := b.Kube.CoreV1().ConfigMaps(b.Config.Namespace)
+	policy := metav1.DeletePropagationBackground
+	err := jobs.Delete(ctx, job.Name, metav1.DeleteOptions{PropagationPolicy: &policy, Preconditions: &metav1.Preconditions{UID: &job.UID}})
+	if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+		return fmt.Errorf("remove failed build job: %w", err)
+	}
+	if cm, err := cms.Get(ctx, job.Name, metav1.GetOptions{}); err == nil && ownedBy(cm, job.UID) {
+		err := cms.Delete(ctx, cm.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &cm.UID, ResourceVersion: &cm.ResourceVersion}})
+		if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+			return fmt.Errorf("remove failed build context: %w", err)
+		}
+	}
+	for {
+		live, err := jobs.Get(ctx, job.Name, metav1.GetOptions{})
+		switch {
+		case apierrors.IsNotFound(err):
+			return nil
+		case err != nil:
+			return fmt.Errorf("get build job: %w", err)
+		case live.UID != job.UID:
+			return nil // another request already started the next build
+		}
+		if b.Heartbeat != nil {
+			b.Heartbeat(ctx, job.Name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(b.interval()):
+		}
+	}
 }

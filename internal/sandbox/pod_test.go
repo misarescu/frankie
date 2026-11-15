@@ -143,3 +143,54 @@ func TestAgentPodDoesNotShareLimits(t *testing.T) {
 		t.Error("AgentPod mutated the caller's limits")
 	}
 }
+
+// M5.2 (D77): an agent pod requests less CPU than its limit, and all of its
+// memory; the request never exceeds what services leave the pod.
+func TestAgentPodCPURequest(t *testing.T) {
+	svc := Service{Name: "db", Image: "postgres:17", Limits: corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1750m"), corev1.ResourceMemory: resource.MustParse("512Mi")}}
+	tests := []struct {
+		name       string
+		request    string
+		services   []Service
+		wantCPU    string
+		wantMemory string
+	}{
+		{"below the limit", "500m", nil, "500m", "3Gi"},
+		{"unset requests the limit", "", nil, "2", "3Gi"},
+		{"capped at what services leave", "500m", []Service{svc}, "250m", "2560Mi"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := validSpec()
+			if tt.request != "" {
+				s.CPURequest = resource.MustParse(tt.request)
+			}
+			s.Services = tt.services
+			pod, err := AgentPod(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := pod.Spec.Containers[0].Resources.Requests
+			if got := req.Cpu().String(); got != tt.wantCPU {
+				t.Errorf("cpu request = %s, want %s", got, tt.wantCPU)
+			}
+			if got := req.Memory().String(); got != tt.wantMemory {
+				t.Errorf("memory request = %s, want %s (its limit)", got, tt.wantMemory)
+			}
+			if got := pod.Spec.Containers[0].Resources.Limits.Cpu().String(); tt.services == nil && got != "2" {
+				t.Errorf("cpu limit = %s, want it unchanged", got)
+			}
+		})
+	}
+}
+
+func TestAgentPodRejectsABadCPURequest(t *testing.T) {
+	for name, q := range map[string]string{"above the limit": "3", "negative": "-1"} {
+		s := validSpec()
+		s.CPURequest = resource.MustParse(q)
+		if _, err := AgentPod(s); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

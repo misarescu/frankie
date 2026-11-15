@@ -1,7 +1,8 @@
 // Package images decides which image an agent step or gate runs in, and builds
 // it when there is none on record yet (D15, D30, D45,
 // docs/spec/05-sandbox-and-toolchains.md). A toolchain image is a pure
-// function of the platform base image and the repo's mise.toml/mise.lock; a
+// function of the platform base image and the repo's mise.toml (without its
+// tasks, D75) and mise.lock; a
 // dependency image (M3.1) of a toolchain image and the repo's declared
 // dependency files. Unchanged inputs reuse the image instead of rebuilding it.
 package images
@@ -12,6 +13,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // Inputs are everything a toolchain image depends on.
@@ -43,11 +46,42 @@ func (in Inputs) Validate() error {
 	return errors.Join(errs...)
 }
 
-// Hash is the hex SHA-256 of the inputs. Fields are length-prefixed so moving
-// bytes between them always changes the hash.
+// taskTables are the mise.toml tables that define tasks. Installing tools
+// never reads them, and agents and gates run tasks from the workspace's own
+// mise.toml, so they are left out of the toolchain image and its hash (D75).
+var taskTables = []string{"tasks", "task_config"}
+
+// ToolsToml is mise.toml as the toolchain image uses it: without its task
+// tables, so editing a task does not rebuild the toolchain. A file without task
+// tables is used byte for byte, and one that does not parse as TOML too, so
+// mise install reports the error as it always did.
+func (in Inputs) ToolsToml() []byte {
+	var doc map[string]any
+	if err := toml.Unmarshal(in.MiseToml, &doc); err != nil {
+		return in.MiseToml
+	}
+	found := false
+	for _, k := range taskTables {
+		if _, ok := doc[k]; ok {
+			delete(doc, k)
+			found = true
+		}
+	}
+	if !found {
+		return in.MiseToml
+	}
+	out, err := toml.Marshal(doc)
+	if err != nil {
+		return in.MiseToml
+	}
+	return out
+}
+
+// Hash is the hex SHA-256 of the inputs, with mise.toml as ToolsToml gives it.
+// Fields are length-prefixed so moving bytes between them always changes the hash.
 func (in Inputs) Hash() string {
 	h := sha256.New()
-	for _, f := range [][]byte{[]byte(in.Base), in.MiseToml, in.MiseLock} {
+	for _, f := range [][]byte{[]byte(in.Base), in.ToolsToml(), in.MiseLock} {
 		var n [8]byte
 		binary.BigEndian.PutUint64(n[:], uint64(len(f)))
 		h.Write(n[:])
@@ -61,13 +95,14 @@ func (in Inputs) Tag() string {
 	return "tc-" + in.Hash()[:32]
 }
 
-// Context implements Spec: mise.toml, mise.lock and the Dockerfile that
+// Context implements Spec: mise.toml (as ToolsToml gives it, so the image is
+// built from exactly what was hashed), mise.lock and the Dockerfile that
 // installs their tools on the base image.
 func (in Inputs) Context(_ string, args []string) (map[string][]byte, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
-	files := map[string][]byte{dockerfileName: []byte(Dockerfile(in.Base, args)), "mise.toml": in.MiseToml}
+	files := map[string][]byte{dockerfileName: []byte(Dockerfile(in.Base, args)), "mise.toml": in.ToolsToml()}
 	if len(in.MiseLock) > 0 {
 		files["mise.lock"] = in.MiseLock
 	}

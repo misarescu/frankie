@@ -23,7 +23,7 @@ const Default = "default-build"
 
 // defaultsByType are the built-in definitions issues of a type run when their
 // project names none for it (D94).
-var defaultsByType = map[string]string{}
+var defaultsByType = map[string]string{"bug": "bug-fix"}
 
 // DefaultFor is the built-in definition for issues of issueType, or Default.
 func DefaultFor(issueType string) string {

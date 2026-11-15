@@ -138,3 +138,18 @@ func TestChooseWorkflowMergeApproval(t *testing.T) {
 		}
 	}
 }
+
+// M6 (D96): a bug runs bug-fix without any project setting; a task does not.
+func TestChooseWorkflowForBugs(t *testing.T) {
+	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
+	for typ, want := range map[string]string{"bug": "bug-fix", "task": "default-build"} {
+		in := activities.IssueRunInput{IssueKey: "gc-79", Repo: "acme/app", BaseBranch: "main", Type: typ}
+		_, arg, err := chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s := arg.(workflow.InterpretInput).Snapshot; s.Error != "" || s.Workflow.Name != want {
+			t.Errorf("%s: workflow %q, error %q; want %s", typ, s.Workflow.Name, s.Error, want)
+		}
+	}
+}

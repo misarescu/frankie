@@ -873,3 +873,38 @@ func TestQueueGatesSkipGatesExpectingFailure(t *testing.T) {
 		t.Errorf("queue gates = %+v", gates)
 	}
 }
+
+// M6 (D96) done-when, as the interpreter runs it: the built-in bug-fix
+// workflow investigates, shows the bug with a test that fails, fixes it
+// keeping the test, has it reviewed and merges it.
+func TestInterpretBuiltInBugFix(t *testing.T) {
+	w, err := workflows.Get("bug-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := config.ResolveRoles(w, roles.Get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newInterpretFixture(t, func(f *interpretFixture) { f.findings = fmt.Sprintf(testFindings, true) })
+	out := f.run(t, snapshot.Snapshot{Workflow: w, Roles: rs, Source: "built-in", BaseSHA: "base"})
+	if !out.Succeeded || !out.Merged {
+		t.Fatalf("result = %+v", out)
+	}
+	want := "investigate/1 reproduce/1 shows-bug/1 fix/1 keeps-test/1 checks/1 bug-reviewer/1 review/1 open-change-request/1 merge/1"
+	if got := f.stepIDs(); got != want {
+		t.Errorf("steps = %s\nwant    %s", got, want)
+	}
+	roleOf := func(i int) string { return f.sessions[i].Step.Role }
+	if roleOf(0) != "bug-investigator" || roleOf(1) != "bug-reproducer" || roleOf(2) != "coder" || roleOf(3) != "bug-reviewer" {
+		t.Errorf("roles = %s %s %s %s", roleOf(0), roleOf(1), roleOf(2), roleOf(3))
+	}
+	for i := 1; i <= 3; i++ {
+		if !strings.Contains(f.sessions[i].Step.Findings, "stats sum shelf rows") {
+			t.Errorf("%s did not get the findings", roleOf(i))
+		}
+	}
+	if !f.gates[0].ExpectFail || f.gates[1].ExpectFail || len(f.enqueued) != 1 || len(f.enqueued[0].Gates) != 1 || f.enqueued[0].Gates[0].StepID != "checks" {
+		t.Errorf("gates %+v, enqueued %+v", f.gates, f.enqueued)
+	}
+}

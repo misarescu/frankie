@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/guard"
 	"github.com/misarescu/frankie/internal/snapshot"
 	"github.com/misarescu/frankie/internal/workflow/activities"
@@ -310,4 +311,59 @@ func writeHistory(t *testing.T, c client.Client, run client.WorkflowRun, file st
 	if err := os.WriteFile(filepath.Join("testdata", file), append(raw, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func (s *stubActivities) CheckQueueEntry(context.Context, activities.IssueRunInput, int) (activities.QueueEntryState, error) {
+	return activities.QueueEntryState{Queued: true, ChangeRequest: domain.ChangeRequestOpen}, nil
+}
+
+func (s *stubActivities) UpdateBranch(_ context.Context, req activities.BranchUpdateRequest) (activities.BranchUpdateResult, error) {
+	s.pushes++
+	return activities.BranchUpdateResult{Outcome: activities.BranchUpdated, HeadSHA: fmt.Sprintf("%040d", 100+s.pushes),
+		BaseSHA: fmt.Sprintf("%040d", 200+s.pushes)}, nil
+}
+
+func (s *stubActivities) MergeQueued(_ context.Context, req activities.QueueMergeRequest) (activities.QueueMergeResult, error) {
+	if s.pushes == 1 { // the base moved after the first update
+		return activities.QueueMergeResult{Outcome: activities.QueueBaseMoved, Reason: "main moved"}, nil
+	}
+	return activities.QueueMergeResult{Outcome: activities.QueueMerged, MergeSHA: "m3rge"}, nil
+}
+
+// TestRecordMergeQueueHistories records MergeQueue (D87): an entry whose
+// update is checked, the base moves before the merge, and the second try
+// merges; the issue workflow it signals is gone.
+//
+//	FRANKIE_RECORD_TEMPORAL=localhost:7266 mise exec -- go test -tags record ./internal/workflow -run TestRecordMergeQueueHistories
+func TestRecordMergeQueueHistories(t *testing.T) {
+	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
+	if addr == "" {
+		t.Skip("FRANKIE_RECORD_TEMPORAL is not set")
+	}
+	c, err := client.Dial(client.Options{HostPort: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	queue := fmt.Sprintf("record-mq-%d", time.Now().UnixNano())
+	w := worker.New(c, queue, worker.Options{})
+	w.RegisterWorkflow(MergeQueue)
+	w.RegisterActivity(&stubActivities{failGate: func(activities.GateRequest) bool { return false }})
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+	entry := QueueEntry{Issue: testInput, RunID: testRun.RunID, WorkflowID: "issue-gc-1-gone", StepID: "enqueue", Attempt: 1,
+		ChangeRequestID: "0198f2a4-4444-7000-8000-000000000004", Number: 42, Branch: testRun.Branch, HeadSHA: fmt.Sprintf("%040d", 1),
+		Gates: []QueueGate{{StepID: "checks", Commands: []string{"mise run lint", "mise run test"}}}, Method: domain.MergeSquash,
+		Title: "gc-1: Add search (#42)"}
+	run, err := c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: MergeQueueWorkflowID("misarescu/Goodreads-Clone") + "-" + queue, TaskQueue: queue},
+		MergeQueue, MergeQueueInput{Repo: "misarescu/Goodreads-Clone", Pending: []QueueEntry{entry}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Get(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	writeHistory(t, c, run, "merge_queue_base_moved_then_merged.json")
 }

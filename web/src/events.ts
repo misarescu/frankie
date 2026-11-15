@@ -85,7 +85,8 @@ const verdicts: Record<string, string> = { pass: "passed", fail: "failed", escal
 function gateSummary(p: Record<string, unknown>): string {
   const head = `${str(p.type)} gate ${verdicts[str(p.verdict)] ?? str(p.verdict)}`;
   const d = (p.details ?? {}) as { error?: string; commands?: { command: string; exitCode?: number | null; reason?: string }[];
-    reviews?: { role?: string; step?: string; verdict?: string; summary?: string; error?: string }[] };
+    reviews?: { role?: string; step?: string; verdict?: string; summary?: string; error?: string }[];
+    checks?: { name: string; state: string; summary?: string; url?: string }[]; state?: string };
   const lines: string[] = [];
   if (d.error) lines.push(d.error);
   for (const c of d.commands ?? []) {
@@ -94,6 +95,14 @@ function gateSummary(p: Record<string, unknown>): string {
   for (const r of d.reviews ?? []) {
     const v = r.error ? `no verdict: ${r.error}` : `${r.verdict ?? ""}${r.summary ? `: ${r.summary}` : ""}`;
     lines.push(`${r.role || r.step || "reviewer"} ${v}`);
+  }
+  // The repo's own CI (D90): failed checks first, each with why and where.
+  if (p.type === "provider-checks") {
+    if (d.state === "none") lines.push("the repo has no CI checks on this commit");
+    const order = (c: { state: string }) => (c.state === "failure" ? 0 : c.state === "pending" ? 1 : 2);
+    for (const c of [...(d.checks ?? [])].sort((a, b) => order(a) - order(b))) {
+      lines.push(`${c.name}: ${c.state}${c.summary ? ` (${c.summary})` : ""}${c.url && c.state === "failure" ? ` ${c.url}` : ""}`);
+    }
   }
   return [head, ...lines].join("\n");
 }

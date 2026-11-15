@@ -66,11 +66,11 @@ const (
 
 // Check is one provider check of a commit, e.g. a CI job.
 type Check struct {
-	Name  string
-	State CheckState // pending, success or failure
-	URL   string
+	Name  string     `json:"name"`
+	State CheckState `json:"state"` // pending, success or failure
+	URL   string     `json:"url,omitempty"`
 	// Summary is the provider's short description, e.g. a failure's title.
-	Summary string
+	Summary string `json:"summary,omitempty"`
 }
 
 // CommitStatus is a commit's provider checks and their combined state.

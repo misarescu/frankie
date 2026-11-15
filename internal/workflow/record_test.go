@@ -52,6 +52,15 @@ type stubActivities struct {
 	enqueued chan activities.EnqueueRequest
 	// conflict makes the queue's branch update conflict.
 	conflict bool
+	// ciFails makes the repo's CI fail on the commit the queue would merge.
+	ciFails bool
+}
+
+func (s *stubActivities) AwaitProviderChecks(_ context.Context, req activities.ProviderChecksRequest) (activities.GateOutcome, error) {
+	if s.ciFails {
+		return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "the repo's CI failed: test", Feedback: "- test: 2 tests failed\n"}, nil
+	}
+	return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "the repo's CI passed (2 checks)"}, nil
 }
 
 func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil }
@@ -408,6 +417,20 @@ func TestRecordMergeQueueHistories(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := "merge_queue_base_moved_then_merged.json"
+	if only := os.Getenv("FRANKIE_RECORD_ONLY"); only == "merge_queue_ci_failed.json" {
+		// provider-checks version: Frankie's checks pass on the update, the
+		// repo's own CI fails.
+		stub.ciFails, file = true, only
+		entry.WorkflowID = "issue-gc-1-gone-ci"
+		run, err = c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: MergeQueueWorkflowID("misarescu/Goodreads-Clone") + "-ci-" + queue, TaskQueue: queue},
+			MergeQueue, MergeQueueInput{Repo: "misarescu/Goodreads-Clone", Pending: []QueueEntry{entry}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := run.Get(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if os.Getenv("FRANKIE_RECORD_ONLY") == "merge_queue_conflict.json" {
 		// conflict-context version: the update conflicts, and both sides go back.
 		stub.conflict, file = true, "merge_queue_conflict.json"

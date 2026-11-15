@@ -55,6 +55,9 @@ agents:
   namespace: frankie-agents
   runtimeClassName: kata
   serviceAccountName: frankie-agent
+  # Nodes every agent, gate, branch update and image build pod runs on, e.g.
+  # an autoscaled agent pool apart from the platform's (D100). Empty: any node.
+  nodeSelector: {}
   runnerPort: 7070
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted

@@ -160,3 +160,20 @@ func TestGatePodCPURequest(t *testing.T) {
 		t.Error("a cpu request above the limit was accepted")
 	}
 }
+
+// D100: gate pods run where agent pods do.
+func TestGatePodNodeSelector(t *testing.T) {
+	s := gateSpec()
+	s.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
+		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+	s.NodeSelector = map[string]string{"pool": "not a value!"}
+	if _, err := GatePod(s); err == nil {
+		t.Error("a bad selector was accepted")
+	}
+}

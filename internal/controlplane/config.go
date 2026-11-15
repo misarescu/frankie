@@ -15,6 +15,7 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/images"
+	"github.com/misarescu/frankie/internal/sandbox"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
 
@@ -82,6 +83,9 @@ type fileConfig struct {
 	// SandboxEnv is set in every agent, gate and toolchain build pod, e.g.
 	// GOPROXY for the in-cluster Go module proxy (D37).
 	SandboxEnv map[string]string `json:"sandboxEnv"`
+	// SandboxNodeSelector places every agent, gate, branch update and build pod,
+	// e.g. on an autoscaled agent pool apart from the platform's (D100).
+	SandboxNodeSelector map[string]string `json:"sandboxNodeSelector"`
 	// Services limits sidecar services per pod (FR-SB-9).
 	Services struct {
 		MaxPerPod int    `json:"maxPerPod"`
@@ -382,6 +386,11 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Agent.Env = fc.SandboxEnv
 	cfg.Toolchain.Build.Env = fc.SandboxEnv
+	if err := sandbox.ValidateNodeSelector(fc.SandboxNodeSelector); err != nil {
+		return fmt.Errorf("controlplane: config: sandboxNodeSelector: %w", err)
+	}
+	cfg.Agent.NodeSelector = fc.SandboxNodeSelector
+	cfg.Toolchain.Build.NodeSelector = fc.SandboxNodeSelector
 	if cfg.Models, err = fc.models(); err != nil {
 		return err
 	}

@@ -313,3 +313,28 @@ func TestLoadConfigFileEgressProjectAllow(t *testing.T) {
 		}
 	}
 }
+
+// D100: one node selector places agent, gate, branch update and build pods.
+func TestLoadConfigFileSandboxNodeSelector(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	cfg, err := load(t, `{"sandboxNodeSelector": {"k8s.scaleway.com/pool-name": "frankie-agents"},
+	  "toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" ||
+		cfg.Toolchain.Build.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
+		t.Errorf("agent %v, build %v", cfg.Agent.NodeSelector, cfg.Toolchain.Build.NodeSelector)
+	}
+	if _, err := load(t, `{"sandboxNodeSelector": {"pool": "not a value!"}}`); err == nil {
+		t.Error("a bad selector was accepted")
+	}
+}

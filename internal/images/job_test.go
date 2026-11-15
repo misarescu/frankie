@@ -315,3 +315,20 @@ func TestBuildResourcesEgressProxyURL(t *testing.T) {
 		t.Errorf("job name changed with the proxy: %s vs %s", plain.Name, job.Name)
 	}
 }
+
+// D100: build pods run on the agent pool, like the steps that wait for them.
+func TestBuildResourcesNodeSelector(t *testing.T) {
+	cfg := testConfig()
+	cfg.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
+	_, job, err := BuildResources(cfg, testRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := job.Spec.Template.Spec.NodeSelector["k8s.scaleway.com/pool-name"]; got != "frankie-agents" {
+		t.Errorf("node selector = %v", job.Spec.Template.Spec.NodeSelector)
+	}
+	cfg.NodeSelector = map[string]string{"pool": "not a value!"}
+	if _, _, err := BuildResources(cfg, testRequest()); err == nil {
+		t.Error("a bad selector was accepted")
+	}
+}

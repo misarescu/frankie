@@ -33,6 +33,21 @@ const (
 // Every pod the sandbox launches carries it; without an autoscaler it does nothing.
 const SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict"
 
+// ValidateNodeSelector checks a node selector's keys and values are valid
+// label keys and values. An empty selector is valid: the pod may run anywhere.
+func ValidateNodeSelector(sel map[string]string) error {
+	var errs []error
+	for _, k := range slices.Sorted(maps.Keys(sel)) {
+		if msgs := validation.IsQualifiedName(k); len(msgs) > 0 {
+			errs = append(errs, fmt.Errorf("node selector key %q: %s", k, strings.Join(msgs, "; ")))
+		}
+		if msgs := validation.IsValidLabelValue(sel[k]); len(msgs) > 0 {
+			errs = append(errs, fmt.Errorf("node selector value %q: %s", sel[k], strings.Join(msgs, "; ")))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // noEvict returns the annotations every sandbox pod carries.
 func noEvict() map[string]string { return map[string]string{SafeToEvictAnnotation: "false"} }
 
@@ -65,6 +80,7 @@ type PodSpec struct {
 	NoProxy            []string            // cluster-internal names reached directly
 	Env                map[string]string   // extra environment
 	Services           []Service           // sidecars; their limits come out of Limits
+	NodeSelector       map[string]string   // nodes it may run on, e.g. the agent pool (D100); empty means any
 	Command            []string            // overrides the image entrypoint; tests only
 }
 
@@ -94,6 +110,9 @@ func (s PodSpec) validate() error {
 		errs = append(errs, errors.New("memory limit is required"))
 	}
 	if err := validateCPURequest(s.CPURequest, s.Limits); err != nil {
+		errs = append(errs, err)
+	}
+	if err := ValidateNodeSelector(s.NodeSelector); err != nil {
 		errs = append(errs, err)
 	}
 	if s.WorkspaceSize.IsZero() {
@@ -141,6 +160,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 		Spec: corev1.PodSpec{
 			RuntimeClassName:             ptrTo(s.RuntimeClassName),
 			ServiceAccountName:           s.ServiceAccountName,
+			NodeSelector:                 s.NodeSelector,
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

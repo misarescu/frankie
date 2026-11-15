@@ -74,7 +74,7 @@ func TestFailRefinement(t *testing.T) {
 	ctx := t.Context()
 	is, r := refiningIssue(t, s)
 	for range 2 { // idempotent
-		if err := s.FailRefinement(ctx, is.ID, r.ID, "not a refined spec"); err != nil {
+		if err := s.FailRefinement(ctx, is.ID, r.ID, "not a refined spec", true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -87,5 +87,23 @@ func TestFailRefinement(t *testing.T) {
 	}
 	if err := s.RecordRefinement(ctx, is.ID, r.ID, refined); !errors.Is(err, ErrConflict) {
 		t.Errorf("recording on a draft = %v, want ErrConflict", err)
+	}
+}
+
+// M5.2 (D79): a refinement that failed before its agent started returns the
+// issue to draft without holding it, so the scheduler starts it again.
+func TestFailRefinementWithoutHold(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	is, r := refiningIssue(t, s)
+	if err := s.FailRefinement(ctx, is.ID, r.ID, "toolchain image: build failed", false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetIssue(ctx, is.ID)
+	if got.Status != domain.IssueDraft || got.SpecRejectedAt != nil || got.SpecFeedback != "" {
+		t.Fatalf("issue = %s, held %v, feedback %q; want an unheld draft", got.Status, got.SpecRejectedAt, got.SpecFeedback)
+	}
+	if run, _ := s.GetRun(ctx, r.ID); run.Status != domain.ExecFailed {
+		t.Errorf("run = %s, want failed", run.Status)
 	}
 }

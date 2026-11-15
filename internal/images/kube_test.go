@@ -39,7 +39,7 @@ func finishJob(kube *fake.Clientset, j *batchv1.Job, cond batchv1.JobConditionTy
 
 // finishJobWithResult sets the Job's outcome before it is stored.
 func finishJobWithResult(kube *fake.Clientset, j *batchv1.Job, cond batchv1.JobConditionType, msg, result string) {
-	j.Status.Conditions = []batchv1.JobCondition{{Type: cond, Status: corev1.ConditionTrue, Reason: "Test", Message: msg}}
+	j.Status.Conditions = []batchv1.JobCondition{{Type: cond, Status: corev1.ConditionTrue, Reason: "Test", Message: msg, LastTransitionTime: metav1.Now()}}
 	if cond == batchv1.JobComplete {
 		_ = kube.Tracker().Add(&corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-x", Namespace: j.Namespace, Labels: map[string]string{"batch.kubernetes.io/job-name": j.Name}},
@@ -267,6 +267,35 @@ func TestKubeBuilderNeedsAReportedDigest(t *testing.T) {
 			finishJobsWithResult(kube, batchv1.JobComplete, "", result)
 			if digest, err := newBuilder(kube).Build(context.Background(), testRequest()); err == nil {
 				t.Fatalf("digest %q accepted", digest)
+			}
+		})
+	}
+}
+
+// M5.2: a failed build's error carries the end of its log, so the run's
+// transcript says why the image did not build.
+func TestKubeBuilderFailureCarriesTheBuildLog(t *testing.T) {
+	for name, tt := range map[string]struct {
+		pod  bool
+		want string
+	}{
+		"with its pod": {true, "last lines of the build log:\nfake logs"},
+		"pod gone":     {false, "(no build log: the build pod is gone)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			kube := fake.NewClientset()
+			kube.PrependReactor("create", "jobs", func(a k8stesting.Action) (bool, runtime.Object, error) {
+				j := a.(k8stesting.CreateAction).GetObject().(*batchv1.Job)
+				finishJob(kube, j, batchv1.JobFailed, "BackoffLimitExceeded")
+				if tt.pod {
+					_ = kube.Tracker().Add(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-x", Namespace: j.Namespace,
+						Labels: map[string]string{"batch.kubernetes.io/job-name": j.Name}}})
+				}
+				return false, j, nil
+			})
+			_, err := newBuilder(kube).Build(context.Background(), testRequest())
+			if err == nil || !strings.Contains(err.Error(), "BackoffLimitExceeded") || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want the failure and %q", err, tt.want)
 			}
 		})
 	}

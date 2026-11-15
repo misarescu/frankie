@@ -64,3 +64,63 @@ func TestInputsValidate(t *testing.T) {
 		})
 	}
 }
+
+// D75: editing a task does not change the toolchain; editing a tool does. A
+// mise.toml without tasks, or one that does not parse, is used as it is.
+func TestToolsToml(t *testing.T) {
+	const tools = "# Tool versions\n[tools]\ngo = \"1.25.5\"\nnode = \"24.22.3\"\n\n[settings]\nexperimental = true\n"
+	withTasks := func(run string) []byte {
+		return []byte(tools + `
+[tasks."deps:warm"]
+description = "warm the caches"
+run = """
+go mod download
+[ -f go-packages.txt ] && go build $(cat go-packages.txt)
+"""
+
+[tasks.test]
+run = "` + run + `"
+
+[task_config]
+includes = ["tasks"]
+`)
+	}
+	in := func(toml []byte) Inputs { return Inputs{Base: "r/base:v1", MiseToml: toml, MiseLock: []byte("lock")} }
+
+	if got := in([]byte(tools)).ToolsToml(); string(got) != tools {
+		t.Errorf("a mise.toml without tasks changed:\n%s", got)
+	}
+	a, b := in(withTasks("make test")), in(withTasks("go test ./..."))
+	if a.Hash() != b.Hash() {
+		t.Error("editing a task changed the toolchain hash")
+	}
+	if a.Hash() == in([]byte(strings.Replace(string(withTasks("make test")), "1.25.5", "1.25.6", 1))).Hash() {
+		t.Error("changing a tool version kept the toolchain hash")
+	}
+	if a.Hash() == in([]byte(strings.Replace(string(withTasks("make test")), "experimental = true", "experimental = false", 1))).Hash() {
+		t.Error("changing a setting kept the toolchain hash")
+	}
+	stripped := string(a.ToolsToml())
+	for _, gone := range []string{"tasks", "task_config", "deps:warm", "go mod download"} {
+		if strings.Contains(stripped, gone) {
+			t.Errorf("ToolsToml kept %q:\n%s", gone, stripped)
+		}
+	}
+	for _, kept := range []string{"[tools]", "go = '1.25.5'", "node = '24.22.3'", "[settings]", "experimental = true"} {
+		if !strings.Contains(stripped, kept) {
+			t.Errorf("ToolsToml lost %q:\n%s", kept, stripped)
+		}
+	}
+	if bad := in([]byte("[tools\nnot toml")); string(bad.ToolsToml()) != "[tools\nnot toml" {
+		t.Error("an unparsable mise.toml was rewritten")
+	}
+
+	// The image is built from exactly what was hashed.
+	ctx, err := a.Context("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(ctx["mise.toml"]) != stripped {
+		t.Errorf("build context mise.toml =\n%s\nwant ToolsToml", ctx["mise.toml"])
+	}
+}

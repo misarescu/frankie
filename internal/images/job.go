@@ -96,6 +96,9 @@ type BuildRequest struct {
 	// EgressProxyURL replaces the config's for this build, e.g. with the
 	// project's egress token (D80); empty means the config's.
 	EgressProxyURL string
+	// Progress, when set, gets the build's log as it grows (D93). It does not
+	// change which Job builds the image.
+	Progress Progress `json:"-"`
 }
 
 // JobName is stable per tag, so concurrent or retried requests for the same

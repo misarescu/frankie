@@ -80,7 +80,7 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 	}
 
 	// The gate runs in the toolchain the commit itself declares.
-	image, err := a.toolchainImage(ctx, in, req.CommitSHA)
+	image, err := a.toolchainImage(ctx, in, req.CommitSHA, a.progressFor(ctx, step.RunID, step.ID))
 	if errors.Is(err, errInvalidProjectConfig) {
 		// The commit under test broke its own toolchain or dependency
 		// declaration: the gate fails, and a loop back can fix it.

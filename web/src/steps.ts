@@ -21,17 +21,29 @@ export type Step = {
   harness?: string;
   model?: string;
   gate?: string;
-  // What a running step waits for from a person (M5.1): a human gate's
-  // decision, or an answer to the agent's question.
-  waits_for?: "approval" | "answer";
+  // What a step waits for: a person (M5.1), a human gate's decision or an
+  // answer to the agent's question; or the build of its image (D93).
+  waits_for?: "approval" | "answer" | "toolchain-image" | "dependency-image";
 };
 
-// shownStatus is the status to show for a step: a running step that waits for
-// a person shows as awaiting a human, like an issue does.
-export const shownStatus = (s: Step): string => (s.status === "running" && s.waits_for ? "awaiting_human" : s.status);
+const buildingImage = (s: Step) => s.waits_for === "toolchain-image" || s.waits_for === "dependency-image";
 
-// waitNote says where a person acts for a waiting step.
-export function waitNote(s: Step): { text: string; href: string } | undefined {
+// shownStatus is the status to show for a step: a running step that waits for
+// a person shows as awaiting a human, like an issue does; a step whose image
+// is being built says so.
+export const shownStatus = (s: Step): string => {
+  if (buildingImage(s) && (s.status === "pending" || s.status === "running")) return "building_image";
+  return s.status === "running" && s.waits_for ? "awaiting_human" : s.status;
+};
+
+// waitNote says what a waiting step waits for and where to look or act: a
+// person acts in Approvals; a build's log is in the run's transcript, at
+// runHref when the page is not the run's own.
+export function waitNote(s: Step, runHref?: string): { text: string; href?: string } | undefined {
+  if (buildingImage(s) && (s.status === "pending" || s.status === "running")) {
+    const image = s.waits_for === "dependency-image" ? "dependency" : "toolchain";
+    return runHref ? { text: `building the ${image} image: see its log`, href: runHref } : { text: `building the ${image} image; its log is below` };
+  }
   if (s.status !== "running") return undefined;
   if (s.waits_for === "approval") return { text: "decide it in Approvals", href: "#/approvals" };
   if (s.waits_for === "answer") return { text: "answer it in Approvals", href: "#/approvals" };

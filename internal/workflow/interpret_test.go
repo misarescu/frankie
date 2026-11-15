@@ -109,6 +109,7 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		return nil
 	})
 	f.env.OnActivity(a.EnsureToolchainImage, mock.Anything, testInput).Return(toolchainRef, nil)
+	f.env.OnActivity(a.EnsureStepImage, mock.Anything, testInput, testRun.RunID, mock.Anything).Return(toolchainRef, nil)
 	f.env.OnActivity(a.LaunchAgentPod, mock.Anything, testInput, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult) (activities.AgentPod, error) {
 		return activities.AgentPod{Name: "pod-" + run.StepRunID, IP: "10.0.0.1"}, nil
 	})
@@ -376,6 +377,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_default_build_merged.json", "M6: merge-queue version, protected change approved, then merged by the queue"},
 	{"testdata/interpret_queue_conflict_then_merged.json", "M6: merge-queue-loop version, a conflict sent back to the coder, then merged"},
 	{"testdata/interpret_merge_approval_changes_requested.json", "M6: merge-approval version, changes requested, then approved and merged"},
+	{"testdata/interpret_image_build_events.json", "M6: image-build-events version, agent steps resolve their image as themselves"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

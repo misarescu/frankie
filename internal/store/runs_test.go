@@ -314,3 +314,34 @@ func TestListRunWaits(t *testing.T) {
 		t.Errorf("after the decision and the answer: waits = %v, %v; want none", got, err)
 	}
 }
+
+// M6 (D93): a step waits for its image while the newest build event on it
+// says building, and no longer once the build ended or the step did.
+func TestListRunWaitsForImages(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	run, _, agent := runningAgentStep(t, s)
+	gate, _ := s.CreateStepRun(ctx, NewStepRun{RunID: run.ID, StepID: "checks", Attempt: 1, Kind: domain.StepGate})
+	build := func(step uuid.UUID, image, status string) {
+		t.Helper()
+		raw, _ := json.Marshal(domain.ImageBuild{Image: image, Repository: image + "/o/r", Tag: "t", Status: status})
+		if _, err := s.AppendEvent(ctx, NewEvent{RunID: &run.ID, StepRunID: &step, Ts: time.Now(), Type: domain.EventImageBuild, Payload: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build(agent.ID, "toolchain", domain.ImageBuilding)
+	build(gate.ID, "toolchain", domain.ImageBuilding)
+	build(gate.ID, "toolchain", domain.ImageBuilt)
+	build(gate.ID, "dependencies", domain.ImageBuilding)
+	got, err := s.ListRunWaits(ctx, run.ID)
+	if err != nil || got[agent.ID] != WaitsForToolchainImage || got[gate.ID] != WaitsForDependencies {
+		t.Fatalf("waits = %v, %v", got, err)
+	}
+	build(agent.ID, "toolchain", domain.ImageFailed)
+	if _, err := s.TransitionStepRun(ctx, gate.ID, domain.ExecPending, domain.ExecFailed); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ListRunWaits(ctx, run.ID); err != nil || len(got) != 0 {
+		t.Errorf("after the build failed and the gate ended: %v, %v", got, err)
+	}
+}

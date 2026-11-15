@@ -309,3 +309,50 @@ func TestKubeBuilderFailureCarriesTheBuildLog(t *testing.T) {
 		})
 	}
 }
+
+// progressLog records what a build reports.
+type progressLog struct {
+	building, built []string
+	output          []string
+	errs            []error
+}
+
+func (p *progressLog) Building(repository, tag string) {
+	p.building = append(p.building, repository+":"+tag)
+}
+func (p *progressLog) Output(text string) { p.output = append(p.output, text) }
+func (p *progressLog) Built(repository, tag string, _ time.Duration, err error) {
+	p.built = append(p.built, repository+":"+tag)
+	p.errs = append(p.errs, err)
+}
+
+// M6 (D93): a request waiting for a build gets its log as it grows, each
+// container's in turn, never twice.
+func TestKubeBuilderStreamsTheBuildLog(t *testing.T) {
+	kube := fake.NewClientset()
+	finishJobs(kube, batchv1.JobComplete, "")
+	p := &progressLog{}
+	req := testRequest()
+	req.Progress = p
+	if _, err := newBuilder(kube).Build(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	// The fake API answers "fake logs" for each container.
+	if strings.Join(p.output, "|") != "fake logs|fake logs" {
+		t.Errorf("output = %q", p.output)
+	}
+
+	b := newBuilder(kube)
+	jobs := listJobs(t, kube)
+	c := &logCursor{seen: map[string]int{}}
+	b.streamLog(context.Background(), &jobs[0], c, p)
+	b.streamLog(context.Background(), &jobs[0], c, p)
+	if len(p.output) != 4 {
+		t.Errorf("output after two more reads = %q; each container's log once", p.output)
+	}
+	cut := &logCursor{seen: map[string]int{}, sent: maxStreamedLog - 4}
+	b.streamLog(context.Background(), &jobs[0], cut, p)
+	if last := p.output[len(p.output)-1]; !cut.cut || !strings.HasPrefix(last, "fake") || !strings.Contains(last, "the build log is longer") {
+		t.Errorf("cut output = %q, cut %v", last, cut.cut)
+	}
+}

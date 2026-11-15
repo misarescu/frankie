@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/misarescu/frankie/internal/connectors/github"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/images"
 )
 
@@ -124,6 +127,9 @@ type memBuilder struct {
 
 func (b *memBuilder) Build(_ context.Context, r images.BuildRequest) (string, error) {
 	b.builds = append(b.builds, r)
+	if r.Progress != nil {
+		r.Progress.Output("mise install go@1.27\n")
+	}
 	if b.err != nil {
 		return "", b.err
 	}
@@ -344,5 +350,42 @@ func TestEnsureToolchainImageBuildsWithTheProjectEgress(t *testing.T) {
 	}
 	if g, ok := egressGrant(t, s, b.builds[0].EgressProxyURL); !ok || g.Hosts[0] != "nodejs.org" {
 		t.Errorf("build proxy = %q, want the project's egress token", b.builds[0].EgressProxyURL)
+	}
+}
+
+// M6 (D93): an agent step waiting for its image says it is building, shows
+// the build log and how the build ended; with the image on record, nothing.
+func TestEnsureStepImageRecordsTheBuild(t *testing.T) {
+	a, _ := toolchainActivities(t, map[string]string{"mise.toml": "[tools]\ngo = \"1.27\"\n"})
+	st, in := readyIssue(t)
+	a.Store = st
+	in.Repo = testInput.Repo
+	run := startedRun(t, a, in)
+	step := runningAgentStep(t, a, run)
+	for range 2 {
+		if _, err := activityEnv(a).ExecuteActivity(a.EnsureStepImage, in, run.RunID, step); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, _ := st.ListRunEvents(t.Context(), uuid.MustParse(run.RunID), 0, 100)
+	var got []string
+	for _, e := range events {
+		switch e.Type {
+		case domain.EventImageBuild:
+			var b domain.ImageBuild
+			_ = json.Unmarshal(e.Payload, &b)
+			got = append(got, b.Image+" "+b.Status)
+			if e.StepRunID == nil || e.StepRunID.String() != step || !strings.HasPrefix(b.Tag, "tc-") {
+				t.Errorf("event %+v on step %v", b, e.StepRunID)
+			}
+		case domain.EventBuildLog:
+			var p struct{ Output string }
+			_ = json.Unmarshal(e.Payload, &p)
+			got = append(got, "log "+p.Output)
+		}
+	}
+	want := []string{"toolchain building", "log mise install go@1.27\n", "toolchain built"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("events = %q, want %q (the second call found the image on record)", got, want)
 	}
 }

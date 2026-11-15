@@ -243,3 +243,24 @@ func TestEnsureHoldsOffCollection(t *testing.T) {
 		stop()
 	}
 }
+
+// M6 (D93): a request hears when it waits for a build and how it ended, and
+// nothing when the image is on record.
+func TestEnsureReportsBuildProgress(t *testing.T) {
+	e, b, _, _ := newEnsurer()
+	p := &progressLog{}
+	if _, err := e.EnsureWith(t.Context(), "toolchains/misarescu/repo", testInputs, EnsureOptions{Progress: p}); err != nil {
+		t.Fatal(err)
+	}
+	want := "toolchains/misarescu/repo:" + testInputs.Tag()
+	if len(p.building) != 1 || p.building[0] != want || len(p.built) != 1 || p.errs[0] != nil {
+		t.Fatalf("progress = %+v", p)
+	}
+	if _, err := e.EnsureWith(t.Context(), "toolchains/misarescu/repo", testInputs, EnsureOptions{Progress: p}); err != nil || len(p.building) != 1 {
+		t.Errorf("a recorded image reported a build: %+v, %v", p, err)
+	}
+	b.err = errors.New("mise install failed")
+	if _, err := e.EnsureWith(t.Context(), "toolchains/misarescu/other", testInputs, EnsureOptions{Progress: p}); err == nil || len(p.errs) != 2 || p.errs[1] == nil {
+		t.Errorf("a failed build: %v, %+v", err, p)
+	}
+}

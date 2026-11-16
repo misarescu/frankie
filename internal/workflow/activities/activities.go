@@ -320,6 +320,9 @@ type Activities struct {
 	// SpendSettle is how long to wait between reads of a session's spend
 	// while the gateway writes it; default 3s (D53).
 	SpendSettle time.Duration
+	// SessionPodCheck is how often a session checks that its agent pod still
+	// runs; default 15s (D102).
+	SessionPodCheck time.Duration
 	// Queue starts and signals the merge queue workflows (D88), on TaskQueue.
 	Queue     QueueStarter
 	TaskQueue string

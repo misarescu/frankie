@@ -18,6 +18,7 @@ import (
 	runnerv1 "github.com/misarescu/frankie/gen/frankie/runner/v1"
 	"github.com/misarescu/frankie/internal/runner"
 	"github.com/misarescu/frankie/internal/runner/claudecode"
+	"github.com/misarescu/frankie/internal/runner/keepalive"
 	"github.com/misarescu/frankie/internal/runner/opencode"
 	"github.com/misarescu/frankie/internal/runner/pi"
 )
@@ -46,7 +47,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", *listen, err)
 	}
-	srv := grpc.NewServer()
+	// Accept the control plane's keepalive pings, which detect a lost sandbox (D102).
+	srv := grpc.NewServer(keepalive.Server())
 	runnerv1.RegisterRunnerServiceServer(srv, runner.NewServer(*workdir, map[runnerv1.Harness]runner.Harness{
 		runnerv1.Harness_HARNESS_CLAUDE_CODE: &claudecode.Harness{Binary: *claudeBin},
 		runnerv1.Harness_HARNESS_OPENCODE:    &opencode.Harness{Binary: *opencodeBin},

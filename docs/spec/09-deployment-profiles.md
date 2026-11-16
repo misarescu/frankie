@@ -80,6 +80,7 @@ What the sizing rests on (measured 2026-11-16, Kata 4.3.1 `qemu-runtime-rs`, Kub
 - The host cgroup holds the guest's RAM, kernel memory and the page cache of the guest's writes through virtiofsd. When it is full, KVM can fail to fault in guest memory (`kvm run failed Bad address` in the shim's log) and the VM stops without an OOM kill; D102 fails the step within a minute.
 - The scheduler charges a running Kata pod its CPU request plus twice the RuntimeClass's 250m overhead; memory overhead is charged once.
 - Kata costs file I/O, not CPU: on one POP2 node a gate took 91 s without Kata and 187 s with it, CPU-bound work ran at nearly native speed, and small-file operations were 10 to 15 times slower through virtiofs. Three gates at once on one node took 418 s each.
+- Frankie's secrets come from Scaleway Secret Manager through External Secrets (D107); the only secret made by hand is the store's read-only API key.
 - DEV1 instances were too slow for the factory (gates about 4 times the homelab's) and, on their older hosts, Kata VMs failed to boot.
 
 ## Dropped or deferred in the concrete profile

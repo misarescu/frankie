@@ -56,7 +56,31 @@ Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kerne
 
 ## On a cluster with an autoscaled node pool
 
-The concrete profile's sizing assumes one fixed node. On a managed cluster whose agent pool scales with demand (Scaleway Kapsule since M7), three settings keep the autoscaler from undoing work (D99): sandbox and build pods are never evicted when a node is removed (always set); `platform.nodeSelector` keeps the platform on a small fixed pool, which also carries the cluster's add-ons, while `agents.nodeSelector` keeps agent, gate and build pods on the autoscaled pool, so it can scale to zero (D100), and a taint on the agent pool that only those pods tolerate (`agents.tolerations`, D101) keeps the add-ons and Flux off it even while the platform pool has no node; and `persistence.storageClassName` picks a class that keeps volumes when their claims are deleted. The pool's nodes need `/dev/kvm` for Kata, and kata-deploy runs as a DaemonSet so nodes the autoscaler adds get Kata too; with a tainted agent pool it needs the same toleration. Kata VMs there get `agents.guestMemoryHeadroom` (D103) beyond their pods' memory limits; a node fits three steps (POP2-4C-16G: 3 x (3.5 GiB + Kata overhead) of 14 GiB).
+The concrete profile's sizing assumes one fixed node. On a managed cluster whose agent pool scales with demand (Scaleway Kapsule since M7), three settings keep the autoscaler from undoing work (D99): sandbox and build pods are never evicted when a node is removed (always set); `platform.nodeSelector` keeps the platform on a small fixed pool, which also carries the cluster's add-ons, while `agents.nodeSelector` keeps agent, gate and build pods on the autoscaled pool, so it can scale to zero (D100), and a taint on the agent pool that only those pods tolerate (`agents.tolerations`, D101) keeps the add-ons and Flux off it even while the platform pool has no node; and `persistence.storageClassName` picks a class that keeps volumes when their claims are deleted. The pool's nodes need `/dev/kvm` for Kata, and kata-deploy runs as a DaemonSet so nodes the autoscaler adds get Kata too; with a tainted agent pool it needs the same toleration. Kata VMs there get `agents.guestMemoryHeadroom` (D103) beyond their pods' memory limits.
+
+## Scaleway Kapsule (the factory since M7, D105, D106)
+
+| Pool | Instance | Size | Pool settings | Runs |
+|---|---|---|---|---|
+| `frankie-control-plane` | POP2-2C-8G | fixed 1 | no taints | platform, Flux, cluster add-ons |
+| `frankie-agents` | POP2-4C-16G | autoscaled 0-5 | Taints: `frankie.dev/agents=true:NoSchedule`; Startup taints: `startup-taint.cluster-autoscaler.kubernetes.io/kata=installing:NoSchedule` | agent, gate, branch update and build pods |
+
+Kapsule sets taints from a pool's own Taints and Startup taints settings, not from its tags. The startup taint's prefix makes the cluster autoscaler ignore it when it plans a scale-up; kata-deploy tolerates it and removes it (`startupTaints`) once Kata is installed on the node.
+
+| Step | Memory limit | Guest headroom | Kata overhead | Reserved | CPU request / limit |
+|---|---|---|---|---|---|
+| Coder | 4Gi | 512Mi | 1Gi | 5.5Gi | 500m / 2 |
+| Gate | 3Gi | 512Mi | 1Gi | 4.5Gi | 700m / 2 |
+| Reviewer, refiner | 2Gi (D104) | 512Mi | 1Gi | 3.5Gi | 250m / 2 |
+
+A POP2-4C-16G has about 14.2 GiB and 3.7 CPUs for step pods: two steps in a mix, three when all are gates. With `maxConcurrentIssues: 6`, a batch spreads over about three agent nodes.
+
+What the sizing rests on (measured 2026-11-16, Kata 4.3.1 `qemu-runtime-rs`, Kubernetes 1.37):
+- A guest's RAM equals its pod's memory limit; `default_memory` and `memory_offset` do not change it. Without headroom the guest runs out before its container reaches its limit (D103).
+- The host cgroup holds the guest's RAM, kernel memory and the page cache of the guest's writes through virtiofsd. When it is full, KVM can fail to fault in guest memory (`kvm run failed Bad address` in the shim's log) and the VM stops without an OOM kill; D102 fails the step within a minute.
+- The scheduler charges a running Kata pod its CPU request plus twice the RuntimeClass's 250m overhead; memory overhead is charged once.
+- Kata costs file I/O, not CPU: on one POP2 node a gate took 91 s without Kata and 187 s with it, CPU-bound work ran at nearly native speed, and small-file operations were 10 to 15 times slower through virtiofs. Three gates at once on one node took 418 s each.
+- DEV1 instances were too slow for the factory (gates about 4 times the homelab's) and, on their older hosts, Kata VMs failed to boot.
 
 ## Dropped or deferred in the concrete profile
 

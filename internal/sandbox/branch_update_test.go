@@ -279,3 +279,16 @@ func TestBranchUpdatePodTolerations(t *testing.T) {
 		t.Error("a bad toleration was accepted")
 	}
 }
+
+// D103: branch update pods get the same VM headroom as agent pods.
+func TestBranchUpdatePodGuestMemory(t *testing.T) {
+	s := updateSpec()
+	s.GuestMemoryHeadroom = resource.MustParse("512Mi")
+	pod, err := BranchUpdatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Spec.Resources.Limits.Memory(); got.Cmp(resource.MustParse("1536Mi")) != 0 {
+		t.Errorf("pod memory = %s, want 1536Mi", got)
+	}
+}

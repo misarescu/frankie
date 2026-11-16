@@ -69,6 +69,9 @@ type BuildConfig struct {
 	NodeSelector map[string]string
 	// Tolerations let build pods onto a tainted agent pool, like agent pods (D101).
 	Tolerations []corev1.Toleration
+	// GuestMemoryHeadroom is VM memory beyond the build's limit, for the guest
+	// kernel and agent (D103); zero adds none.
+	GuestMemoryHeadroom resource.Quantity
 }
 
 func (c BuildConfig) validate() error {
@@ -88,6 +91,9 @@ func (c BuildConfig) validate() error {
 		errs = append(errs, err)
 	}
 	if err := sandbox.ValidateTolerations(c.Tolerations); err != nil {
+		errs = append(errs, err)
+	}
+	if err := sandbox.ValidateGuestMemoryHeadroom(c.GuestMemoryHeadroom); err != nil {
 		errs = append(errs, err)
 	}
 	if c.ScratchSize.IsZero() {
@@ -235,6 +241,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 					RuntimeClassName:             ptrTo(c.RuntimeClassName),
 					NodeSelector:                 c.NodeSelector,
 					Tolerations:                  c.Tolerations,
+					Resources:                    sandbox.GuestMemory(*c.Limits.Memory(), c.GuestMemoryHeadroom),
 					ServiceAccountName:           c.ServiceAccountName,
 					AutomountServiceAccountToken: ptrTo(false),
 					EnableServiceLinks:           ptrTo(false),

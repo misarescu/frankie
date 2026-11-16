@@ -276,3 +276,45 @@ func TestAgentPodTolerations(t *testing.T) {
 		t.Error("a bad toleration was accepted")
 	}
 }
+
+// D103: the VM gets memory beyond the containers' limits, for the guest kernel
+// and agent; no headroom leaves the pod as before.
+func TestGuestMemory(t *testing.T) {
+	if r := GuestMemory(resource.MustParse("3Gi"), resource.Quantity{}); r != nil {
+		t.Errorf("no headroom = %v, want nil", r)
+	}
+	r := GuestMemory(resource.MustParse("3Gi"), resource.MustParse("512Mi"))
+	want := resource.MustParse("3584Mi")
+	if r == nil || r.Limits.Memory().Cmp(want) != 0 || r.Requests.Memory().Cmp(want) != 0 || r.Limits.Cpu().Sign() != 0 {
+		t.Errorf("headroom = %+v, want memory 3584Mi only", r)
+	}
+	if ValidateGuestMemoryHeadroom(resource.MustParse("-1Mi")) == nil {
+		t.Error("a negative headroom was accepted")
+	}
+}
+
+// D103: an agent pod's pod-level memory is its whole limit, services included,
+// plus the headroom.
+func TestAgentPodGuestMemory(t *testing.T) {
+	s := validSpec()
+	pod, err := AgentPod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.Resources != nil {
+		t.Errorf("no headroom configured, got %v", pod.Spec.Resources)
+	}
+	s.GuestMemoryHeadroom = resource.MustParse("512Mi")
+	s.Services = []Service{{Name: "db", Image: "postgres:17", Limits: corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("512Mi")}}}
+	if pod, err = AgentPod(s); err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Spec.Resources.Limits.Memory(); got.Cmp(resource.MustParse("3584Mi")) != 0 {
+		t.Errorf("pod memory = %s, want 3584Mi", got)
+	}
+	s.GuestMemoryHeadroom = resource.MustParse("-1Mi")
+	if _, err := AgentPod(s); err == nil {
+		t.Error("a negative headroom was accepted")
+	}
+}

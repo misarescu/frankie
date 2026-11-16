@@ -108,6 +108,8 @@ type BranchUpdatePodSpec struct {
 	AuthorEmail        string
 	NodeSelector       map[string]string   // nodes it may run on (D100); empty means any
 	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
+	// GuestMemoryHeadroom is VM memory beyond the containers' limits (D103).
+	GuestMemoryHeadroom resource.Quantity
 }
 
 func (s BranchUpdatePodSpec) validate() error {
@@ -115,7 +117,7 @@ func (s BranchUpdatePodSpec) validate() error {
 		Name: s.Name, Namespace: s.Namespace, Image: s.Image, RuntimeClassName: s.RuntimeClassName,
 		ServiceAccountName: s.ServiceAccountName, RunID: s.RunID, StepRunID: s.StepRunID, IssueKey: s.IssueKey,
 		Limits: s.Limits, CPURequest: s.CPURequest, WorkspaceSize: s.WorkspaceSize, Deadline: s.Deadline, EgressProxyURL: s.EgressProxyURL,
-		NodeSelector: s.NodeSelector, Tolerations: s.Tolerations,
+		NodeSelector: s.NodeSelector, Tolerations: s.Tolerations, GuestMemoryHeadroom: s.GuestMemoryHeadroom,
 	}
 	errs := []error{base.validate()}
 	if u, err := url.Parse(s.CloneURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -188,6 +190,7 @@ func BranchUpdatePod(s BranchUpdatePodSpec) (*corev1.Pod, error) {
 			ServiceAccountName:           s.ServiceAccountName,
 			NodeSelector:                 s.NodeSelector,
 			Tolerations:                  s.Tolerations,
+			Resources:                    GuestMemory(*s.Limits.Memory(), s.GuestMemoryHeadroom),
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

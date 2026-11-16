@@ -89,6 +89,10 @@ type fileConfig struct {
 	// SandboxTolerations go on the same pods, so they can run on an agent pool
 	// tainted to keep every other pod off it (D101).
 	SandboxTolerations []corev1.Toleration `json:"sandboxTolerations"`
+	// SandboxGuestMemoryHeadroom is VM memory beyond each sandbox pod's
+	// container limits, for the guest kernel and agent (D103), e.g. "512Mi";
+	// empty adds none.
+	SandboxGuestMemoryHeadroom string `json:"sandboxGuestMemoryHeadroom"`
 	// Services limits sidecar services per pod (FR-SB-9).
 	Services struct {
 		MaxPerPod int    `json:"maxPerPod"`
@@ -161,6 +165,22 @@ func (fc fileConfig) gate() (activities.GateConfig, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+// guestMemoryHeadroom parses the sandbox VMs' memory headroom (D103): empty
+// means none; otherwise a quantity that is not negative.
+func guestMemoryHeadroom(raw string) (resource.Quantity, error) {
+	if raw == "" {
+		return resource.Quantity{}, nil
+	}
+	q, err := resource.ParseQuantity(raw)
+	if err == nil {
+		err = sandbox.ValidateGuestMemoryHeadroom(q)
+	}
+	if err != nil {
+		return resource.Quantity{}, fmt.Errorf("controlplane: config: sandboxGuestMemoryHeadroom %q invalid: %w", raw, err)
+	}
+	return q, nil
 }
 
 // cpuRequest parses what a pod type requests of its CPU limit (D77): empty
@@ -399,6 +419,12 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Agent.Tolerations = fc.SandboxTolerations
 	cfg.Toolchain.Build.Tolerations = fc.SandboxTolerations
+	headroom, err := guestMemoryHeadroom(fc.SandboxGuestMemoryHeadroom)
+	if err != nil {
+		return err
+	}
+	cfg.Agent.GuestMemoryHeadroom = headroom
+	cfg.Toolchain.Build.GuestMemoryHeadroom = headroom
 	if cfg.Models, err = fc.models(); err != nil {
 		return err
 	}

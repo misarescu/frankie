@@ -350,3 +350,20 @@ func TestBuildResourcesTolerations(t *testing.T) {
 		t.Error("a bad toleration was accepted")
 	}
 }
+
+// D103: build pods get VM headroom like the steps that wait for them.
+func TestBuildResourcesGuestMemory(t *testing.T) {
+	cfg := testConfig()
+	cfg.GuestMemoryHeadroom = resource.MustParse("512Mi")
+	_, job, err := BuildResources(cfg, testRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := job.Spec.Template.Spec.Resources.Limits.Memory(); got.Cmp(resource.MustParse("3584Mi")) != 0 {
+		t.Errorf("pod memory = %s, want 3584Mi", got)
+	}
+	cfg.GuestMemoryHeadroom = resource.MustParse("-1Mi")
+	if _, _, err := BuildResources(cfg, testRequest()); err == nil {
+		t.Error("a negative headroom was accepted")
+	}
+}

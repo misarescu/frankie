@@ -194,3 +194,16 @@ func TestGatePodTolerations(t *testing.T) {
 		t.Error("a bad toleration was accepted")
 	}
 }
+
+// D103: gate pods get the same VM headroom as agent pods.
+func TestGatePodGuestMemory(t *testing.T) {
+	s := gateSpec()
+	s.GuestMemoryHeadroom = resource.MustParse("512Mi")
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Spec.Resources.Requests.Memory(); got.Cmp(resource.MustParse("3584Mi")) != 0 {
+		t.Errorf("pod memory = %s, want 3584Mi", got)
+	}
+}

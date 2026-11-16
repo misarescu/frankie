@@ -62,6 +62,12 @@ agents:
   # here, so CoreDNS, Flux and other cluster pods stay on the platform pool and
   # the agent pool can scale to zero. kata-deploy must tolerate it too.
   tolerations: []
+  # VM memory beyond each sandbox pod's container limits, for the guest kernel
+  # and Kata agent (D103), e.g. 512Mi. Kata sizes a VM's RAM to the pod's
+  # memory limit, so without it the guest runs out before a container reaches
+  # its own limit. Set as the pod's pod-level memory (needs Kubernetes with
+  # PodLevelResources); empty adds none.
+  guestMemoryHeadroom: ""
   runnerPort: 7070
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted

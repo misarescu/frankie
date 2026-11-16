@@ -25,6 +25,7 @@ import (
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
+	"github.com/misarescu/frankie/internal/runner/keepalive"
 	"github.com/misarescu/frankie/internal/sandbox"
 	"github.com/misarescu/frankie/internal/store"
 )
@@ -57,6 +58,18 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		return SessionResult{}, err
 	}
 	defer func() { _ = conn.Close() }()
+	// Calls to the runner end, and the session fails, as soon as the agent pod
+	// can no longer run it (D102); otherwise a lost sandbox leaves the event
+	// stream waiting for hours.
+	rctx, stopRunner := context.WithCancelCause(ctx)
+	defer stopRunner(nil)
+	if a.Kube != nil && pod.Name != "" {
+		go func() {
+			if err := watchAgentPod(rctx, a.Kube.CoreV1().Pods(a.Agent.Namespace), pod.Name, cmp.Or(a.SessionPodCheck, sessionPodCheck)); err != nil {
+				stopRunner(err)
+			}
+		}()
+	}
 
 	set := a.sessionSettings(run)
 	harness, err := runnerHarness(set.harness)
@@ -99,7 +112,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		if err != nil {
 			return SessionResult{}, err
 		}
-		_, err = runner.Start(ctx, a.startRequest(in, run, set, harness, start, token, vkey))
+		_, err = runner.Start(rctx, a.startRequest(in, run, set, harness, start, token, vkey))
+		if ended := podEndedCause(rctx); ended != nil {
+			return lostRunner(ended), nil
+		}
 		// Only "already started" means an earlier attempt got this far; any other
 		// failure (e.g. the workspace clone) is the real error.
 		if err != nil && !isPrecondition(err, "already started") {
@@ -113,7 +129,11 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			}
 			prompt = StepPrompt(in, run.Branch, start.Continuing, *run.Step, answers)
 		}
-		if _, err := runner.Prompt(ctx, &runnerv1.PromptRequest{Text: prompt}); err != nil && !isPrecondition(err, "already prompted") {
+		_, err = runner.Prompt(rctx, &runnerv1.PromptRequest{Text: prompt})
+		if ended := podEndedCause(rctx); ended != nil {
+			return lostRunner(ended), nil
+		}
+		if err != nil && !isPrecondition(err, "already prompted") {
 			return SessionResult{}, fmt.Errorf("runner prompt: %w", err)
 		}
 		started = true
@@ -121,7 +141,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 		activity.RecordHeartbeat(ctx, progress)
 	}
 
-	stream, err := runner.Events(ctx, &runnerv1.EventsRequest{AfterSeq: progress.LastSeq})
+	stream, err := runner.Events(rctx, &runnerv1.EventsRequest{AfterSeq: progress.LastSeq})
+	if ended := podEndedCause(rctx); ended != nil {
+		return a.lostStartedRunner(ctx, stepID, progress, vkey, ended), nil
+	}
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -131,6 +154,9 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 	go beat.keepAlive(keepCtx, sessionKeepAlive)
 	for {
 		resp, err := stream.Recv()
+		if ended := podEndedCause(rctx); ended != nil {
+			return a.lostStartedRunner(ctx, stepID, progress, vkey, ended), nil
+		}
 		if errors.Is(err, io.EOF) {
 			return SessionResult{}, errors.New("runner stream ended without a done event")
 		}
@@ -336,7 +362,9 @@ func (a *Activities) runnerConn(pod AgentPod) (*grpc.ClientConn, runnerv1.Runner
 	if a.RunnerAddr != nil {
 		addr = a.RunnerAddr(pod)
 	}
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Keepalive pings notice a runner whose sandbox vanished while its pod
+	// still looks alive, e.g. on a lost node (D102).
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), keepalive.Client())
 	if err != nil {
 		return nil, nil, fmt.Errorf("runner %s: %w", addr, err)
 	}
@@ -369,4 +397,36 @@ func (a *Activities) issueAnswers(ctx context.Context, issueID string) ([]domain
 		return nil, temporal.NewNonRetryableApplicationError("bad issue id", "input", err)
 	}
 	return a.Store.ListAnsweredQuestions(ctx, id)
+}
+
+// podEndedCause is why the runner calls were stopped, when the agent pod ended.
+func podEndedCause(rctx context.Context) *agentPodEndedError {
+	var ended *agentPodEndedError
+	if errors.As(context.Cause(rctx), &ended) {
+		return ended
+	}
+	return nil
+}
+
+// lostRunner is the result of a session whose agent pod ended before the agent
+// was prompted: the step fails with the pod's reason (D102). The unused
+// virtual key is deleted by RunAgentSession's deferred cleanup.
+func lostRunner(ended *agentPodEndedError) SessionResult {
+	return SessionResult{Status: "failed", Reason: "the sandbox was lost: " + ended.Error()}
+}
+
+// lostStartedRunner is lostRunner for a session the agent already worked in:
+// its spend so far is recorded and its virtual key revoked, as when a session
+// finishes (D102).
+func (a *Activities) lostStartedRunner(ctx context.Context, stepID uuid.UUID, progress sessionProgress, vkey string, ended *agentPodEndedError) SessionResult {
+	if progress.KeyAlias != "" {
+		a.recordUsage(ctx, stepID, progress.KeyAlias, progress.Tokens)
+	}
+	if vkey != "" {
+		if err := a.Gateway.DeleteKey(ctx, vkey); err != nil {
+			a.Log.Warn("delete virtual key", "step_run", stepID, "error", err)
+		}
+	}
+	a.Log.Warn("agent session lost its sandbox", "step_run", stepID, "reason", ended.Error())
+	return lostRunner(ended)
 }

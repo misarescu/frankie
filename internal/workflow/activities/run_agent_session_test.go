@@ -1,9 +1,18 @@
 package activities
 
 import (
+	"context"
+	"errors"
+	"net"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/google/uuid"
 
@@ -258,5 +267,85 @@ func TestCarriedOver(t *testing.T) {
 				t.Errorf("compared %q, want %q", *asked, wantPath)
 			}
 		})
+	}
+}
+
+// silentRunner streams no events, like a runner whose sandbox vanished: the
+// stream stays open until the client gives up.
+type silentRunner struct {
+	runnerv1.UnimplementedRunnerServiceServer
+}
+
+func (silentRunner) Events(_ *runnerv1.EventsRequest, s grpc.ServerStreamingServer[runnerv1.EventsResponse]) error {
+	<-s.Context().Done()
+	return s.Context().Err()
+}
+
+// D102: a session whose agent pod fails while the event stream waits ends at
+// once as a failed step naming the pod, instead of waiting for hours.
+func TestRunAgentSessionFailsWhenItsPodEnds(t *testing.T) {
+	lis, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer()
+	runnerv1.RegisterRunnerServiceServer(srv, silentRunner{})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gc-1-implement-abc", Namespace: "frankie-agents"},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning}}
+	kube := fake.NewClientset(pod)
+	a := &Activities{Kube: kube, Log: quietLog(), SessionPodCheck: 20 * time.Millisecond,
+		RunnerAddr: func(AgentPod) string { return lis.Addr().String() },
+		Agent:      AgentConfig{Namespace: "frankie-agents", Model: "claude-sonnet-5-5", SessionTimeout: time.Hour}}
+	env := activityEnv(a)
+	// An earlier attempt started the session: this one only follows its events.
+	env.SetHeartbeatDetails(sessionProgress{Started: true, LastSeq: 7})
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		failed := pod.DeepCopy()
+		failed.Status.Phase = corev1.PodFailed
+		failed.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "runner",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 255, Reason: "Error"}}}}
+		_, _ = kube.CoreV1().Pods("frankie-agents").UpdateStatus(context.Background(), failed, metav1.UpdateOptions{})
+	}()
+
+	start := time.Now()
+	val, err := env.ExecuteActivity(a.RunAgentSession, testInput, testRun, AgentPod{Name: "gc-1-implement-abc", IP: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res SessionResult
+	if err := val.Get(&res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "failed" || !strings.Contains(res.Reason, "gc-1-implement-abc ended: Failed, runner exited 255 (Error)") {
+		t.Errorf("result = %+v", res)
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Errorf("the lost sandbox was noticed after %s", took)
+	}
+}
+
+// D102: only a stop caused by the pod's end counts as a lost sandbox.
+func TestPodEndedCause(t *testing.T) {
+	ended := &agentPodEndedError{pod: "p", why: "is gone"}
+	ctx, stop := context.WithCancelCause(t.Context())
+	if podEndedCause(ctx) != nil {
+		t.Error("a running session has no cause")
+	}
+	stop(ended)
+	if got := podEndedCause(ctx); got != ended {
+		t.Errorf("cause = %v", got)
+	}
+	other, stopOther := context.WithCancelCause(t.Context())
+	stopOther(errors.New("activity canceled"))
+	if podEndedCause(other) != nil {
+		t.Error("another cancellation is not a lost sandbox")
+	}
+	if r := lostRunner(ended); r.Status != "failed" || r.Reason != "the sandbox was lost: agent pod p is gone" {
+		t.Errorf("lost runner = %+v", r)
 	}
 }

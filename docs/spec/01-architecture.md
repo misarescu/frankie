@@ -24,7 +24,7 @@
                                          v
                                    Git provider (GitHub)
 
-   Release drivers (out-of-process plugins) <- executed only by control plane Activities
+   Release drivers (in-process, gRPC contract; plugins later) <- executed only by control plane Activities
      flux, flux-preview, flagd, (later: argocd, github-releases, registries)
 ```
 
@@ -39,7 +39,7 @@ Single deployable with these internal modules:
 - **workflow**: the Temporal workflow interpreter and Activities (see `03-workflows-and-gates.md`).
 - **mergequeue**: one long-running Temporal workflow per repo (see `06-delivery.md`).
 - **connectors**: `GitProvider`, `IssueSource` implementations (GitHub first).
-- **drivers host**: loads `ReleaseDriver` plugins over gRPC (hashicorp/go-plugin).
+- **drivers**: the `ReleaseDriver` implementations the release workflow's Activities call. M7's `flux` and `flux-preview` run in-process; a host that loads out-of-process plugins over the same gRPC contract (hashicorp/go-plugin) comes with the first driver built outside this repository (D109).
 - **events**: normalized event stream ingestion, persistence and fan-out.
 - **images**: toolchain image hashing/building/registry lookup.
 - **gitproxy**: git smart-HTTP proxy for agent pods (D21). Validates the per-step token, allows reads of the bound repo and ref updates only under `refs/heads/agent/<issue-key>/`, and forwards with the `GitProvider` credential.

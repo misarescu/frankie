@@ -20,7 +20,7 @@ If the factory ships a bad change to its own control plane, it can no longer run
 
 - **Temporal replay tests** (most important). A change to workflow code that breaks determinism breaks in-flight workflows on deploy. A `command` gate replays recorded workflow histories against the new code with Temporal's replayer. The repo's agent docs state that workflow changes must use Temporal versioning (`GetVersion` or worker versioning); agents will not know this unaided and reviewers can miss it.
 - **Guardrails are protected paths.** An agent working on the factory edits its own security boundaries. NetworkPolicies, RBAC, the Kata runtime class, the runner, gate definitions, gateway budgets and the protected-paths list always require a human gate.
-- **The factory's e2e test is "can it build something?"** The preview environment deploys a complete factory (Temporal dev server, Postgres, runner) into the PR namespace, then runs a **canary issue** end to end against a toy repo with a cheap model and a fixed spec, checking that a PR comes out green. Unit tests cannot show the factory still works; building something does.
+- **The factory's e2e test is "can it build something?"** (M7.1) The preview environment deploys a complete factory (Temporal dev server, Postgres, runner) into the PR namespace, then runs a **canary issue** end to end against a toy repo with a cheap model and a fixed spec, checking that a PR comes out green. Unit tests cannot show the factory still works; building something does.
 
 ## What it gives back
 

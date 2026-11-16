@@ -242,6 +242,9 @@ type AgentConfig struct {
 	// the limit (D77).
 	CPURequest         resource.Quantity
 	ReviewerCPURequest resource.Quantity
+	// ReviewerMemory is the memory limit of a read-only step's pod (a reviewer
+	// or the refiner); zero means the coder's (D104).
+	ReviewerMemory resource.Quantity
 }
 
 // GateConfig describes how command gates run (docs/spec/03). They share the

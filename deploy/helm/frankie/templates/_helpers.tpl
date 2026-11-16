@@ -71,6 +71,7 @@ app.kubernetes.io/component: {{ index . 1 }}
     "cpu" (toString $coder.cpu) "memory" (toString $coder.memory)
     "cpuRequest" (toString (dig "requests" "cpu" "" .Values.podResources.coder))
     "reviewerCPURequest" (toString (dig "reviewer" "requests" "cpu" "" .Values.podResources))
+    "reviewerMemory" (toString (dig "reviewer" "limits" "memory" "" .Values.podResources))
     "workspaceSize" $a.workspaceSize "podDeadline" $a.podDeadline
     "gitProxyURL" (printf "http://%s-controlplane.%s.svc:%v" $full .Release.Namespace .Values.controlPlane.gitProxyPort)
     "gatewayURL" (printf "http://%s-llm-gateway.%s.svc:%v" $full .Release.Namespace .Values.llmGateway.port)

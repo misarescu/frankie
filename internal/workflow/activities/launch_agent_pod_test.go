@@ -168,3 +168,40 @@ func TestAgentPodSpecNodeSelector(t *testing.T) {
 		t.Errorf("pod resources = %v", pod.Spec.Resources)
 	}
 }
+
+// D104: a read-only step's pod gets the reviewer memory limit, with the guest
+// headroom on top (D103); a coder's pod keeps the agent limit.
+func TestAgentPodSpecReviewerMemory(t *testing.T) {
+	a := &Activities{Agent: AgentConfig{
+		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
+		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour, SessionTimeout: time.Hour,
+		Limits:              corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("4Gi")},
+		WorkspaceSize:       resource.MustParse("1Gi"),
+		ReviewerMemory:      resource.MustParse("2Gi"),
+		GuestMemoryHeadroom: resource.MustParse("512Mi"),
+	}}
+	reviewer := testRun
+	reviewer.Step = &AgentStep{StepID: "code-reviewer", Contract: "review-verdict", AllowedTools: []string{"read"}}
+	pod, err := a.agentPodSpec(testInput, reviewer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Spec.Containers[0].Resources.Limits.Memory(); got.Cmp(resource.MustParse("2Gi")) != 0 {
+		t.Errorf("reviewer memory = %s, want 2Gi", got)
+	}
+	if got := pod.Spec.Resources.Limits.Memory(); got.Cmp(resource.MustParse("2560Mi")) != 0 {
+		t.Errorf("reviewer pod-level memory = %s, want 2560Mi", got)
+	}
+	if got := a.Agent.Limits.Memory(); got.Cmp(resource.MustParse("4Gi")) != 0 {
+		t.Errorf("the agent limits were changed: %s", got)
+	}
+
+	coder := testRun
+	coder.Step = &AgentStep{StepID: "implement"}
+	if pod, err = a.agentPodSpec(testInput, coder, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Spec.Containers[0].Resources.Limits.Memory(); got.Cmp(resource.MustParse("4Gi")) != 0 {
+		t.Errorf("coder memory = %s, want 4Gi", got)
+	}
+}

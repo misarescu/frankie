@@ -78,9 +78,10 @@ type GatePodSpec struct {
 	Branch             string // agent branch holding the commit
 	CommitSHA          string // the commit under test
 	Commands           []string
-	Services           []Service         // sidecars; their limits come out of Limits
-	Env                map[string]string // extra environment for every container, e.g. GOPROXY
-	NodeSelector       map[string]string // nodes it may run on (D100); empty means any
+	Services           []Service           // sidecars; their limits come out of Limits
+	Env                map[string]string   // extra environment for every container, e.g. GOPROXY
+	NodeSelector       map[string]string   // nodes it may run on (D100); empty means any
+	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
 }
 
 func (s GatePodSpec) validate() error {
@@ -88,7 +89,7 @@ func (s GatePodSpec) validate() error {
 		Name: s.Name, Namespace: s.Namespace, Image: s.Image, RuntimeClassName: s.RuntimeClassName,
 		ServiceAccountName: s.ServiceAccountName, RunID: s.RunID, StepRunID: s.StepRunID, IssueKey: s.IssueKey,
 		Limits: s.Limits, CPURequest: s.CPURequest, WorkspaceSize: s.WorkspaceSize, Deadline: s.Deadline, EgressProxyURL: s.EgressProxyURL,
-		NodeSelector: s.NodeSelector,
+		NodeSelector: s.NodeSelector, Tolerations: s.Tolerations,
 	}
 	errs := []error{base.validate()}
 	if u, err := url.Parse(s.CloneURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -179,6 +180,7 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 			RuntimeClassName:             ptrTo(s.RuntimeClassName),
 			ServiceAccountName:           s.ServiceAccountName,
 			NodeSelector:                 s.NodeSelector,
+			Tolerations:                  s.Tolerations,
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

@@ -56,7 +56,7 @@ func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: run.RunID, StepRunID: run.StepRunID, IssueKey: in.IssueKey,
 		Limits: a.Agent.Limits, CPURequest: cpuRequest, WorkspaceSize: a.Agent.WorkspaceSize, Deadline: a.Agent.PodDeadline,
-		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env, NodeSelector: a.Agent.NodeSelector,
+		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, Services: services, Env: a.Agent.Env, NodeSelector: a.Agent.NodeSelector, Tolerations: a.Agent.Tolerations,
 	})
 }
 

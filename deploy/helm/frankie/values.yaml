@@ -58,6 +58,10 @@ agents:
   # Nodes every agent, gate, branch update and image build pod runs on, e.g.
   # an autoscaled agent pool apart from the platform's (D100). Empty: any node.
   nodeSelector: {}
+  # Taints those pods tolerate (D101). Taint the agent pool and list its taint
+  # here, so CoreDNS, Flux and other cluster pods stay on the platform pool and
+  # the agent pool can scale to zero. kata-deploy must tolerate it too.
+  tolerations: []
   runnerPort: 7070
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted

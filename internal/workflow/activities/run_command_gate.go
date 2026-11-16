@@ -123,7 +123,7 @@ func (a *Activities) commandGate(ctx context.Context, in IssueRunInput, step dom
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: req.RunID, StepRunID: step.ID.String(), IssueKey: in.IssueKey,
 		Limits: a.Gate.Limits, CPURequest: a.Gate.CPURequest, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
-		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector,
+		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector, Tolerations: a.Agent.Tolerations,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + in.Repo + ".git", Token: token,
 		Branch: req.Branch, CommitSHA: req.CommitSHA, Commands: commands, Services: services, Env: a.Agent.Env,
 	})

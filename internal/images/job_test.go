@@ -332,3 +332,21 @@ func TestBuildResourcesNodeSelector(t *testing.T) {
 		t.Error("a bad selector was accepted")
 	}
 }
+
+// D101: build pods tolerate the agent pool's taint, like the steps that wait for them.
+func TestBuildResourcesTolerations(t *testing.T) {
+	cfg := testConfig()
+	tol := corev1.Toleration{Key: "frankie.dev/agents", Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule}
+	cfg.Tolerations = []corev1.Toleration{tol}
+	_, job, err := BuildResources(cfg, testRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := job.Spec.Template.Spec.Tolerations; len(got) != 1 || got[0] != tol {
+		t.Errorf("tolerations = %v", got)
+	}
+	cfg.Tolerations = []corev1.Toleration{{Key: "pool", Operator: "In"}}
+	if _, _, err := BuildResources(cfg, testRequest()); err == nil {
+		t.Error("a bad toleration was accepted")
+	}
+}

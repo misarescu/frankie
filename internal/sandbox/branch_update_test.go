@@ -262,3 +262,20 @@ func TestBranchUpdatePodNodeSelector(t *testing.T) {
 		t.Error("a bad selector was accepted")
 	}
 }
+
+// D101: branch update pods tolerate what agent pods do.
+func TestBranchUpdatePodTolerations(t *testing.T) {
+	s := updateSpec()
+	s.Tolerations = []corev1.Toleration{agentPoolTaint}
+	pod, err := BranchUpdatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0] != agentPoolTaint {
+		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
+	}
+	s.Tolerations = []corev1.Toleration{{Key: "pool", Operator: "In"}}
+	if _, err := BranchUpdatePod(s); err == nil {
+		t.Error("a bad toleration was accepted")
+	}
+}

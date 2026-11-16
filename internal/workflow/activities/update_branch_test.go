@@ -55,6 +55,7 @@ func TestUpdateBranch(t *testing.T) {
 	f := newQueueActivityFixture(t)
 	f.prov.branches[f.run.Branch] = updatedHead // where the pod pushed
 	f.a.Agent.NodeSelector = map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"}
+	f.a.Agent.Tolerations = []corev1.Toleration{{Key: "frankie.dev/agents", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
 	out, id, pods, err := f.update(t, 0, "updated "+updatedHead+" "+queuedBase, domain.MergeRebase)
 	if err != nil || out.Outcome != BranchUpdated || out.HeadSHA != updatedHead || out.BaseSHA != queuedBase {
 		t.Fatalf("update = %+v, %v", out, err)
@@ -65,6 +66,9 @@ func TestUpdateBranch(t *testing.T) {
 	}
 	if pods[0].Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" { // D100
 		t.Errorf("node selector = %v", pods[0].Spec.NodeSelector)
+	}
+	if len(pods[0].Spec.Tolerations) != 1 || pods[0].Spec.Tolerations[0].Key != "frankie.dev/agents" { // D101
+		t.Errorf("tolerations = %v", pods[0].Spec.Tolerations)
 	}
 	c := pods[0].Spec.Containers[0]
 	env := func(k string) string {

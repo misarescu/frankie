@@ -88,7 +88,7 @@ func (a *Activities) UpdateBranch(ctx context.Context, req BranchUpdateRequest) 
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
 		RunID: req.RunID, StepRunID: req.StepRunID, IssueKey: req.Issue.IssueKey,
 		Limits: updateLimits, CPURequest: updateCPU, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: updateDeadline,
-		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector,
+		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector, Tolerations: a.Agent.Tolerations,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + req.Issue.Repo + ".git", Token: token,
 		Branch: req.Branch, HeadSHA: req.HeadSHA, BaseBranch: req.Issue.BaseBranch, Mode: mode,
 		AuthorName: a.Agent.AuthorName, AuthorEmail: a.Agent.AuthorEmail,

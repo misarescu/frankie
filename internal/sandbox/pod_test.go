@@ -221,3 +221,58 @@ func TestAgentPodNodeSelector(t *testing.T) {
 		}
 	}
 }
+
+// agentPoolTaint is the toleration a tainted agent pool needs (D101).
+var agentPoolTaint = corev1.Toleration{Key: "frankie.dev/agents", Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule}
+
+// D101: tolerations are checked the way the API server checks them.
+func TestValidateTolerations(t *testing.T) {
+	secs := int64(30)
+	tests := []struct {
+		name string
+		tols []corev1.Toleration
+		ok   bool
+	}{
+		{"none", nil, true},
+		{"equal", []corev1.Toleration{agentPoolTaint}, true},
+		{"equal without operator", []corev1.Toleration{{Key: "pool", Value: "agents", Effect: corev1.TaintEffectNoSchedule}}, true},
+		{"exists", []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists}}, true},
+		{"exists without key", []corev1.Toleration{{Operator: corev1.TolerationOpExists}}, true},
+		{"no execute with seconds", []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &secs}}, true},
+		{"bad key", []corev1.Toleration{{Key: "not a key!", Operator: corev1.TolerationOpExists}}, false},
+		{"bad value", []corev1.Toleration{{Key: "pool", Value: "not a value!"}}, false},
+		{"equal without key", []corev1.Toleration{{Value: "x"}}, false},
+		{"exists with value", []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists, Value: "x"}}, false},
+		{"unknown operator", []corev1.Toleration{{Key: "pool", Operator: "In"}}, false},
+		{"unknown effect", []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists, Effect: "NoRun"}}, false},
+		{"seconds without no execute", []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule, TolerationSeconds: &secs}}, false},
+	}
+	for _, tt := range tests {
+		if err := ValidateTolerations(tt.tols); (err == nil) != tt.ok {
+			t.Errorf("%s: err = %v, want ok %v", tt.name, err, tt.ok)
+		}
+	}
+}
+
+// D101: agent pods tolerate the agent pool's taint; a bad toleration is refused.
+func TestAgentPodTolerations(t *testing.T) {
+	s := validSpec()
+	pod, err := AgentPod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.Tolerations != nil {
+		t.Errorf("no tolerations configured, got %v", pod.Spec.Tolerations)
+	}
+	s.Tolerations = []corev1.Toleration{agentPoolTaint}
+	if pod, err = AgentPod(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0] != agentPoolTaint {
+		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
+	}
+	s.Tolerations = []corev1.Toleration{{Key: "pool", Operator: "In"}}
+	if _, err := AgentPod(s); err == nil {
+		t.Error("a bad toleration was accepted")
+	}
+}

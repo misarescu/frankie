@@ -86,6 +86,9 @@ type fileConfig struct {
 	// SandboxNodeSelector places every agent, gate, branch update and build pod,
 	// e.g. on an autoscaled agent pool apart from the platform's (D100).
 	SandboxNodeSelector map[string]string `json:"sandboxNodeSelector"`
+	// SandboxTolerations go on the same pods, so they can run on an agent pool
+	// tainted to keep every other pod off it (D101).
+	SandboxTolerations []corev1.Toleration `json:"sandboxTolerations"`
 	// Services limits sidecar services per pod (FR-SB-9).
 	Services struct {
 		MaxPerPod int    `json:"maxPerPod"`
@@ -391,6 +394,11 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	cfg.Agent.NodeSelector = fc.SandboxNodeSelector
 	cfg.Toolchain.Build.NodeSelector = fc.SandboxNodeSelector
+	if err := sandbox.ValidateTolerations(fc.SandboxTolerations); err != nil {
+		return fmt.Errorf("controlplane: config: sandboxTolerations: %w", err)
+	}
+	cfg.Agent.Tolerations = fc.SandboxTolerations
+	cfg.Toolchain.Build.Tolerations = fc.SandboxTolerations
 	if cfg.Models, err = fc.models(); err != nil {
 		return err
 	}

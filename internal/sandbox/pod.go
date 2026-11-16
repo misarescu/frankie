@@ -48,6 +48,44 @@ func ValidateNodeSelector(sel map[string]string) error {
 	return errors.Join(errs...)
 }
 
+// ValidateTolerations checks tolerations the way the API server would, so a bad
+// one fails when the configuration loads rather than when a step's pod is
+// created. No tolerations is valid: the pod then keeps off every tainted node.
+func ValidateTolerations(tols []corev1.Toleration) error {
+	var errs []error
+	for i, t := range tols {
+		if t.Key != "" {
+			if msgs := validation.IsQualifiedName(t.Key); len(msgs) > 0 {
+				errs = append(errs, fmt.Errorf("toleration %d: key %q: %s", i, t.Key, strings.Join(msgs, "; ")))
+			}
+		}
+		switch t.Operator {
+		case corev1.TolerationOpEqual, "":
+			if t.Key == "" {
+				errs = append(errs, fmt.Errorf("toleration %d: operator Equal needs a key", i))
+			}
+			if msgs := validation.IsValidLabelValue(t.Value); len(msgs) > 0 {
+				errs = append(errs, fmt.Errorf("toleration %d: value %q: %s", i, t.Value, strings.Join(msgs, "; ")))
+			}
+		case corev1.TolerationOpExists:
+			if t.Value != "" {
+				errs = append(errs, fmt.Errorf("toleration %d: operator Exists takes no value", i))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("toleration %d: operator %q is not Equal or Exists", i, t.Operator))
+		}
+		switch t.Effect {
+		case "", corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
+		default:
+			errs = append(errs, fmt.Errorf("toleration %d: effect %q is not NoSchedule, PreferNoSchedule or NoExecute", i, t.Effect))
+		}
+		if t.TolerationSeconds != nil && t.Effect != corev1.TaintEffectNoExecute {
+			errs = append(errs, fmt.Errorf("toleration %d: tolerationSeconds needs effect NoExecute", i))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // noEvict returns the annotations every sandbox pod carries.
 func noEvict() map[string]string { return map[string]string{SafeToEvictAnnotation: "false"} }
 
@@ -81,6 +119,7 @@ type PodSpec struct {
 	Env                map[string]string   // extra environment
 	Services           []Service           // sidecars; their limits come out of Limits
 	NodeSelector       map[string]string   // nodes it may run on, e.g. the agent pool (D100); empty means any
+	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
 	Command            []string            // overrides the image entrypoint; tests only
 }
 
@@ -113,6 +152,9 @@ func (s PodSpec) validate() error {
 		errs = append(errs, err)
 	}
 	if err := ValidateNodeSelector(s.NodeSelector); err != nil {
+		errs = append(errs, err)
+	}
+	if err := ValidateTolerations(s.Tolerations); err != nil {
 		errs = append(errs, err)
 	}
 	if s.WorkspaceSize.IsZero() {
@@ -161,6 +203,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 			RuntimeClassName:             ptrTo(s.RuntimeClassName),
 			ServiceAccountName:           s.ServiceAccountName,
 			NodeSelector:                 s.NodeSelector,
+			Tolerations:                  s.Tolerations,
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

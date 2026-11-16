@@ -142,7 +142,8 @@ func TestAgentPodSpecCarriesTheEgressToken(t *testing.T) {
 	}
 }
 
-// D100: agent pods go to the nodes the deployment names, e.g. the agent pool.
+// D100, D101: agent pods go to the nodes the deployment names, e.g. the agent
+// pool, and tolerate its taint.
 func TestAgentPodSpecNodeSelector(t *testing.T) {
 	a := &Activities{Agent: AgentConfig{
 		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
@@ -150,6 +151,7 @@ func TestAgentPodSpecNodeSelector(t *testing.T) {
 		Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
 		WorkspaceSize: resource.MustParse("1Gi"),
 		NodeSelector:  map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
+		Tolerations:   []corev1.Toleration{{Key: "frankie.dev/agents", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
 	}}
 	pod, err := a.agentPodSpec(testInput, testRun, nil)
 	if err != nil {
@@ -157,5 +159,8 @@ func TestAgentPodSpecNodeSelector(t *testing.T) {
 	}
 	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" {
 		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "frankie.dev/agents" {
+		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
 	}
 }

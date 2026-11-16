@@ -397,3 +397,31 @@ func TestLoadConfigFileSandboxGuestMemoryHeadroom(t *testing.T) {
 		}
 	}
 }
+
+// D104: read-only steps can have their own memory limit; unset, they keep the coder's.
+func TestLoadConfigFileReviewerMemory(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	cfg, err := load(t, `{"agent": {"cpu": "2", "memory": "4Gi", "reviewerMemory": "2Gi"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Agent.ReviewerMemory.String(); got != "2Gi" {
+		t.Errorf("reviewer memory = %s, want 2Gi", got)
+	}
+	if cfg, err := load(t, `{"agent": {"cpu": "2", "memory": "4Gi"}}`); err != nil || !cfg.Agent.ReviewerMemory.IsZero() {
+		t.Errorf("unset reviewer memory = %s, %v", cfg.Agent.ReviewerMemory.String(), err)
+	}
+	for _, bad := range []string{"lots", "0", "-1Gi"} {
+		if _, err := load(t, `{"agent": {"cpu": "2", "memory": "4Gi", "reviewerMemory": "`+bad+`"}}`); err == nil {
+			t.Errorf("reviewer memory %q was accepted", bad)
+		}
+	}
+}

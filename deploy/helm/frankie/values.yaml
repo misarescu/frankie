@@ -19,9 +19,11 @@ podResources:
   coder:
     requests: { cpu: 500m }
     limits: { cpu: "2", memory: 3Gi }
-  # Read-only agent steps (reviewers, the refiner) run with the coder's limits.
+  # Read-only agent steps (reviewers, the refiner) run with the coder's limits,
+  # except a memory limit set here (D104): they read and judge, build nothing.
   reviewer:
     requests: { cpu: 250m }
+    # limits: { memory: 2Gi }
   commandGate:
     requests: { cpu: "1" }
     limits: { cpu: "2", memory: 3Gi }

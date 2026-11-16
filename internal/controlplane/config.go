@@ -59,6 +59,7 @@ type fileConfig struct {
 		Memory         string   `json:"memory"`
 		CPURequest     string   `json:"cpuRequest"`         // D77; empty means the CPU limit
 		ReviewerCPU    string   `json:"reviewerCPURequest"` // read-only steps; empty means cpuRequest
+		ReviewerMemory string   `json:"reviewerMemory"`     // read-only steps' memory limit (D104); empty means memory
 		WorkspaceSize  string   `json:"workspaceSize"`
 		PodDeadline    string   `json:"podDeadline"`
 		GitProxyURL    string   `json:"gitProxyURL"`
@@ -393,6 +394,13 @@ func LoadConfigFile(path string, cfg *Config) error {
 	}
 	if agent.ReviewerCPURequest, err = cpuRequest("agent reviewer", firstNonEmpty(a.ReviewerCPU, a.CPURequest), agent.Limits); err != nil {
 		return err
+	}
+	if a.ReviewerMemory != "" {
+		q, err := resource.ParseQuantity(a.ReviewerMemory)
+		if err != nil || q.Sign() <= 0 {
+			return fmt.Errorf("controlplane: config: agent reviewerMemory %q invalid", a.ReviewerMemory)
+		}
+		agent.ReviewerMemory = q
 	}
 	cfg.Agent = agent
 	if cfg.Gate, err = fc.gate(); err != nil {

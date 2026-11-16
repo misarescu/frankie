@@ -112,11 +112,19 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
 
 ## M7 - E2E test agent, previews, release stages
 
-- `e2e-test-writer` role, tests tagged with issue IDs, both-flag-state support hook.
-- Flux Operator ResourceSets preview per change request (limit 1 on the concrete profile).
-- `Release` entity, `Stage` config, `ReleaseDriver` gRPC plugin interface, `flux` and `flux-preview` drivers, verification with the e2e suite, rollback by revert, auto-created bug issues.
+- Hosting (done 2026-11-16): the factory moved to Scaleway Kapsule, deployed by Flux from a separate GitOps repository, with an agent pool that scales from zero (D99-D101, D105), sandboxes that fail fast when lost and are sized from measurements (D102-D104, D106), and secrets from Scaleway Secret Manager (D107).
+- Topology (D108), with Goodreads-Clone as the proving project: its staging and production run on the homelab, deployed by the homelab's Flux from `misarescu/Goodreads-CD`; Frankie commits to that repository, verifies through the app's URL over Tailscale and rolls back by reverting its commit. Previews run on Kapsule.
+- `e2e-test-writer` role, in parallel with the coder, tests tagged with issue IDs, both-flag-state support hook. The suite is a Bruno collection (D108); Playwright later.
+- Flux Operator ResourceSets preview per change request on Kapsule, with the change request's e2e tests run there before merge (D14).
+- `Release` entity, `Stage` config with capability validation, `ReleaseDriver` gRPC contract and Go interface, `flux` and `flux-preview` drivers in-process (D109), verification with the e2e suite, rollback by revert, auto-created bug issues.
 - Release agent (semver, changelog, notes).
-- **Done when:** a merged issue becomes a release that deploys to staging, a deliberately broken release is rolled back and produces a bug issue linking release and suspect issue, and the factory's own canary e2e (`08-self-hosting.md`) runs in the preview environment.
+- **Done when:** a merged Goodreads-Clone issue becomes a release that deploys to staging on the homelab and passes the e2e suite there; a deliberately broken release is rolled back by reverting its commit and produces a bug issue linking release and suspect issue; a Goodreads-Clone change request's e2e tests run in its preview before it merges.
+
+## M7.1 - The factory's own canary
+
+- A preview of Frankie itself per change request on Kapsule: a complete factory (Temporal dev server, Postgres, LLM gateway, runner) in the change request's namespace, which runs a canary issue end to end against a toy repo with a cheap model and a fixed spec (`08-self-hosting.md`).
+- Split from M7 because a Frankie preview is a whole factory, with its own sandboxes, egress, budgets and git credential, far larger than a Goodreads-Clone preview, and the release path for projects does not depend on it.
+- **Done when:** the factory's own canary e2e runs in the preview environment and its result gates the change request's merge.
 
 ## M8 - Production and flag rollout
 

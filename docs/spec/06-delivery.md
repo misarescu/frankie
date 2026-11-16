@@ -16,7 +16,7 @@ Each stage after the build loop is the same interpreter workflow with a differen
 
 ### Preview environments
 
-One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the concrete profile allows at most one at a time or none.
+One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the concrete profile allows at most one at a time or none. Since M7 previews run on Frankie's Kapsule cluster, not where the project's stages run (D108).
 
 ## Merge queue
 
@@ -58,6 +58,18 @@ stages:
 - **FR-RL-2** **Failure handling**: if a stage's verification fails, the release is marked failed, the stage is rolled back when its driver supports rollback (Flux: revert the env-repo commit), and a **bug issue** linked to the release and its suspect issues is created automatically.
 - **FR-RL-3** Capability mismatches are rejected when stage config is saved.
 
+### Where stages run (D108)
+
+For Goodreads-Clone, the M7 proving project:
+
+| Stage | Cluster | Deployed by | Verified by |
+|---|---|---|---|
+| preview (per change request) | Frankie's Kapsule cluster | Flux Operator ResourceSets there (`flux-preview`) | its e2e tests against the preview's URL, before merge |
+| staging | homelab | the homelab's Flux from `misarescu/Goodreads-CD` (`flux`) | `/api/version` reports the release's commit, then the e2e suite against the stage's URL |
+| prod | homelab | the same, behind a human gate | as staging |
+
+Frankie holds no credential for the homelab: it changes a stage only by committing the stage's image tag to the GitOps repository through the `GitProvider`, rolls back by reverting that commit, and reaches the stage's URL over Tailscale (open question 20).
+
 ### Release driver interface
 
 ```go
@@ -70,7 +82,7 @@ type ReleaseDriver interface {
 }
 ```
 
-- Drivers are **out-of-process plugins over gRPC** (hashicorp/go-plugin, like Terraform providers), so a new target never touches the control plane.
+- The contract is a **gRPC service** (`proto/driver.proto`), so a driver can be an **out-of-process plugin** (hashicorp/go-plugin, like Terraform providers) and a new target never touches the control plane. M7's built-in drivers implement the same interface in-process; the plugin host comes with the first driver built outside this repository (D109). Either way drivers run only in control-plane Activities.
 - **First drivers**: `flux`, `flux-preview`, `flagd`. Later candidates: Argo CD, GitHub Releases, Helm chart/OCI registries, npm/PyPI/Go module tags, update feeds.
 - **Executors**: all steps (builds, verification) run in Kubernetes pods for now, so supported projects are limited to what the cluster can build. A later `runsOn:` field can target external executors (e.g. macOS/Windows hosts for signing and notarization).
 

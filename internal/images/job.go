@@ -67,6 +67,8 @@ type BuildConfig struct {
 	Env map[string]string
 	// NodeSelector keeps build pods on the nodes agent pods use (D100); empty means any.
 	NodeSelector map[string]string
+	// Tolerations let build pods onto a tainted agent pool, like agent pods (D101).
+	Tolerations []corev1.Toleration
 }
 
 func (c BuildConfig) validate() error {
@@ -83,6 +85,9 @@ func (c BuildConfig) validate() error {
 		errs = append(errs, errors.New("deadline is required"))
 	}
 	if err := sandbox.ValidateNodeSelector(c.NodeSelector); err != nil {
+		errs = append(errs, err)
+	}
+	if err := sandbox.ValidateTolerations(c.Tolerations); err != nil {
 		errs = append(errs, err)
 	}
 	if c.ScratchSize.IsZero() {
@@ -229,6 +234,7 @@ func BuildResources(c BuildConfig, r BuildRequest) (*corev1.ConfigMap, *batchv1.
 				Spec: corev1.PodSpec{
 					RuntimeClassName:             ptrTo(c.RuntimeClassName),
 					NodeSelector:                 c.NodeSelector,
+					Tolerations:                  c.Tolerations,
 					ServiceAccountName:           c.ServiceAccountName,
 					AutomountServiceAccountToken: ptrTo(false),
 					EnableServiceLinks:           ptrTo(false),

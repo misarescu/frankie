@@ -79,6 +79,7 @@ func newGateFixtureWithFiles(t *testing.T, files map[string]string, exits ...*in
 			Namespace: "frankie-agents", RunnerImage: "ghcr.io/misarescu/frankie-runner:sha-abc", RuntimeClass: "kata",
 			ServiceAccount: "frankie-agent", EgressProxyURL: "http://proxy:3128", GitProxyURL: "http://cp:8081",
 			NodeSelector: map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
+			Tolerations:  []corev1.Toleration{{Key: "frankie.dev/agents", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
 		},
 		Gate: GateConfig{
 			Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("3Gi")},
@@ -150,6 +151,9 @@ func TestRunCommandGatePod(t *testing.T) {
 	}
 	if pod.Spec.NodeSelector["k8s.scaleway.com/pool-name"] != "frankie-agents" { // D100
 		t.Errorf("node selector = %v", pod.Spec.NodeSelector)
+	}
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "frankie.dev/agents" { // D101
+		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
 	}
 	var cmds []string
 	for _, c := range pod.Spec.InitContainers[1:] {

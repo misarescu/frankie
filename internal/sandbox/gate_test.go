@@ -177,3 +177,20 @@ func TestGatePodNodeSelector(t *testing.T) {
 		t.Error("a bad selector was accepted")
 	}
 }
+
+// D101: gate pods tolerate what agent pods do.
+func TestGatePodTolerations(t *testing.T) {
+	s := gateSpec()
+	s.Tolerations = []corev1.Toleration{agentPoolTaint}
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0] != agentPoolTaint {
+		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
+	}
+	s.Tolerations = []corev1.Toleration{{Key: "pool", Operator: corev1.TolerationOpExists, Value: "x"}}
+	if _, err := GatePod(s); err == nil {
+		t.Error("a bad toleration was accepted")
+	}
+}

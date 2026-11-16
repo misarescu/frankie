@@ -106,7 +106,8 @@ type BranchUpdatePodSpec struct {
 	Mode               BranchUpdateMode
 	AuthorName         string // committer of merge or rebased commits
 	AuthorEmail        string
-	NodeSelector       map[string]string // nodes it may run on (D100); empty means any
+	NodeSelector       map[string]string   // nodes it may run on (D100); empty means any
+	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
 }
 
 func (s BranchUpdatePodSpec) validate() error {
@@ -114,7 +115,7 @@ func (s BranchUpdatePodSpec) validate() error {
 		Name: s.Name, Namespace: s.Namespace, Image: s.Image, RuntimeClassName: s.RuntimeClassName,
 		ServiceAccountName: s.ServiceAccountName, RunID: s.RunID, StepRunID: s.StepRunID, IssueKey: s.IssueKey,
 		Limits: s.Limits, CPURequest: s.CPURequest, WorkspaceSize: s.WorkspaceSize, Deadline: s.Deadline, EgressProxyURL: s.EgressProxyURL,
-		NodeSelector: s.NodeSelector,
+		NodeSelector: s.NodeSelector, Tolerations: s.Tolerations,
 	}
 	errs := []error{base.validate()}
 	if u, err := url.Parse(s.CloneURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
@@ -186,6 +187,7 @@ func BranchUpdatePod(s BranchUpdatePodSpec) (*corev1.Pod, error) {
 			RuntimeClassName:             ptrTo(s.RuntimeClassName),
 			ServiceAccountName:           s.ServiceAccountName,
 			NodeSelector:                 s.NodeSelector,
+			Tolerations:                  s.Tolerations,
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

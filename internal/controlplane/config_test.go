@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestLoadConfigFile(t *testing.T) {
@@ -336,5 +338,31 @@ func TestLoadConfigFileSandboxNodeSelector(t *testing.T) {
 	}
 	if _, err := load(t, `{"sandboxNodeSelector": {"pool": "not a value!"}}`); err == nil {
 		t.Error("a bad selector was accepted")
+	}
+}
+
+// D101: the same tolerations go on agent, gate, branch update and build pods.
+func TestLoadConfigFileSandboxTolerations(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	cfg, err := load(t, `{"sandboxTolerations": [{"key": "frankie.dev/agents", "operator": "Equal", "value": "true", "effect": "NoSchedule"}],
+	  "toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tols := range map[string][]corev1.Toleration{"agent": cfg.Agent.Tolerations, "build": cfg.Toolchain.Build.Tolerations} {
+		if len(tols) != 1 || tols[0].Key != "frankie.dev/agents" || tols[0].Value != "true" || tols[0].Effect != corev1.TaintEffectNoSchedule {
+			t.Errorf("%s tolerations = %v", name, tols)
+		}
+	}
+	if _, err := load(t, `{"sandboxTolerations": [{"key": "pool", "operator": "Exists", "value": "x"}]}`); err == nil {
+		t.Error("a bad toleration was accepted")
 	}
 }

@@ -211,7 +211,9 @@ type AgentConfig struct {
 	EgressProxyURL string
 	NoProxy        []string
 	// NodeSelector keeps agent, gate and branch update pods on the agent pool (D100).
-	NodeSelector  map[string]string
+	NodeSelector map[string]string
+	// Tolerations let them onto that pool when it is tainted to keep other pods off (D101).
+	Tolerations   []corev1.Toleration
 	Limits        corev1.ResourceList
 	WorkspaceSize resource.Quantity
 	PodDeadline   time.Duration

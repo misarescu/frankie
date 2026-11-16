@@ -84,6 +84,7 @@ app.kubernetes.io/component: {{ index . 1 }}
   "sandboxEnv" (include "frankie.sandboxEnv" . | fromJson)
   "sandboxNodeSelector" .Values.agents.nodeSelector
   "sandboxTolerations" .Values.agents.tolerations
+  "sandboxGuestMemoryHeadroom" (toString (.Values.agents.guestMemoryHeadroom | default ""))
   "services" (dict
     "maxPerPod" .Values.controlPlane.services.maxPerPod
     "cpu" (toString .Values.controlPlane.services.cpu) "memory" (toString .Values.controlPlane.services.memory))

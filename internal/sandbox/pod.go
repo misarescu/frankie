@@ -86,6 +86,32 @@ func ValidateTolerations(tols []corev1.Toleration) error {
 	return errors.Join(errs...)
 }
 
+// GuestMemory returns the pod-level resources that give a sandbox's VM memory
+// beyond its containers' (D103): Kata sizes a VM's RAM to the pod's memory
+// limit, so without headroom the guest kernel and agent share the containers'
+// memory and the guest runs out before a container reaches its own limit,
+// leaving the guest's OOM killer to pick any process in the VM. memory is the
+// pod's total container memory limit; zero headroom adds nothing.
+func GuestMemory(memory, headroom resource.Quantity) *corev1.ResourceRequirements {
+	if headroom.Sign() <= 0 {
+		return nil
+	}
+	total := memory.DeepCopy()
+	total.Add(headroom)
+	return &corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: total},
+		Requests: corev1.ResourceList{corev1.ResourceMemory: total.DeepCopy()},
+	}
+}
+
+// ValidateGuestMemoryHeadroom checks the headroom is not negative (D103).
+func ValidateGuestMemoryHeadroom(headroom resource.Quantity) error {
+	if headroom.Sign() < 0 {
+		return fmt.Errorf("guest memory headroom %s is negative", headroom.String())
+	}
+	return nil
+}
+
 // noEvict returns the annotations every sandbox pod carries.
 func noEvict() map[string]string { return map[string]string{SafeToEvictAnnotation: "false"} }
 
@@ -120,7 +146,10 @@ type PodSpec struct {
 	Services           []Service           // sidecars; their limits come out of Limits
 	NodeSelector       map[string]string   // nodes it may run on, e.g. the agent pool (D100); empty means any
 	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
-	Command            []string            // overrides the image entrypoint; tests only
+	// GuestMemoryHeadroom is VM memory beyond the containers' limits, for the
+	// guest kernel and agent (D103); zero adds none.
+	GuestMemoryHeadroom resource.Quantity
+	Command             []string // overrides the image entrypoint; tests only
 }
 
 func (s PodSpec) validate() error {
@@ -155,6 +184,9 @@ func (s PodSpec) validate() error {
 		errs = append(errs, err)
 	}
 	if err := ValidateTolerations(s.Tolerations); err != nil {
+		errs = append(errs, err)
+	}
+	if err := ValidateGuestMemoryHeadroom(s.GuestMemoryHeadroom); err != nil {
 		errs = append(errs, err)
 	}
 	if s.WorkspaceSize.IsZero() {
@@ -204,6 +236,7 @@ func AgentPod(s PodSpec) (*corev1.Pod, error) {
 			ServiceAccountName:           s.ServiceAccountName,
 			NodeSelector:                 s.NodeSelector,
 			Tolerations:                  s.Tolerations,
+			Resources:                    GuestMemory(*s.Limits.Memory(), s.GuestMemoryHeadroom),
 			AutomountServiceAccountToken: ptrTo(false),
 			EnableServiceLinks:           ptrTo(false),
 			RestartPolicy:                corev1.RestartPolicyNever,

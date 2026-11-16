@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func TestLoadConfigFile(t *testing.T) {
@@ -364,5 +365,35 @@ func TestLoadConfigFileSandboxTolerations(t *testing.T) {
 	}
 	if _, err := load(t, `{"sandboxTolerations": [{"key": "pool", "operator": "Exists", "value": "x"}]}`); err == nil {
 		t.Error("a bad toleration was accepted")
+	}
+}
+
+// D103: one headroom goes to agent, gate, branch update and build pods.
+func TestLoadConfigFileSandboxGuestMemoryHeadroom(t *testing.T) {
+	load := func(t *testing.T, body string) (Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var cfg Config
+		return cfg, LoadConfigFile(path, &cfg)
+	}
+	toolchains := `"toolchains": {"registryURL": "http://r", "pullHost": "h", "cpu": "1", "memory": "1Gi", "scratchSize": "1Gi", "deadline": "1m"}`
+	cfg, err := load(t, `{"sandboxGuestMemoryHeadroom": "512Mi", `+toolchains+`}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := resource.MustParse("512Mi")
+	if cfg.Agent.GuestMemoryHeadroom.Cmp(want) != 0 || cfg.Toolchain.Build.GuestMemoryHeadroom.Cmp(want) != 0 {
+		t.Errorf("agent %s, build %s", cfg.Agent.GuestMemoryHeadroom.String(), cfg.Toolchain.Build.GuestMemoryHeadroom.String())
+	}
+	if cfg, err := load(t, `{`+toolchains+`}`); err != nil || !cfg.Agent.GuestMemoryHeadroom.IsZero() {
+		t.Errorf("unset headroom = %s, %v", cfg.Agent.GuestMemoryHeadroom.String(), err)
+	}
+	for _, bad := range []string{"lots", "-512Mi"} {
+		if _, err := load(t, `{"sandboxGuestMemoryHeadroom": "`+bad+`"}`); err == nil {
+			t.Errorf("headroom %q was accepted", bad)
+		}
 	}
 }

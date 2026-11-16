@@ -148,10 +148,11 @@ func TestAgentPodSpecNodeSelector(t *testing.T) {
 	a := &Activities{Agent: AgentConfig{
 		Namespace: "frankie-agents", RunnerImage: "img", RuntimeClass: "kata", ServiceAccount: "frankie-agent",
 		EgressProxyURL: "http://proxy:3128", PodDeadline: time.Hour,
-		Limits:        corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
-		WorkspaceSize: resource.MustParse("1Gi"),
-		NodeSelector:  map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
-		Tolerations:   []corev1.Toleration{{Key: "frankie.dev/agents", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
+		Limits:              corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+		WorkspaceSize:       resource.MustParse("1Gi"),
+		NodeSelector:        map[string]string{"k8s.scaleway.com/pool-name": "frankie-agents"},
+		Tolerations:         []corev1.Toleration{{Key: "frankie.dev/agents", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
+		GuestMemoryHeadroom: resource.MustParse("512Mi"),
 	}}
 	pod, err := a.agentPodSpec(testInput, testRun, nil)
 	if err != nil {
@@ -162,5 +163,8 @@ func TestAgentPodSpecNodeSelector(t *testing.T) {
 	}
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "frankie.dev/agents" {
 		t.Errorf("tolerations = %v", pod.Spec.Tolerations)
+	}
+	if pod.Spec.Resources == nil || pod.Spec.Resources.Limits.Memory().Cmp(resource.MustParse("1536Mi")) != 0 { // D103
+		t.Errorf("pod resources = %v", pod.Spec.Resources)
 	}
 }

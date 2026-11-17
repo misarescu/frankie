@@ -3,6 +3,8 @@ import { ApprovalsPage } from "./ApprovalsPage";
 import { IssuePage } from "./IssuePage";
 import { IssuesPage } from "./IssuesPage";
 import { NameBar } from "./NameBar";
+import { ReleasePage } from "./ReleasePage";
+import { ReleasesPage } from "./ReleasesPage";
 import { route } from "./routes";
 import { RunPage } from "./RunPage";
 import { RunsPage } from "./RunsPage";
@@ -23,6 +25,8 @@ export function App() {
         : r.page === "approvals" ? <ApprovalsPage />
         : r.page === "issues" ? <IssuesPage />
         : r.page === "issue" ? <IssuePage issueKey={r.key} />
+        : r.page === "releases" ? <ReleasesPage />
+        : r.page === "release" ? <ReleasePage releaseID={r.id} />
         : <RunsPage />}
     </main>
   );

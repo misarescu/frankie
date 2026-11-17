@@ -39,9 +39,6 @@ func CheckSupported(w config.Workflow) error {
 		if s.Kind() == config.StepAction && s.Action != actionOpenChangeRequest && s.Action != actionEnqueue {
 			errs = append(errs, fmt.Errorf("steps[%d]: action %q is not supported yet", i, s.Action))
 		}
-		if s.Gate != nil && s.Gate.Type == domain.GatePreview {
-			errs = append(errs, fmt.Errorf("steps[%d]: the preview gate is not supported yet", i))
-		}
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("workflow %q: %w", w.Name, err)
@@ -429,6 +426,8 @@ func (it *interpreter) gate(ctx workflow.Context, pc int, s config.Step) (int, s
 		return it.humanGate(ctx, pc, s)
 	case domain.GatePreserve:
 		return it.preserveGate(ctx, pc, s)
+	case domain.GatePreview:
+		return it.previewGate(ctx, pc, s)
 	case domain.GateCommand:
 	default:
 		return 0, fmt.Sprintf("%s gates are not supported here", g.Type)

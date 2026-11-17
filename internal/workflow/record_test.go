@@ -68,6 +68,29 @@ func (s *stubActivities) AwaitProviderChecks(_ context.Context, req activities.P
 
 func (s *stubActivities) LeaveQueue(context.Context, string) error { return nil }
 
+// The preview gate's Activities (D126): the first pushed head fails its
+// suite in the preview, later heads pass.
+func (s *stubActivities) PublishPreview(context.Context, activities.PreviewRequest) (activities.PreviewPublished, error) {
+	return activities.PreviewPublished{ChangeRequest: 42, State: []byte(`{"commit":"c1"}`)}, nil
+}
+
+func (s *stubActivities) AwaitPreview(context.Context, activities.PreviewRequest) (activities.StageStatus, error) {
+	return activities.StageStatus{Ready: true}, nil
+}
+
+func (s *stubActivities) VerifyPreview(_ context.Context, req activities.PreviewRequest) (activities.Verification, error) {
+	if req.HeadSHA == fmt.Sprintf("%040d", 1) {
+		return activities.Verification{Summary: "1 of 219 tests failed", Failures: []activities.TestFailure{{Test: "gc-1 search", Message: "expected 200, got 500"}}}, nil
+	}
+	return activities.Verification{Passed: true, Summary: "219 tests passed"}, nil
+}
+
+func (s *stubActivities) RemovePreview(context.Context, activities.PreviewRequest) error { return nil }
+
+func (s *stubActivities) FinishPreview(_ context.Context, res activities.PreviewResult) (activities.GateOutcome, error) {
+	return activities.PreviewOutcome(res.StepRunID, res.Details), nil
+}
+
 func (s *stubActivities) CloseChangeRequest(context.Context, activities.IssueRunInput, string, string) error {
 	return nil
 }
@@ -314,6 +337,10 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// run at once, the second on its own branch, merged into the issue's;
 		// the first checks fail and only the coder runs again.
 		{"interpret_concurrent_writers.json", loopSnapshot(t, writersDefinition), failFirst("checks"), nil, false, false, false, false, false, false, false},
+		// preview-gate version (D126): the change request's first head fails
+		// its suite in a preview, the coder fixes it, the second head passes
+		// there, and the queue merges it.
+		{"interpret_preview_gate.json", previewSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, true, false, false},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {

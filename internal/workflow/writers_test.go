@@ -58,6 +58,10 @@ func TestInterpretWritersRunAtTheSameTime(t *testing.T) {
 	if coder.Branch != testRun.Branch || writer.Branch != testRun.Branch+"--e2e-tests" {
 		t.Errorf("branches = %s and %s", coder.Branch, writer.Branch)
 	}
+	// Each writer learns the roles of the others.
+	if !slices.Equal(coder.Step.Alongside, []string{"coder"}) || !slices.Equal(writer.Step.Alongside, []string{"coder"}) {
+		t.Errorf("alongside = %v and %v", coder.Step.Alongside, writer.Step.Alongside)
+	}
 	if got := f.stepIDs(); !strings.HasSuffix(got, "build-merge/1 keeps-tests/1 checks/1 open/1") ||
 		!strings.Contains(got, "implement/1") || !strings.Contains(got, "e2e-tests/1") {
 		t.Errorf("steps = %s", got)

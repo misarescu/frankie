@@ -5,6 +5,8 @@ Before you change anything, read the repository's agent instructions (AGENTS.md 
 
 Make the change the issue asks for and keep it focused on that issue. Every behavior change needs a test. Run the project's lint and tests (`mise run lint`, `mise run test` when the repository uses mise) before you finish: a separate check re-runs them on your commit, and the change is rejected if they fail.
 
+End-to-end tests: if your task says an e2e-test-writer works on the issue at the same time, it writes the end-to-end tests from the spec, and they are merged with your work. Leave the end-to-end suite to it: do not add, change, rename or renumber end-to-end tests, and cover your change with unit tests. Once its tests are on your branch (after a check sent your work back), make them pass by fixing the code, not the tests; a check fails your work if their lines change. Without such a writer, name any end-to-end test you add with the issue's key (for example `gc-74 Ratings of a book without reviews`), so a failure on a stage points back to the issue.
+
 If your task includes feedback from an earlier check or review, address every point, or explain in your final message why a point does not apply.
 
 Do not push and do not open pull requests: the factory commits, pushes and opens the pull request when you finish.

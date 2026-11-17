@@ -24,6 +24,18 @@ func (it *interpreter) writerCount(s config.Step) int {
 	return n
 }
 
+// alongside are the roles of a group's writers other than its i-th branch,
+// in definition order, which work on the issue at the same time (D122).
+func (it *interpreter) alongside(s config.Step, i int) []string {
+	var roles []string
+	for j, b := range s.Parallel {
+		if j != i && b.Agent != nil {
+			roles = append(roles, b.Agent.RoleName())
+		}
+	}
+	return roles
+}
+
 // sideBranch is the branch of a writer after a group's first (D122), inside
 // the git token's agent/<issue-key>/ scope.
 func sideBranch(branch, stepID string) string { return branch + "--" + stepID }
@@ -65,7 +77,7 @@ func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only
 		wg.Add(1)
 		workflow.Go(group, func(c workflow.Context) {
 			defer wg.Done()
-			r.session, r.stepRunID, r.reason = it.agentSessionOn(c, b, branch, router)
+			r.session, r.stepRunID, r.reason = it.agentSessionOn(c, b, branch, router, it.alongside(s, i))
 			if r.stepRunID != "" {
 				if r.reason == "" && !r.session.Pushed {
 					r.reason = "agent session made no changes"

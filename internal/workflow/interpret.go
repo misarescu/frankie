@@ -295,13 +295,13 @@ func (it *interpreter) reviewer(ctx workflow.Context, s config.Step) (activities
 // returns why the session failed, if it did, and leaves ending the StepRun to
 // the caller; an empty stepRunID means no StepRun was created.
 func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activities.SessionResult, string, string) {
-	return it.agentSessionOn(ctx, s, it.run.Branch, nil)
+	return it.agentSessionOn(ctx, s, it.run.Branch, nil, nil)
 }
 
 // agentSessionOn runs one agent step's session on branch. With a router, the
 // session is one of several running at once and reads the signals routed to
-// it (D122).
-func (it *interpreter) agentSessionOn(ctx workflow.Context, s config.Step, branch string, router *signalRouter) (activities.SessionResult, string, string) {
+// it; alongside are the roles of the others (D122).
+func (it *interpreter) agentSessionOn(ctx workflow.Context, s config.Step, branch string, router *signalRouter, alongside []string) (activities.SessionResult, string, string) {
 	stepRunID, err := it.startStep(ctx, s.ID, domain.StepAgent)
 	if err != nil {
 		return activities.SessionResult{}, "", err.Error()
@@ -313,7 +313,7 @@ func (it *interpreter) agentSessionOn(ctx workflow.Context, s config.Step, branc
 	role := it.in.Snapshot.Roles[s.Agent.RoleName()]
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
 		Model: config.GatewayModel(cmp.Or(s.Agent.Model, role.DefaultModel)), Harness: s.Agent.Harness, BudgetUSD: s.BudgetUSD, IssueBudgetUSD: it.in.Snapshot.IssueBudgetUSD, Timeout: time.Duration(s.Timeout),
-		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract}
+		Inputs: s.Inputs, AllowedTools: role.AllowedTools, Contract: role.OutputContract, Alongside: alongside}
 	if slices.Contains(s.Inputs, "feedback") && step.Contract != config.ContractReviewVerdict {
 		step.Feedback = it.feedback
 	}

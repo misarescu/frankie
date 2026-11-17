@@ -104,7 +104,7 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 				}
 			}
 		}()
-		start, err := a.startPoint(ctx, in)
+		start, err := a.startPoint(ctx, in, run.Branch)
 		if err != nil {
 			return SessionResult{}, err
 		}

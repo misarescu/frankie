@@ -43,7 +43,7 @@ func (a *Activities) ensureImage(ctx context.Context, in IssueRunInput, progress
 	if a.Toolchain == nil {
 		return "", nil
 	}
-	start, err := a.startPoint(ctx, in)
+	start, err := a.startPoint(ctx, in, "")
 	if err != nil {
 		return "", err
 	}

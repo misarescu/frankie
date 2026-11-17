@@ -67,7 +67,7 @@ func (a *Activities) agentPodSpec(in IssueRunInput, run StartRunResult, services
 // LaunchAgentPod creates the sandboxed agent pod and waits for its IP.
 func (a *Activities) LaunchAgentPod(ctx context.Context, in IssueRunInput, run StartRunResult) (AgentPod, error) {
 	// Services come from the code the agent starts from.
-	start, err := a.startPoint(ctx, in)
+	start, err := a.startPoint(ctx, in, run.Branch)
 	if err != nil {
 		return AgentPod{}, err
 	}

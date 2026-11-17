@@ -36,13 +36,18 @@ func finishUpdatePods(kube *fake.Clientset, created *[]*corev1.Pod, exit int32, 
 
 func (f *queueFixture) update(t *testing.T, exit int32, report string, method domain.MergeMethod) (BranchUpdateResult, string, []*corev1.Pod, error) {
 	t.Helper()
+	return f.updateFrom(t, exit, report, method, "")
+}
+
+func (f *queueFixture) updateFrom(t *testing.T, exit int32, report string, method domain.MergeMethod, from string) (BranchUpdateResult, string, []*corev1.Pod, error) {
+	t.Helper()
 	kube := fake.NewClientset()
 	var created []*corev1.Pod
 	finishUpdatePods(kube, &created, exit, report)
 	f.a.Kube = kube
 	id := f.step(t, "enqueue-update", domain.StepAction)
 	v, err := activityEnv(f.a).ExecuteActivity(f.a.UpdateBranch, BranchUpdateRequest{Issue: f.in, RunID: f.run.RunID, StepRunID: id,
-		StepID: "enqueue-update", Branch: f.run.Branch, HeadSHA: queuedHead, Method: method})
+		StepID: "enqueue-update", Branch: f.run.Branch, HeadSHA: queuedHead, Method: method, From: from})
 	var out BranchUpdateResult
 	if err == nil {
 		_ = v.Get(&out)
@@ -92,6 +97,32 @@ func TestUpdateBranch(t *testing.T) {
 	grant := decodeGrant(t, f.a.Signer, env("GIT_CONFIG_VALUE_0"))
 	if grant.ReadOnly || grant.IssueKey != f.in.IssueKey || grant.StepRunID != id {
 		t.Errorf("grant = %+v", grant)
+	}
+}
+
+// M7 (D122): the same update merges a side writer's branch into the issue's
+// branch, instead of the base branch.
+func TestUpdateBranchFrom(t *testing.T) {
+	f := newQueueActivityFixture(t)
+	f.prov.branches[f.run.Branch] = updatedHead
+	side := f.run.Branch + "--e2e-tests"
+	out, _, pods, err := f.updateFrom(t, 0, "updated "+updatedHead+" "+queuedBase, domain.MergeSquash, side)
+	if err != nil || out.Outcome != BranchUpdated {
+		t.Fatalf("update = %+v, %v", out, err)
+	}
+	var base, branch, mode string
+	for _, e := range pods[0].Spec.Containers[0].Env {
+		switch e.Name {
+		case "UPDATE_BASE":
+			base = e.Value
+		case "UPDATE_BRANCH":
+			branch = e.Value
+		case "UPDATE_MODE":
+			mode = e.Value
+		}
+	}
+	if base != side || branch != f.run.Branch || mode != "merge" {
+		t.Errorf("pod merges %q into %q (%s), want %q into %q (merge)", base, branch, mode, side, f.run.Branch)
 	}
 }
 

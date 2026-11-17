@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -18,8 +19,10 @@ import (
 	"github.com/misarescu/frankie/internal/sandbox"
 )
 
-// BranchUpdateRequest is one update of a queued change request's branch with
-// its base branch (D87), as one execution of a step whose StepRun exists.
+// BranchUpdateRequest is one update of a branch with another, as one
+// execution of a step whose StepRun exists: a queued change request's branch
+// with its base branch (D87), or an issue's branch with a side writer's
+// branch (D122).
 type BranchUpdateRequest struct {
 	Issue     IssueRunInput
 	RunID     string
@@ -28,6 +31,8 @@ type BranchUpdateRequest struct {
 	Branch    string
 	HeadSHA   string // the commit the branch must still point to
 	Method    domain.MergeMethod
+	// From is the branch merged or rebased in; empty: the issue's base branch.
+	From string `json:",omitempty"`
 }
 
 // Branch update outcomes.
@@ -54,10 +59,11 @@ var (
 
 const updateDeadline = 10 * time.Minute
 
-// UpdateBranch brings a queued change request's branch up to date with its
-// base branch in a fresh pod that runs only git (D87): it merges the base in,
-// or rebases onto it for rebase merges, and pushes only if the branch still
-// points to HeadSHA. A pushed head is checked against the provider before it
+// UpdateBranch brings a branch up to date with another, From (by default the
+// issue's base branch, D87), in a fresh pod that runs only git: it merges From
+// in, or rebases onto it for rebase merges, and pushes only if the branch
+// still points to HeadSHA. Merging a side writer's branch into the issue's
+// branch (D122) is the same update. A pushed head is checked against the provider before it
 // is reported. The pod is keyed by the StepRun, so a retry adopts it.
 func (a *Activities) UpdateBranch(ctx context.Context, req BranchUpdateRequest) (BranchUpdateResult, error) {
 	id, err := uuid.Parse(req.StepRunID)
@@ -90,7 +96,7 @@ func (a *Activities) UpdateBranch(ctx context.Context, req BranchUpdateRequest) 
 		Limits: updateLimits, CPURequest: updateCPU, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: updateDeadline,
 		EgressProxyURL: a.Agent.EgressProxyURL, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector, Tolerations: a.Agent.Tolerations, GuestMemoryHeadroom: a.Agent.GuestMemoryHeadroom,
 		CloneURL: strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + req.Issue.Repo + ".git", Token: token,
-		Branch: req.Branch, HeadSHA: req.HeadSHA, BaseBranch: req.Issue.BaseBranch, Mode: mode,
+		Branch: req.Branch, HeadSHA: req.HeadSHA, BaseBranch: cmp.Or(req.From, req.Issue.BaseBranch), Mode: mode,
 		AuthorName: a.Agent.AuthorName, AuthorEmail: a.Agent.AuthorEmail,
 	})
 	if err != nil {

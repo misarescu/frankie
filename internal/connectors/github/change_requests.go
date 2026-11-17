@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/misarescu/frankie/internal/domain"
 )
@@ -135,6 +136,7 @@ func (c *Client) checkRuns(ctx context.Context, repo, ref string) ([]domain.Chec
 		var resp struct {
 			TotalCount int `json:"total_count"`
 			CheckRuns  []struct {
+				ID         int64  `json:"id"`
 				Name       string `json:"name"`
 				Status     string `json:"status"`
 				Conclusion string `json:"conclusion"`
@@ -149,7 +151,8 @@ func (c *Client) checkRuns(ctx context.Context, repo, ref string) ([]domain.Chec
 			return nil, err
 		}
 		for _, r := range resp.CheckRuns {
-			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL, Summary: r.Output.Title})
+			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL, Summary: r.Output.Title,
+				ID: checkRunPrefix + strconv.FormatInt(r.ID, 10)})
 		}
 		if len(resp.CheckRuns) == 0 || len(checks) >= resp.TotalCount {
 			break
@@ -167,6 +170,7 @@ func (c *Client) workflowRuns(ctx context.Context, repo, sha string) ([]domain.C
 		var resp struct {
 			TotalCount   int `json:"total_count"`
 			WorkflowRuns []struct {
+				ID         int64  `json:"id"`
 				Name       string `json:"name"`
 				WorkflowID int64  `json:"workflow_id"`
 				Event      string `json:"event"`
@@ -186,7 +190,8 @@ func (c *Client) workflowRuns(ctx context.Context, repo, sha string) ([]domain.C
 				continue
 			}
 			seen[key] = true
-			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL})
+			checks = append(checks, domain.Check{Name: r.Name, State: checkRunState(r.Status, r.Conclusion), URL: r.HTMLURL,
+				ID: workflowRunPrefix + strconv.FormatInt(r.ID, 10)})
 		}
 		read += len(resp.WorkflowRuns)
 		if len(resp.WorkflowRuns) == 0 || read >= resp.TotalCount {

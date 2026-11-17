@@ -51,7 +51,7 @@ func queueEntry(key string, attempt int) QueueEntry {
 	return QueueEntry{Issue: in, RunID: "run-" + key, WorkflowID: "issue-" + key, StepID: "enqueue", Attempt: attempt,
 		ChangeRequestID: "cr-" + key, Number: 9, Branch: "agent/" + key + "/x", HeadSHA: shaA,
 		Gates:  []QueueGate{{StepID: "checks", Commands: []string{"mise run lint", "mise run test"}}},
-		Method: domain.MergeSquash, Title: key + ": Add search (#9)"}
+		Method: domain.MergeSquash, Title: key + ": Add search (#9)", CILogs: domain.CILogLimits{Checks: 1}}
 }
 
 func newQueueFixture(t *testing.T, opts ...func(*queueFixture)) *queueFixture {
@@ -166,8 +166,8 @@ func TestMergeQueueMergesInOrder(t *testing.T) {
 		f.merges[1].Method != domain.MergeSquash || f.merges[1].Title != "gc-2: Add search (#9)" {
 		t.Errorf("merges = %+v", f.merges)
 	}
-	if len(f.cis) != 2 || f.cis[0].HeadSHA != shaA || f.cis[1].HeadSHA != shaB {
-		t.Errorf("CI waited for %+v; want each commit about to merge", f.cis)
+	if len(f.cis) != 2 || f.cis[0].HeadSHA != shaA || f.cis[1].HeadSHA != shaB || f.cis[1].Logs != (domain.CILogLimits{Checks: 1}) {
+		t.Errorf("CI waited for %+v; want each commit about to merge, with the project's log limits", f.cis)
 	}
 	if got := strings.Join(f.steps, ","); got != "enqueue-update#1,enqueue-ci#1,enqueue-merge#1,enqueue-update#1,enqueue-checks#1,enqueue-ci#1,enqueue-merge#1" {
 		t.Errorf("steps = %s", got)

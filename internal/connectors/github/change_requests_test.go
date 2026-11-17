@@ -240,3 +240,33 @@ func TestCheckRunState(t *testing.T) {
 		}
 	}
 }
+
+// M7 (D120): each check keeps the ID its log is read by: a check run's, a
+// workflow run's; a commit status has none.
+func TestCommitStatusCheckIDs(t *testing.T) {
+	for _, forbidden := range []bool{false, true} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/repos/o/r/commits/abc/check-runs":
+				if forbidden {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				_, _ = io.WriteString(w, `{"total_count":1,"check_runs":[{"id":42,"name":"test","status":"completed","conclusion":"failure"}]}`)
+			case "/repos/o/r/actions/runs":
+				_, _ = io.WriteString(w, `{"total_count":1,"workflow_runs":[{"id":9,"name":"ci","workflow_id":1,"event":"push","status":"completed","conclusion":"failure"}]}`)
+			case "/repos/o/r/commits/abc/status":
+				_, _ = io.WriteString(w, `{"statuses":[{"context":"ci/legacy","state":"failure"}]}`)
+			}
+		}))
+		got, err := NewClient("pat", srv.URL).CommitStatus(t.Context(), "o/r", "abc")
+		srv.Close()
+		want := "check-run/42"
+		if forbidden {
+			want = "workflow-run/9"
+		}
+		if err != nil || len(got.Checks) != 2 || got.Checks[0].ID != want || got.Checks[1].ID != "" {
+			t.Errorf("forbidden=%v: checks = %+v, %v; want %s then none", forbidden, got.Checks, err, want)
+		}
+	}
+}

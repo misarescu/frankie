@@ -52,6 +52,8 @@ type QueueEntry struct {
 	Gates  []QueueGate
 	Method domain.MergeMethod
 	Title  string // the merge commit's
+	// CILogs bound what is read of the repo's failed CI checks' logs (D120).
+	CILogs domain.CILogLimits `json:",omitzero"`
 }
 
 // QueueGate is a command gate the queue re-runs.
@@ -114,6 +116,7 @@ type EnqueueRequest struct {
 	HeadSHA    string // the commit the run's gates passed
 	Gates      []QueueGate
 	Method     domain.MergeMethod
+	CILogs     domain.CILogLimits `json:",omitzero"`
 }
 
 // EnqueueChangeRequest moves the issue to queued and signals its repo's merge
@@ -161,7 +164,7 @@ func (a *Activities) EnqueueChangeRequest(ctx context.Context, req EnqueueReques
 	entry := QueueEntry{
 		Issue: req.Issue, RunID: req.RunID, WorkflowID: req.WorkflowID, StepID: req.StepID, Attempt: req.Attempt,
 		ChangeRequestID: cr.ID.String(), Number: cr.Number, Branch: req.Branch, HeadSHA: req.HeadSHA,
-		Gates: req.Gates, Method: req.Method,
+		Gates: req.Gates, Method: req.Method, CILogs: req.CILogs,
 		Title: fmt.Sprintf("%s: %s (#%d)", req.Issue.IssueKey, req.Issue.Title, cr.Number),
 	}
 	id := MergeQueueWorkflowID(req.Issue.Repo)

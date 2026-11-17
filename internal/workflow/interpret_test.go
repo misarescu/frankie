@@ -572,12 +572,13 @@ func TestInterpretEnqueue(t *testing.T) {
 		f := newInterpretFixture(t)
 		snap := defaultBuildSnapshot(t)
 		snap.MergeMethod = domain.MergeRebase
+		snap.CILogs = domain.CILogLimits{Checks: 1, Lines: 200} // M7 (D120)
 		if out := f.run(t, snap); !out.Succeeded || !out.Merged {
 			t.Fatalf("result = %+v", out)
 		}
 		req := f.enqueued[0]
 		if req.StepID != "merge" || req.Attempt != 1 || req.HeadSHA != "sha1" || req.Branch != testRun.Branch || req.Method != domain.MergeRebase ||
-			req.StepRunID != "sr-merge-1" || req.RunID != testRun.RunID || req.WorkflowID == "" {
+			req.CILogs != snap.CILogs || req.StepRunID != "sr-merge-1" || req.RunID != testRun.RunID || req.WorkflowID == "" {
 			t.Errorf("enqueue = %+v", req)
 		}
 		if len(req.Gates) != 1 || req.Gates[0].StepID != "checks" || strings.Join(req.Gates[0].Commands, ";") != "mise run lint;mise run test" {

@@ -27,6 +27,9 @@ type ProviderChecksRequest struct {
 	// registers its checks a moment after the push. Poll is the interval
 	// between reads (zero: 15 seconds).
 	Timeout, Grace, Poll time.Duration
+	// Logs bound what is read of failed checks' logs (D120); zero limits are
+	// the defaults.
+	Logs domain.CILogLimits `json:",omitzero"`
 }
 
 // AwaitProviderChecks waits until the repo's CI on HeadSHA has finished and
@@ -63,6 +66,9 @@ func (a *Activities) AwaitProviderChecks(ctx context.Context, req ProviderChecks
 		waiting := st.State == domain.CheckPending || (st.State == domain.CheckNone && waited < grace)
 		switch {
 		case !waiting:
+			if st.State == domain.CheckFailure {
+				a.readFailedLogs(ctx, req.Issue.Repo, st.Checks, req.Logs.WithDefaults())
+			}
 			return a.finishChecks(ctx, step, domain.ProviderChecksDetails{SHA: req.HeadSHA, State: st.State, Checks: st.Checks})
 		case waited >= timeout:
 			return a.finishChecks(ctx, step, domain.ProviderChecksDetails{SHA: req.HeadSHA, State: st.State, Checks: st.Checks,
@@ -74,6 +80,27 @@ func (a *Activities) AwaitProviderChecks(ctx context.Context, req ProviderChecks
 			return GateOutcome{}, ctx.Err()
 		case <-time.After(poll):
 		}
+	}
+}
+
+// readFailedLogs fills in the log of each failed check, up to limits.Checks
+// of them (D120), so the coder sees why CI failed without access to the
+// provider. A log that cannot be read is left out: the check's URL still says
+// where it is.
+func (a *Activities) readFailedLogs(ctx context.Context, repo string, checks []domain.Check, limits domain.CILogLimits) {
+	read := 0
+	for i, c := range checks {
+		if c.State != domain.CheckFailure || c.ID == "" || read == limits.Checks {
+			continue
+		}
+		read++
+		activity.RecordHeartbeat(ctx, "reading the log of "+c.Name)
+		log, err := a.GitHub.CheckLog(ctx, repo, c, limits)
+		if err != nil {
+			activity.GetLogger(ctx).Warn("read a failed check's log", "check", c.Name, "error", err)
+			continue
+		}
+		checks[i].Log = log
 	}
 }
 
@@ -115,7 +142,7 @@ func (a *Activities) recordedChecks(ctx context.Context, step domain.StepRun) (G
 }
 
 // checksOutcome summarizes the checks for the queue and, when they failed,
-// tells the coder which ones and where to read them.
+// tells the coder which ones, where to read them and how their logs end.
 func checksOutcome(stepRunID string, d domain.ProviderChecksDetails) GateOutcome {
 	out := GateOutcome{StepRunID: stepRunID, Passed: d.Passed(), Inconclusive: d.Error != ""}
 	var failed []domain.Check
@@ -145,6 +172,9 @@ func checksOutcome(stepRunID string, d domain.ProviderChecksDetails) GateOutcome
 				fmt.Fprintf(&b, " (%s)", c.URL)
 			}
 			b.WriteString("\n")
+			if c.Log != "" {
+				fmt.Fprintf(&b, "  The end of its log:\n```\n%s\n```\n", c.Log)
+			}
 		}
 		b.WriteString("Reproduce it with the commands the repo's CI runs, fix it and push.\n")
 		out.Summary, out.Feedback = "the repo's CI failed: "+strings.Join(names, ", "), b.String()

@@ -195,7 +195,7 @@ func processQueueEntry(ctx workflow.Context, e QueueEntry) QueueOutcome {
 			}
 			var ci activities.GateOutcome
 			err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, checksOptions), a.AwaitProviderChecks, activities.ProviderChecksRequest{
-				Issue: e.Issue, StepRunID: ciID, HeadSHA: head,
+				Issue: e.Issue, StepRunID: ciID, HeadSHA: head, Logs: e.CILogs,
 			}).Get(ctx, &ci)
 			switch {
 			case err != nil:

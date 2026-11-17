@@ -45,6 +45,9 @@ type Snapshot struct {
 	// MergeMethod is how the merge queue merges the run's change request
 	// (D88); empty in snapshots taken before it, which never enqueue.
 	MergeMethod domain.MergeMethod `json:"mergeMethod,omitempty"`
+	// CILogs bound what the merge queue reads of failed CI checks' logs
+	// (D120); zero limits are the defaults.
+	CILogs domain.CILogLimits `json:"ciLogs,omitzero"`
 	// MergeApproval is whether a person approves the change request before
 	// the merge queue takes it (D92): the project's setting, then the issue's
 	// labels as the run started.
@@ -97,7 +100,7 @@ func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType s
 	project.Workflow = cmp.Or(project.WorkflowFor(issueType), workflows.DefaultFor(issueType))
 
 	s := Snapshot{BaseSHA: rd.sha, IssueBudgetUSD: project.Budgets.IssueUSD, EgressAllow: project.Egress.Allow, MergeMethod: project.MergeMethod(),
-		MergeApproval: project.MergeApprovalRequired(nil)}
+		CILogs: project.Merge.CILogs, MergeApproval: project.MergeApprovalRequired(nil)}
 	raw, found, err := rd.read(config.ProtectedPathsFile)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w", err)

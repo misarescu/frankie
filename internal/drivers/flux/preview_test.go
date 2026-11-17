@@ -208,7 +208,7 @@ func TestPreviewRoom(t *testing.T) {
 		t.Errorf("state = %+v, entries %+v, message %q", st, g.entries(t), g.head().Message)
 	}
 
-	if _, err := d.Publish(t.Context(), previewRequest(153, headSHA, goodPreviewConfig)); !errors.Is(err, ErrNoRoom) ||
+	if _, err := d.Publish(t.Context(), previewRequest(153, headSHA, goodPreviewConfig)); !errors.Is(err, drivers.ErrNoRoom) ||
 		!strings.Contains(err.Error(), "for change requests #151, #152, at most 2") || g.writes != 1 {
 		t.Errorf("third preview = %v after %d writes, want ErrNoRoom", err, g.writes)
 	}

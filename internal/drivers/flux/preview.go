@@ -3,7 +3,6 @@ package flux
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -48,10 +47,6 @@ func NewPreview(repo PreviewRepo, client *http.Client) *PreviewDriver {
 
 var _ drivers.Driver = (*PreviewDriver)(nil)
 
-// ErrNoRoom means as many previews as the stage allows run for change
-// requests that are still open.
-var ErrNoRoom = errors.New("flux-preview: no room for another preview")
-
 // previewState is the driver's record of a deployment.
 type previewState struct {
 	// Commit set the change request's entry; empty when it already had it.
@@ -86,8 +81,8 @@ func (d *PreviewDriver) ValidateConfig(_ context.Context, config json.RawMessage
 
 // Publish implements drivers.Driver: it sets the change request's entry to
 // its head unless the entry already has it. A commit also drops the entries
-// of change requests that are no longer open, and is refused with ErrNoRoom
-// when MaxPreviews open ones would remain besides this one. A retry finds the
+// of change requests that are no longer open, and is refused with
+// drivers.ErrNoRoom when MaxPreviews open ones would remain besides this one. A retry finds the
 // commit an earlier attempt made by the deployment's marker.
 func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers.State, error) {
 	cfg, st, err := d.load(r)
@@ -132,7 +127,7 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 		keep = append(keep, e)
 	}
 	if len(keep) >= cfg.MaxPreviews {
-		return nil, fmt.Errorf("%w: %d run, for change requests %s, at most %d", ErrNoRoom, len(keep), numbers(keep), cfg.MaxPreviews)
+		return nil, fmt.Errorf("flux-preview: %w: %d previews run, for change requests %s, at most %d", drivers.ErrNoRoom, len(keep), numbers(keep), cfg.MaxPreviews)
 	}
 	content, err := f.render(append(keep, want))
 	if err != nil {

@@ -238,3 +238,26 @@ func TestGatePodReleased(t *testing.T) {
 		}
 	}
 }
+
+// M7, D126: a preview's verification pod checks out the agent branch, yet has
+// the verification role, which may reach the stages.
+func TestGatePodVerifiesAPreview(t *testing.T) {
+	s := gateSpec()
+	s.Verification = true
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pod.Labels[RoleLabel]; got != RoleVerify {
+		t.Errorf("role = %q, want %q", got, RoleVerify)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == GateCloneContainer && envValue(c.Env, "GATE_BRANCH") != s.Branch {
+			t.Errorf("clone branch = %q, want the agent branch %q", envValue(c.Env, "GATE_BRANCH"), s.Branch)
+		}
+	}
+	s.Branch = "main"
+	if _, err := GatePod(s); err == nil {
+		t.Error("a preview's verification pod checks out a non-agent branch")
+	}
+}

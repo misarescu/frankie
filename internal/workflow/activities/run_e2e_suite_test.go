@@ -90,6 +90,34 @@ func TestSuiteVerifierPod(t *testing.T) {
 	}
 }
 
+// M7, D126: a preview's suite checks out the head from its agent branch, as
+// the run's issue, yet runs as a verification pod, which reaches the stages.
+func TestSuiteVerifierPreview(t *testing.T) {
+	f, req := newSuiteFixture(t, code(0), code(0))
+	runID := uuid.NewString()
+	req.ReleaseID, req.RunID, req.IssueKey, req.Branch = "", runID, "gc-9", "agent/gc-9/add-tags"
+	req.Stage, req.URL = "preview", "http://goodreads-previews.stages.svc.cluster.local/pr-152"
+	if v, err := (SuiteVerifier{A: f.a}).Verify(t.Context(), req); err != nil || !v.Passed {
+		t.Fatalf("Verify = %+v, %v", v, err)
+	}
+	p := f.created[0]
+	if p.Labels[sandbox.RoleLabel] != sandbox.RoleVerify || p.Labels[sandbox.RunIDLabel] != runID || p.Labels[sandbox.IssueKeyLabel] != "gc-9" {
+		t.Errorf("pod labels = %v", p.Labels)
+	}
+	for _, c := range p.Spec.InitContainers {
+		switch c.Name {
+		case sandbox.GateCloneContainer:
+			if containerEnv(c.Env, "GATE_BRANCH") != req.Branch {
+				t.Errorf("clone checks out %s, want the agent branch", containerEnv(c.Env, "GATE_BRANCH"))
+			}
+		case sandbox.GateCommandContainer(0):
+			if got := containerEnv(c.Env, "E2E_BASE_URL"); got != req.URL {
+				t.Errorf("E2E_BASE_URL = %q", got)
+			}
+		}
+	}
+}
+
 // A suite that exits non-zero without writing results cannot judge the release.
 func TestSuiteVerifierWithoutResults(t *testing.T) {
 	f, req := newSuiteFixture(t, code(0), code(1))

@@ -168,7 +168,7 @@ CREATE TABLE change_requests (
 CREATE TABLE gate_results (
   id          uuid        PRIMARY KEY,
   step_run_id uuid        NOT NULL REFERENCES step_runs (id),
-  gate_type   text        NOT NULL CHECK (gate_type IN ('command', 'agent-verdict', 'human', 'provider-checks', 'preserve')),
+  gate_type   text        NOT NULL CHECK (gate_type IN ('command', 'agent-verdict', 'human', 'provider-checks', 'preserve', 'preview')),
   policy      text        NOT NULL CHECK (policy IN ('blocking', 'advisory')),
   verdict     text        NOT NULL CHECK (verdict IN ('pass', 'fail', 'escalated')),
   details     jsonb       NOT NULL DEFAULT '{}',

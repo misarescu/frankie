@@ -54,3 +54,18 @@ func TestFake(t *testing.T) {
 		t.Errorf("Ops = %v, want %v", got, want)
 	}
 }
+
+// FailFirst limits an error to the first calls of its operation.
+func TestFakeFailFirst(t *testing.T) {
+	boom := errors.New("no room")
+	f := &Fake{DriverName: "p", Errs: map[string]error{OpPublish: boom}, FailFirst: map[string]int{OpPublish: 2}}
+	r := drivers.Request{}
+	for i, want := range []error{boom, boom, nil, nil} {
+		if _, err := f.Publish(t.Context(), r); !errors.Is(err, want) || (want == nil && err != nil) {
+			t.Errorf("call %d = %v, want %v", i, err, want)
+		}
+	}
+	if _, err := f.Status(t.Context(), r); err != nil {
+		t.Errorf("an operation without errors = %v", err)
+	}
+}

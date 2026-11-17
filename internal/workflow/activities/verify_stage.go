@@ -23,6 +23,11 @@ type VerifyRequest struct {
 	Stage        string
 	Kind         string // the stage's verify, e.g. e2e-suite
 	URL          string
+	// For a change request's preview (D126): Branch is the agent branch that
+	// holds SHA, and RunID and IssueKey are the run's; ReleaseID is then empty.
+	Branch   string `json:",omitempty"`
+	RunID    string `json:",omitempty"`
+	IssueKey string `json:",omitempty"`
 }
 
 // Verification is a verifier's result. Failures name the failed tests and the

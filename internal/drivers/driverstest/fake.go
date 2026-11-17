@@ -46,6 +46,9 @@ type Fake struct {
 	Message string
 	// Errs makes an operation fail with the error.
 	Errs map[string]error
+	// FailFirst limits an Errs entry to that many calls of its operation;
+	// later calls succeed.
+	FailFirst map[string]int
 	// RejectKey makes ValidateConfig reject a config that has this key.
 	RejectKey string
 
@@ -142,7 +145,14 @@ func (f *Fake) record(c Call) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)
-	return f.Errs[c.Op]
+	err := f.Errs[c.Op]
+	if n, limited := f.FailFirst[c.Op]; limited && err != nil {
+		if n <= 0 {
+			return nil
+		}
+		f.FailFirst[c.Op] = n - 1
+	}
+	return err
 }
 
 func state(s FakeState) (drivers.State, error) {

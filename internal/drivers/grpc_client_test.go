@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -122,5 +124,11 @@ func TestClientErrors(t *testing.T) {
 	cancel()
 	if _, err := c.Publish(canceled, r); !errors.Is(err, context.Canceled) {
 		t.Errorf("canceled call = %v, want context.Canceled", err)
+	}
+	// M7 (D126): a driver with no room says so across the wire.
+	full := remote(t, &driverstest.Fake{DriverName: "flux-preview", Caps: drivers.Capabilities{Preview: true},
+		Errs: map[string]error{driverstest.OpPublish: fmt.Errorf("2 previews run: %w", drivers.ErrNoRoom)}})
+	if _, err := full.Publish(ctx, previewRequest()); !errors.Is(err, drivers.ErrNoRoom) || !strings.Contains(err.Error(), "2 previews run") {
+		t.Errorf("no room = %v, want ErrNoRoom", err)
 	}
 }

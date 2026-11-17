@@ -72,7 +72,9 @@ func (v SuiteVerifier) Verify(ctx context.Context, req VerifyRequest) (Verificat
 		return Verification{Inconclusive: true, Summary: "the release's " + config.ProjectConfigPath + " has no e2e.command"}, nil
 	}
 
-	in := IssueRunInput{Repo: req.Repo, IssueKey: releaseIssueKey, BaseBranch: cmp.Or(req.BaseBranch, "main"),
+	// A release is on the base branch; a preview's head on its agent branch.
+	issueKey, runID, preview := cmp.Or(req.IssueKey, releaseIssueKey), cmp.Or(req.RunID, req.ReleaseID), req.Branch != ""
+	in := IssueRunInput{Repo: req.Repo, IssueKey: issueKey, BaseBranch: cmp.Or(req.BaseBranch, "main"),
 		EgressAllow: append(append([]string{}, cfg.Egress.Allow...), stage.Hostname())}
 	image, err := a.toolchainImage(ctx, in, req.SHA, nil)
 	if errors.Is(err, errInvalidProjectConfig) {
@@ -83,7 +85,7 @@ func (v SuiteVerifier) Verify(ctx context.Context, req VerifyRequest) (Verificat
 	}
 	image = cmp.Or(image, a.Agent.RunnerImage)
 	deadline := cmp.Or(a.Gate.Deadline, 30*time.Minute)
-	token, err := a.Signer.Issue(gitproxy.Grant{Repo: req.Repo, IssueKey: releaseIssueKey, StepRunID: req.DeploymentID, ReadOnly: true}, deadline+10*time.Minute)
+	token, err := a.Signer.Issue(gitproxy.Grant{Repo: req.Repo, IssueKey: issueKey, StepRunID: req.DeploymentID, ReadOnly: true}, deadline+10*time.Minute)
 	if err != nil {
 		return Verification{}, err
 	}
@@ -104,12 +106,12 @@ func (v SuiteVerifier) Verify(ctx context.Context, req VerifyRequest) (Verificat
 	pod, err := sandbox.GatePod(sandbox.GatePodSpec{
 		Name: name, Namespace: a.Agent.Namespace, Image: image,
 		RuntimeClassName: a.Agent.RuntimeClass, ServiceAccountName: a.Agent.ServiceAccount,
-		RunID: req.ReleaseID, StepRunID: req.DeploymentID, IssueKey: releaseIssueKey,
+		RunID: runID, StepRunID: req.DeploymentID, IssueKey: issueKey,
 		Limits: a.Gate.Limits, CPURequest: a.Gate.CPURequest, WorkspaceSize: a.Gate.WorkspaceSize, Deadline: deadline,
 		EgressProxyURL: proxy, NoProxy: a.Agent.NoProxy, NodeSelector: a.Agent.NodeSelector, Tolerations: a.Agent.Tolerations,
 		GuestMemoryHeadroom: a.Agent.GuestMemoryHeadroom,
 		CloneURL:            strings.TrimSuffix(a.Agent.GitProxyURL, "/") + "/git/" + req.Repo + ".git", Token: token,
-		Branch: in.BaseBranch, Released: true, CommitSHA: req.SHA,
+		Branch: cmp.Or(req.Branch, in.BaseBranch), Released: !preview, Verification: true, CommitSHA: req.SHA,
 		Commands: []string{e2e.Script(cfg.E2E.Command, "E2E_RESULTS")}, Env: env,
 	})
 	if err != nil {

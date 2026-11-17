@@ -121,6 +121,8 @@ func toStatus(err error) error {
 		code = codes.Unimplemented
 	case errors.Is(err, ErrInvalidConfig), errors.Is(err, ErrInvalidRequest):
 		code = codes.InvalidArgument
+	case errors.Is(err, ErrNoRoom):
+		code = codes.ResourceExhausted
 	case errors.Is(err, context.Canceled):
 		code = codes.Canceled
 	case errors.Is(err, context.DeadlineExceeded):

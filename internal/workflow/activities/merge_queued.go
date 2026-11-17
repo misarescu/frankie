@@ -78,7 +78,7 @@ func (a *Activities) MergeQueued(ctx context.Context, req QueueMergeRequest) (Qu
 	case err != nil:
 		return QueueMergeResult{}, err
 	}
-	if _, err := a.Store.RecordChangeRequestMerged(ctx, crID); err != nil {
+	if _, err := a.Store.RecordChangeRequestMerged(ctx, crID, sha); err != nil {
 		return QueueMergeResult{}, err
 	}
 	if _, err := a.Store.SetStepRunCommit(ctx, stepID, sha); err != nil {

@@ -152,6 +152,11 @@ CREATE TABLE change_requests (
   branch       text        NOT NULL,
   head_sha     text        NOT NULL,
   status       text        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'merged', 'closed')),
+  -- The commit the merge made on the base branch, when the merge queue made it
+  -- (a merge made by a person on the provider records none), and when the
+  -- control plane recorded the merge: the order releases include issues in (D110).
+  merge_sha    text,
+  merged_at    timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT change_requests_repo_number_key UNIQUE (repo, number)
@@ -226,4 +231,52 @@ CREATE TABLE toolchain_images (
   digest     text        NOT NULL CHECK (digest ~ '^sha256:[0-9a-f]{64}$'),
   built_at   timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (repository, tag)
+);
+
+-- A Release (D110): a commit of a project's repository plus the issues it
+-- contains, moving through the project's stages (configuration, not rows).
+CREATE TABLE releases (
+  id          uuid        PRIMARY KEY,
+  project_id  uuid        NOT NULL REFERENCES projects (id),
+  repo        text        NOT NULL,
+  sha         text        NOT NULL,
+  status      text        NOT NULL DEFAULT 'pending' CHECK (status IN (
+                'pending', 'in_progress', 'succeeded', 'failed', 'rolled_back')),
+  finished_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  -- Creating the release of a commit again returns the first one.
+  CONSTRAINT releases_project_repo_sha_key UNIQUE (project_id, repo, sha)
+);
+
+CREATE INDEX releases_project_created_idx ON releases (project_id, created_at);
+
+-- The issues a release contains. An issue is in every release made while it
+-- is merged and not yet released, so a failed release's issues are in the next.
+CREATE TABLE release_issues (
+  release_id uuid        NOT NULL REFERENCES releases (id),
+  issue_id   uuid        NOT NULL REFERENCES issues (id),
+  position   integer     NOT NULL CHECK (position >= 1),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (release_id, issue_id)
+);
+
+CREATE INDEX release_issues_issue_id_idx ON release_issues (issue_id);
+
+-- A release at one stage: what its driver did (driver_state, opaque to the
+-- control plane, D109) and how it ended.
+CREATE TABLE deployments (
+  id           uuid        PRIMARY KEY,
+  release_id   uuid        NOT NULL REFERENCES releases (id),
+  stage        text        NOT NULL,
+  driver       text        NOT NULL,
+  driver_state jsonb       NOT NULL DEFAULT '{}',
+  status       text        NOT NULL DEFAULT 'pending' CHECK (status IN (
+                 'pending', 'in_progress', 'succeeded', 'failed', 'rolled_back')),
+  reason       text        NOT NULL DEFAULT '',
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT deployments_release_stage_key UNIQUE (release_id, stage)
 );

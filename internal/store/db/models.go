@@ -39,6 +39,22 @@ type ChangeRequest struct {
 	Status      string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	MergeSha    *string
+	MergedAt    *time.Time
+}
+
+type Deployment struct {
+	ID          uuid.UUID
+	ReleaseID   uuid.UUID
+	Stage       string
+	Driver      string
+	DriverState []byte
+	Status      string
+	Reason      string
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Event struct {
@@ -124,6 +140,24 @@ type Question struct {
 	AnsweredAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+type Release struct {
+	ID         uuid.UUID
+	ProjectID  uuid.UUID
+	Repo       string
+	Sha        string
+	Status     string
+	FinishedAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type ReleaseIssue struct {
+	ReleaseID uuid.UUID
+	IssueID   uuid.UUID
+	Position  int32
+	CreatedAt time.Time
 }
 
 type Run struct {

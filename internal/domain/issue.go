@@ -155,6 +155,11 @@ type ChangeRequest struct {
 	Branch      string
 	HeadSHA     string
 	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// MergeSHA is the commit the merge made on the base branch, when the merge
+	// queue made it; a merge made by a person on the provider records none.
+	MergeSHA string
+	// MergedAt is when the control plane recorded the merge (D110).
+	MergedAt  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

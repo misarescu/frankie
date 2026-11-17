@@ -148,6 +148,10 @@ func TestMergeQueued(t *testing.T) {
 	if len(crs) != 1 || crs[0].Status != string(domain.ChangeRequestMerged) {
 		t.Errorf("change requests = %+v", crs)
 	}
+	// M7, D110: the merge's commit is recorded, for the releases that contain it.
+	if len(crs) == 1 && crs[0].MergeSHA != "m3rge" {
+		t.Errorf("merge SHA = %q, want m3rge", crs[0].MergeSHA)
+	}
 	// Retried after the merge: main moved to the merge, yet it is the same merge.
 	f.prov.branches["main"] = "m3rge"
 	if again, _ := f.merge(t, queuedBase); again.Outcome != QueueMerged || again.MergeSHA != "m3rge" {

@@ -80,13 +80,17 @@ func TestRecordChangeRequestMerged(t *testing.T) {
 	ctx := t.Context()
 	is, run, cr := mustChangeRequest(t, s, domain.IssueAwaitingHuman, 1)
 
-	got, err := s.RecordChangeRequestMerged(ctx, cr.ID)
+	got, err := s.RecordChangeRequestMerged(ctx, cr.ID, "m1")
 	if err != nil || got.Status != domain.IssueMerged {
 		t.Fatalf("RecordChangeRequestMerged = %s, %v; want merged", got.Status, err)
 	}
 	crs, _ := s.ListChangeRequestsForIssue(ctx, is.ID)
 	if len(crs) != 1 || crs[0].Status != string(domain.ChangeRequestMerged) {
 		t.Fatalf("change request = %+v, want merged", crs)
+	}
+	// M7, D110: the merge's commit and time are recorded.
+	if crs[0].MergeSHA != "m1" || crs[0].MergedAt == nil {
+		t.Errorf("merge = %q at %v, want m1 at a time", crs[0].MergeSHA, crs[0].MergedAt)
 	}
 	// The run's transcript shows the merge.
 	events, err := s.ListRunEvents(ctx, run.ID, 0, 100)
@@ -103,7 +107,7 @@ func TestRecordChangeRequestMerged(t *testing.T) {
 		t.Errorf("last run state change = %+v, want the change request merged", change)
 	}
 
-	again, err := s.RecordChangeRequestMerged(ctx, cr.ID)
+	again, err := s.RecordChangeRequestMerged(ctx, cr.ID, "m1")
 	if err != nil || again.Status != domain.IssueMerged {
 		t.Fatalf("second record = %s, %v; want a no-op", again.Status, err)
 	}
@@ -116,7 +120,7 @@ func TestRecordChangeRequestMerged(t *testing.T) {
 func TestRecordChangeRequestMergedLeavesBusyIssue(t *testing.T) {
 	s := newTestStore(t)
 	is, _, cr := mustChangeRequest(t, s, domain.IssueRunning, 1)
-	got, err := s.RecordChangeRequestMerged(t.Context(), cr.ID)
+	got, err := s.RecordChangeRequestMerged(t.Context(), cr.ID, "")
 	if err != nil || got.ID != is.ID || got.Status != domain.IssueRunning {
 		t.Fatalf("RecordChangeRequestMerged = %s, %v; want the issue still running", got.Status, err)
 	}

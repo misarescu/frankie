@@ -94,7 +94,7 @@ type Event struct {
 
 // StateChange is the payload of an EventStateChange.
 type StateChange struct {
-	Entity string    `json:"entity"` // "issue", "run", "step_run" or "change_request"
+	Entity string    `json:"entity"` // "issue", "run", "step_run", "change_request", "release" or "deployment"
 	ID     uuid.UUID `json:"id"`
 	From   string    `json:"from"`
 	To     string    `json:"to"`

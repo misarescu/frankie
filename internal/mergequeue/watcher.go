@@ -59,7 +59,7 @@ func (w *Watcher) Poll(ctx context.Context) error {
 		}
 		switch status {
 		case domain.ChangeRequestMerged:
-			is, err := w.Store.RecordChangeRequestMerged(ctx, cr.ID)
+			is, err := w.Store.RecordChangeRequestMerged(ctx, cr.ID, "")
 			if err != nil {
 				errs = append(errs, err)
 				continue

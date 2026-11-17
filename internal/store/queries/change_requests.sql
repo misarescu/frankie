@@ -22,9 +22,13 @@ WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awa
   AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.issue_id = change_requests.issue_id AND r.status IN ('pending', 'running'))
 ORDER BY created_at, id;
 
--- Compare-and-set from open to merged or closed.
+-- Compare-and-set from open to merged or closed. A merge records when, and
+-- the commit it made when known (D110).
 -- name: FinishChangeRequest :one
 UPDATE change_requests
-SET status = @status, updated_at = now()
+SET status     = @status::text,
+    merge_sha  = CASE WHEN @status::text = 'merged' THEN sqlc.narg('merge_sha')::text ELSE merge_sha END,
+    merged_at  = CASE WHEN @status::text = 'merged' THEN now() ELSE merged_at END,
+    updated_at = now()
 WHERE id = @id AND status = 'open'
 RETURNING *;

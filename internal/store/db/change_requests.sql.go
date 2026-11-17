@@ -13,19 +13,24 @@ import (
 
 const finishChangeRequest = `-- name: FinishChangeRequest :one
 UPDATE change_requests
-SET status = $1, updated_at = now()
-WHERE id = $2 AND status = 'open'
-RETURNING id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at
+SET status     = $1::text,
+    merge_sha  = CASE WHEN $1::text = 'merged' THEN $2::text ELSE merge_sha END,
+    merged_at  = CASE WHEN $1::text = 'merged' THEN now() ELSE merged_at END,
+    updated_at = now()
+WHERE id = $3 AND status = 'open'
+RETURNING id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at, merge_sha, merged_at
 `
 
 type FinishChangeRequestParams struct {
-	Status string
-	ID     uuid.UUID
+	Status   string
+	MergeSha *string
+	ID       uuid.UUID
 }
 
-// Compare-and-set from open to merged or closed.
+// Compare-and-set from open to merged or closed. A merge records when, and
+// the commit it made when known (D110).
 func (q *Queries) FinishChangeRequest(ctx context.Context, arg FinishChangeRequestParams) (ChangeRequest, error) {
-	row := q.db.QueryRow(ctx, finishChangeRequest, arg.Status, arg.ID)
+	row := q.db.QueryRow(ctx, finishChangeRequest, arg.Status, arg.MergeSha, arg.ID)
 	var i ChangeRequest
 	err := row.Scan(
 		&i.ID,
@@ -39,12 +44,14 @@ func (q *Queries) FinishChangeRequest(ctx context.Context, arg FinishChangeReque
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MergeSha,
+		&i.MergedAt,
 	)
 	return i, err
 }
 
 const getChangeRequest = `-- name: GetChangeRequest :one
-SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests WHERE id = $1
+SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at, merge_sha, merged_at FROM change_requests WHERE id = $1
 `
 
 func (q *Queries) GetChangeRequest(ctx context.Context, id uuid.UUID) (ChangeRequest, error) {
@@ -62,12 +69,14 @@ func (q *Queries) GetChangeRequest(ctx context.Context, id uuid.UUID) (ChangeReq
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MergeSha,
+		&i.MergedAt,
 	)
 	return i, err
 }
 
 const listChangeRequestsAwaitingMerge = `-- name: ListChangeRequestsAwaitingMerge :many
-SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests
+SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at, merge_sha, merged_at FROM change_requests
 WHERE status = 'open' AND issue_id IN (SELECT id FROM issues WHERE status = 'awaiting_human')
   -- An issue whose run is still going waits inside it (D91); its run, or the
   -- merge queue, sees a merge made by hand.
@@ -98,6 +107,8 @@ func (q *Queries) ListChangeRequestsAwaitingMerge(ctx context.Context) ([]Change
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.MergeSha,
+			&i.MergedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -110,7 +121,7 @@ func (q *Queries) ListChangeRequestsAwaitingMerge(ctx context.Context) ([]Change
 }
 
 const listChangeRequestsForIssue = `-- name: ListChangeRequestsForIssue :many
-SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at FROM change_requests WHERE issue_id = $1 ORDER BY created_at
+SELECT id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at, merge_sha, merged_at FROM change_requests WHERE issue_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListChangeRequestsForIssue(ctx context.Context, issueID uuid.UUID) ([]ChangeRequest, error) {
@@ -134,6 +145,8 @@ func (q *Queries) ListChangeRequestsForIssue(ctx context.Context, issueID uuid.U
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.MergeSha,
+			&i.MergedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -150,7 +163,7 @@ INSERT INTO change_requests (id, issue_id, run_id, repo, number, provider_ref, b
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (repo, number) DO UPDATE
 SET head_sha = EXCLUDED.head_sha, run_id = EXCLUDED.run_id, updated_at = now()
-RETURNING id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at
+RETURNING id, issue_id, run_id, repo, number, provider_ref, branch, head_sha, status, created_at, updated_at, merge_sha, merged_at
 `
 
 type UpsertChangeRequestParams struct {
@@ -189,6 +202,8 @@ func (q *Queries) UpsertChangeRequest(ctx context.Context, arg UpsertChangeReque
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MergeSha,
+		&i.MergedAt,
 	)
 	return i, err
 }

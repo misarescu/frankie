@@ -55,7 +55,7 @@ func changeRequestFromRow(r db.ChangeRequest) domain.ChangeRequest {
 	return domain.ChangeRequest{
 		ID: r.ID, IssueID: r.IssueID, RunID: r.RunID, Repo: r.Repo, Number: int(r.Number),
 		ProviderRef: r.ProviderRef, Branch: r.Branch, HeadSHA: r.HeadSha, Status: r.Status,
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		MergeSHA: deref(r.MergeSha), MergedAt: r.MergedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
@@ -76,11 +76,13 @@ func (s *Store) ListChangeRequestsAwaitingMerge(ctx context.Context) ([]domain.C
 // RecordChangeRequestMerged marks an open change request merged and moves its issue
 // from awaiting_human to merged in one transaction, each with a state_change event
 // (D61). An issue in any other status keeps it: the change request is still recorded
-// as merged. Recording a merge again is a no-op.
-func (s *Store) RecordChangeRequestMerged(ctx context.Context, id uuid.UUID) (domain.Issue, error) {
+// as merged. mergeSHA is the commit the merge made, or empty when unknown (a merge
+// made by a person); with the time of the merge, it decides which releases contain
+// the issue (D110). Recording a merge again is a no-op.
+func (s *Store) RecordChangeRequestMerged(ctx context.Context, id uuid.UUID, mergeSHA string) (domain.Issue, error) {
 	var issueID uuid.UUID
 	err := s.inTx(ctx, func(q *db.Queries) error {
-		cr, changed, err := finishChangeRequest(ctx, q, id, domain.ChangeRequestMerged)
+		cr, changed, err := finishChangeRequest(ctx, q, id, domain.ChangeRequestMerged, mergeSHA)
 		if err != nil {
 			return err
 		}
@@ -110,15 +112,16 @@ func (s *Store) RecordChangeRequestMerged(ctx context.Context, id uuid.UUID) (do
 // open question 11. Recording it again is a no-op.
 func (s *Store) RecordChangeRequestClosed(ctx context.Context, id uuid.UUID) error {
 	return s.inTx(ctx, func(q *db.Queries) error {
-		_, _, err := finishChangeRequest(ctx, q, id, domain.ChangeRequestClosed)
+		_, _, err := finishChangeRequest(ctx, q, id, domain.ChangeRequestClosed, "")
 		return err
 	})
 }
 
 // finishChangeRequest moves a change request from open to status with a
 // state_change event on its run. changed is false when it already had status.
-func finishChangeRequest(ctx context.Context, q *db.Queries, id uuid.UUID, status domain.ChangeRequestStatus) (cr db.ChangeRequest, changed bool, err error) {
-	cr, err = q.FinishChangeRequest(ctx, db.FinishChangeRequestParams{ID: id, Status: string(status)})
+// mergeSHA is recorded only on a merge.
+func finishChangeRequest(ctx context.Context, q *db.Queries, id uuid.UUID, status domain.ChangeRequestStatus, mergeSHA string) (cr db.ChangeRequest, changed bool, err error) {
+	cr, err = q.FinishChangeRequest(ctx, db.FinishChangeRequestParams{ID: id, Status: string(status), MergeSha: nonEmpty(mergeSHA)})
 	if err = mapErr("finish change request", err); errors.Is(err, ErrNotFound) {
 		cur, err := q.GetChangeRequest(ctx, id)
 		if err != nil {

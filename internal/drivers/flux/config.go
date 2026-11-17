@@ -54,35 +54,51 @@ func parseConfig(raw json.RawMessage) (Config, error) {
 	if c.VersionField == "" {
 		c.VersionField = "version"
 	}
-	var errs []error
-	if !repoRE.MatchString(c.Repo) {
-		errs = append(errs, fmt.Errorf("repo %q is not owner/name", c.Repo))
-	}
-	if strings.ContainsAny(c.Branch, " ~^:?*[\\") || strings.HasPrefix(c.Branch, "-") || strings.Contains(c.Branch, "..") {
-		errs = append(errs, fmt.Errorf("branch %q is not a branch name", c.Branch))
-	}
-	yamlFile := strings.HasSuffix(c.Path, ".yaml") || strings.HasSuffix(c.Path, ".yml")
-	if c.Path == "" || path.IsAbs(c.Path) || path.Clean(c.Path) != c.Path || strings.HasPrefix(c.Path, "../") || !yamlFile {
-		errs = append(errs, fmt.Errorf("path %q must be a clean relative path to a .yaml file", c.Path))
-	}
+	errs := checkShared(c.Repo, c.Branch, c.Path, c.Tag, c.VersionField)
 	if c.Image == "" || strings.ContainsAny(c.Image, " \t\"'#") {
 		errs = append(errs, fmt.Errorf("image %q is not an image name", c.Image))
 	}
-	if !strings.Contains(c.Tag, "{sha}") && !strings.Contains(c.Tag, "{short}") {
-		errs = append(errs, fmt.Errorf("tag %q names neither {sha} nor {short}", c.Tag))
-	} else if !tagRE.MatchString(renderTag(c.Tag, strings.Repeat("a", 40))) {
-		errs = append(errs, fmt.Errorf("tag %q does not render an image tag", c.Tag))
-	}
-	if u, err := url.Parse(c.VersionURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		errs = append(errs, fmt.Errorf("versionURL %q must be an http(s) URL without credentials", c.VersionURL))
-	}
-	if !fieldRE.MatchString(c.VersionField) {
-		errs = append(errs, fmt.Errorf("versionField %q is not a field name", c.VersionField))
+	if err := checkURL("versionURL", c.VersionURL); err != nil {
+		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("flux config: %w", err)
 	}
 	return c, nil
+}
+
+// checkShared checks the fields the flux and flux-preview drivers share: the
+// GitOps repository, its branch, the file the driver writes, the image tag
+// template and the version field.
+func checkShared(repo, branch, file, tag, versionField string) []error {
+	var errs []error
+	if !repoRE.MatchString(repo) {
+		errs = append(errs, fmt.Errorf("repo %q is not owner/name", repo))
+	}
+	if strings.ContainsAny(branch, " ~^:?*[\\") || strings.HasPrefix(branch, "-") || strings.Contains(branch, "..") {
+		errs = append(errs, fmt.Errorf("branch %q is not a branch name", branch))
+	}
+	yamlFile := strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml")
+	if file == "" || path.IsAbs(file) || path.Clean(file) != file || strings.HasPrefix(file, "../") || !yamlFile {
+		errs = append(errs, fmt.Errorf("path %q must be a clean relative path to a .yaml file", file))
+	}
+	if !strings.Contains(tag, "{sha}") && !strings.Contains(tag, "{short}") {
+		errs = append(errs, fmt.Errorf("tag %q names neither {sha} nor {short}", tag))
+	} else if !tagRE.MatchString(renderTag(tag, strings.Repeat("a", 40))) {
+		errs = append(errs, fmt.Errorf("tag %q does not render an image tag", tag))
+	}
+	if !fieldRE.MatchString(versionField) {
+		errs = append(errs, fmt.Errorf("versionField %q is not a field name", versionField))
+	}
+	return errs
+}
+
+// checkURL checks raw is an http(s) URL without credentials.
+func checkURL(name, raw string) error {
+	if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%s %q must be an http(s) URL without credentials", name, raw)
+	}
+	return nil
 }
 
 // renderTag is a release's image tag.

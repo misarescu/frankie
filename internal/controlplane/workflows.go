@@ -216,8 +216,9 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	// Stages that verify with e2e-suite run the project's suite in a gate pod (D116).
 	acts.Verifier = activities.SuiteVerifier{A: acts}
 	// Release drivers run in-process (D109): flux commits to a stage's GitOps
-	// repository with the provider credential (D117).
-	if acts.Drivers, err = drivers.NewRegistry(flux.New(gh, nil)); err != nil {
+	// repository with the provider credential (D117), and flux-preview to a
+	// preview stage's ResourceSet inputs (D124, D125).
+	if acts.Drivers, err = drivers.NewRegistry(flux.New(gh, nil), flux.NewPreview(gh, nil)); err != nil {
 		return nil, nil, fmt.Errorf("controlplane: release drivers: %w", err)
 	}
 	w.RegisterActivity(acts)

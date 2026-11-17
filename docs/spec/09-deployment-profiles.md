@@ -58,7 +58,9 @@ Caveat: the sheet does not account for per-pod **Kata VM overhead** (guest kerne
 
 The concrete profile's sizing assumes one fixed node. On a managed cluster whose agent pool scales with demand (Scaleway Kapsule since M7), three settings keep the autoscaler from undoing work (D99): sandbox and build pods are never evicted when a node is removed (always set); `platform.nodeSelector` keeps the platform on a small fixed pool, which also carries the cluster's add-ons, while `agents.nodeSelector` keeps agent, gate and build pods on the autoscaled pool, so it can scale to zero (D100), and a taint on the agent pool that only those pods tolerate (`agents.tolerations`, D101) keeps the add-ons and Flux off it even while the platform pool has no node; and `persistence.storageClassName` picks a class that keeps volumes when their claims are deleted. The pool's nodes need `/dev/kvm` for Kata, and kata-deploy runs as a DaemonSet so nodes the autoscaler adds get Kata too; with a tainted agent pool it needs the same toleration. Kata VMs there get `agents.guestMemoryHeadroom` (D103) beyond their pods' memory limits.
 
-## Scaleway Kapsule (the factory since M7, D105, D106)
+## Scaleway Kapsule (the factory since M7, D105, D106, D119)
+
+The cluster is `frankie-k8s-v2`, recreated on 2026-11-17 with pod CIDR `10.48.0.0/15` and service CIDR `10.32.0.0/20` (D119). A Kapsule pod CIDR must stay outside `100.64.0.0/10`, Tailscale's range; it can only be set when a cluster is created. There is no other Frankie instance: the homelab's was removed on 2026-11-17, and recovery is a new cluster from the GitOps repository plus a database restore (FR-SH-3).
 
 | Pool | Instance | Size | Pool settings | Runs |
 |---|---|---|---|---|
@@ -81,7 +83,7 @@ What the sizing rests on (measured 2026-11-16, Kata 4.3.1 `qemu-runtime-rs`, Kub
 - The scheduler charges a running Kata pod its CPU request plus twice the RuntimeClass's 250m overhead; memory overhead is charged once.
 - Kata costs file I/O, not CPU: on one POP2 node a gate took 91 s without Kata and 187 s with it, CPU-bound work ran at nearly native speed, and small-file operations were 10 to 15 times slower through virtiofs. Three gates at once on one node took 418 s each.
 - Frankie's secrets come from Scaleway Secret Manager through External Secrets (D107); the only secret made by hand is the store's read-only API key.
-- Projects' previews run here; their long-lived stages do not. Goodreads-Clone's staging and production run on the homelab, which Frankie changes only through their GitOps repository and reaches over Tailscale (D108).
+- Projects' previews run here; their long-lived stages do not. Goodreads-Clone's staging and production run on the homelab, which Frankie changes only through their GitOps repository and reaches over Tailscale (D108, D118); the Tailscale operator's egress proxies forward pods' traffic into the tailnet, which tailscaled's firewall drops when it comes from `100.64.0.0/10` (D119).
 - DEV1 instances were too slow for the factory (gates about 4 times the homelab's) and, on their older hosts, Kata VMs failed to boot.
 
 ## Dropped or deferred in the concrete profile

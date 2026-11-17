@@ -26,29 +26,36 @@ func (a *Activities) AwaitStage(ctx context.Context, req StageRequest) (StageSta
 	if err != nil {
 		return StageStatus{}, err
 	}
-	timeout := a.Release.stageTimeout()
+	return a.awaitDriver(ctx, c.driver, c.request, req.Stage.Name, req.SHA, a.Release.stageTimeout())
+}
+
+// awaitDriver asks d, every Release.PollInterval, whether stage runs r's
+// subject, until it does, the driver reports it failed, or timeout passes. A
+// driver error is retried at the next poll until the timeout, where the last
+// one is the reason.
+func (a *Activities) awaitDriver(ctx context.Context, d drivers.Driver, r drivers.Request, stage, sha string, timeout time.Duration) (StageStatus, error) {
 	deadline := time.Now().Add(timeout)
 	var last string
 	for {
-		st, err := c.driver.Status(ctx, c.request)
+		st, err := d.Status(ctx, r)
 		switch {
 		case err != nil:
 			if ctx.Err() != nil {
 				return StageStatus{}, ctx.Err()
 			}
 			if errors.Is(err, drivers.ErrUnsupported) || errors.Is(err, drivers.ErrInvalidRequest) {
-				return StageStatus{}, driverError("status of "+req.Stage.Name, err)
+				return StageStatus{}, driverError("status of "+stage, err)
 			}
 			last = "the driver failed: " + err.Error()
 		case st.Phase == drivers.PhaseReady:
 			return StageStatus{Ready: true}, nil
 		case st.Phase == drivers.PhaseFailed:
-			return StageStatus{Reason: fmt.Sprintf("%s failed: %s", req.Stage.Name, orDefault(st.Message, "the driver reported a failure"))}, nil
+			return StageStatus{Reason: fmt.Sprintf("%s failed: %s", stage, orDefault(st.Message, "the driver reported a failure"))}, nil
 		default:
 			last = orDefault(st.Message, "still progressing")
 		}
 		if time.Now().After(deadline) {
-			return StageStatus{Reason: fmt.Sprintf("%s did not run %s within %s: %s", req.Stage.Name, short(req.SHA), timeout, last)}, nil
+			return StageStatus{Reason: fmt.Sprintf("%s did not run %s within %s: %s", stage, short(sha), timeout, last)}, nil
 		}
 		activity.RecordHeartbeat(ctx, last)
 		select {

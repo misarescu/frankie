@@ -56,6 +56,37 @@ type ChangedAgain struct {
 // Passed reports whether everything the step wrote is still there.
 func (d PreserveDetails) Passed() bool { return d.Error == "" && len(d.Changed) == 0 }
 
+// PreviewDetails is the Details of a preview gate result (D126): the change
+// request's head deployed to the project's preview stage and verified there.
+type PreviewDetails struct {
+	Stage         string `json:"stage"`
+	ChangeRequest int    `json:"changeRequest"`
+	SHA           string `json:"sha"`
+	URL           string `json:"url,omitempty"`
+	// Ran: the preview came to run the head. Passed: it passed the stage's
+	// verification there.
+	Ran    bool `json:"ran"`
+	Passed bool `json:"passed"`
+	// Summary is the verification's, or why the check stopped before it.
+	Summary  string        `json:"summary,omitempty"`
+	Failures []TestFailure `json:"failures,omitempty"`
+	// Inconclusive: the check could not judge the head (no room for a
+	// preview, the preview never ran it, the suite could not run).
+	Inconclusive bool `json:"inconclusive,omitempty"`
+	// Removed: the preview was taken down after the check; RemoveError says
+	// why not.
+	Removed     bool   `json:"removed"`
+	RemoveError string `json:"removeError,omitempty"`
+}
+
+// TestFailure is one failed end-to-end test, with the issues it is tagged
+// with (FR-TA-3).
+type TestFailure struct {
+	Test      string   `json:"test"`
+	IssueKeys []string `json:"issueKeys,omitempty"`
+	Message   string   `json:"message,omitempty"`
+}
+
 // ProviderChecksDetails is the Details of a provider-checks result: the
 // repo's CI on the commit the merge queue is about to merge (D90).
 type ProviderChecksDetails struct {

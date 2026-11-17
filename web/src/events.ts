@@ -90,7 +90,8 @@ function gateSummary(p: Record<string, unknown>): string {
   const d = (p.details ?? {}) as { error?: string; commands?: { command: string; exitCode?: number | null; reason?: string }[];
     reviews?: { role?: string; step?: string; verdict?: string; summary?: string; error?: string }[];
     checks?: { name: string; state: string; summary?: string; url?: string; log?: string }[]; state?: string;
-    expect_fail?: boolean; step?: string; files?: string[]; changed?: { file: string; status: string; lines?: string[] }[] };
+    expect_fail?: boolean; step?: string; files?: string[]; changed?: { file: string; status: string; lines?: string[] }[];
+    changeRequest?: number; sha?: string; url?: string; summary?: string; failures?: { test: string; message?: string }[]; removeError?: string };
   const lines: string[] = [];
   if (d.error) lines.push(d.error);
   // D95: a gate that expects its commands to fail, and one that keeps what a
@@ -102,6 +103,13 @@ function gateSummary(p: Record<string, unknown>): string {
       lines.push(`${c.file}: ${c.status} after ${d.step ?? "the step"} wrote it`);
       for (const l of c.lines ?? []) lines.push(`  no longer there: ${l}`);
     }
+  }
+  // D126: the change request's head checked in a preview of it.
+  if (p.type === "preview") {
+    lines.push(`#${d.changeRequest ?? "?"} at ${(d.sha ?? "").slice(0, 7)} on ${d.url ?? "the preview"}`);
+    if (d.summary) lines.push(d.summary);
+    for (const f of d.failures ?? []) lines.push(`${f.test}${f.message ? `: ${f.message}` : ""}`);
+    if (d.removeError) lines.push(`not removed: ${d.removeError}`);
   }
   for (const c of d.commands ?? []) {
     lines.push(`${c.command}: ${c.exitCode === undefined || c.exitCode === null ? "did not run" : `exit ${c.exitCode}`}${c.reason ? ` (${c.reason})` : ""}`);

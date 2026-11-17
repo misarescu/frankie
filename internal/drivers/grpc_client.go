@@ -96,8 +96,8 @@ func requestToProto(r Request) (*driverv1.Stage, *driverv1.Subject, *driverv1.De
 }
 
 // fromStatus turns the contract's status codes back into its errors:
-// UNIMPLEMENTED is ErrUnsupported and INVALID_ARGUMENT is invalid, the
-// call's sentinel saying what was. Other errors are returned as they are.
+// UNIMPLEMENTED is ErrUnsupported, INVALID_ARGUMENT is invalid, the call's
+// sentinel saying what was, and RESOURCE_EXHAUSTED is ErrNoRoom. Other errors are returned as they are.
 func fromStatus(err error, invalid error) error {
 	if err == nil {
 		return nil
@@ -111,6 +111,8 @@ func fromStatus(err error, invalid error) error {
 		return fmt.Errorf("%s: %w", s.Message(), ErrUnsupported)
 	case codes.InvalidArgument:
 		return fmt.Errorf("%s: %w", s.Message(), invalid)
+	case codes.ResourceExhausted:
+		return fmt.Errorf("%s: %w", s.Message(), ErrNoRoom)
 	case codes.Canceled:
 		return fmt.Errorf("%s: %w", s.Message(), context.Canceled)
 	case codes.DeadlineExceeded:

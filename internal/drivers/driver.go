@@ -25,6 +25,9 @@ var (
 	ErrInvalidConfig = errors.New("invalid driver configuration")
 	// ErrInvalidRequest: a call is incomplete or malformed.
 	ErrInvalidRequest = errors.New("invalid driver request")
+	// ErrNoRoom: the target has no room for another deployment now, e.g. as
+	// many previews run as it allows (D126); the call may succeed later.
+	ErrNoRoom = errors.New("no room for another deployment")
 )
 
 // Capabilities are what a driver can do beyond Publish and Status.

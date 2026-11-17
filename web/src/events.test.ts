@@ -95,6 +95,15 @@ test("M6: an investigation's findings read as such", () => {
   expect(summary(ev("findings", { error: "the final message holds no JSON findings" }))).toBe("no valid findings: the final message holds no JSON findings");
 });
 
+test("M7: a preview gate says where it checked the head and what failed", () => {
+  expect(summary(ev("gate_result", { type: "preview", verdict: "fail", details: { changeRequest: 152, sha: "ddddddd1234", url: "http://p/pr-152",
+    ran: true, summary: "2 of 219 tests failed", failures: [{ test: "gc-9 list tags", message: "expected 200, got 500" }, { test: "gc-9 prefix" }], removed: true } })))
+    .toBe("preview gate failed\n#152 at ddddddd on http://p/pr-152\n2 of 219 tests failed\ngc-9 list tags: expected 200, got 500\ngc-9 prefix");
+  expect(summary(ev("gate_result", { type: "preview", verdict: "fail", details: { changeRequest: 152, sha: "ddddddd", url: "http://p/pr-152",
+    summary: "no room for a preview", inconclusive: true, removeError: "github: 502" } })))
+    .toBe("preview gate failed\n#152 at ddddddd on http://p/pr-152\nno room for a preview\nnot removed: github: 502");
+});
+
 test("M6: gates for bugs say what they expect and keep", () => {
   expect(summary(ev("gate_result", { type: "command", verdict: "pass", details: { expect_fail: true, commands: [{ command: "mise run test", exitCode: 1 }] } })))
     .toBe("command gate passed\nexpects the commands to fail (a test that shows the bug)\nmise run test: exit 1");

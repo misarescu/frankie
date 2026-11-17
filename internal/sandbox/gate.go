@@ -89,7 +89,11 @@ type GatePodSpec struct {
 	// Released: the commit is a release on the repo's base branch, so Branch
 	// is that branch rather than an agent branch (release verification, D116).
 	// The token stays read-only.
-	Released     bool
+	Released bool
+	// Verification: the pod verifies a deployment, so it is labeled
+	// RoleVerify and may reach the stages (D118): a release's (Released) or a
+	// change request's preview, whose commit is on its agent branch (D126).
+	Verification bool
 	CommitSHA    string // the commit under test
 	Commands     []string
 	Services     []Service           // sidecars; their limits come out of Limits
@@ -184,7 +188,7 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 	}
 
 	role := RoleGate
-	if s.Released {
+	if s.Released || s.Verification {
 		role = RoleVerify
 	}
 	return &corev1.Pod{

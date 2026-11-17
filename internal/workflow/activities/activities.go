@@ -4,6 +4,7 @@
 package activities
 
 import (
+	"cmp"
 	"encoding/json"
 	"log/slog"
 	"time"
@@ -357,7 +358,17 @@ type ReleaseConfig struct {
 	// PollInterval is how often a driver is asked whether its stage runs the
 	// release; default 10s.
 	PollInterval time.Duration
+	// PreviewTimeout bounds waiting for a preview to run a change request's
+	// head; default 10m. RoomTimeout bounds waiting for room for a preview;
+	// default 30m (D126).
+	PreviewTimeout, RoomTimeout time.Duration
 }
+
+func (c ReleaseConfig) previewTimeout() time.Duration {
+	return cmp.Or(c.PreviewTimeout, 10*time.Minute)
+}
+
+func (c ReleaseConfig) roomTimeout() time.Duration { return cmp.Or(c.RoomTimeout, 30*time.Minute) }
 
 func (c ReleaseConfig) stageTimeout() time.Duration {
 	if c.StageTimeout > 0 {

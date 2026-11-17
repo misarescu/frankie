@@ -8,15 +8,16 @@ import { usd } from "./steps";
 const getJSON = <T,>(url: string): Promise<T> =>
   fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))));
 
+// The project the board and the releases page show, remembered per browser.
 const PROJECT_KEY = "frankie.project";
-const remembered = (): string | null => {
+export const remembered = (): string | null => {
   try {
     return localStorage.getItem(PROJECT_KEY);
   } catch {
     return null;
   }
 };
-const remember = (name: string) => {
+export const remember = (name: string) => {
   try {
     localStorage.setItem(PROJECT_KEY, name);
   } catch {
@@ -79,7 +80,7 @@ export function IssuesPage() {
   return (
     <>
       <h1>
-        Issues <span className="type">· <a href="#/">Runs</a> · <a href="#/approvals">Approvals</a></span>
+        Issues <span className="type">· <a href="#/">Runs</a> · <a href="#/releases">Releases</a> · <a href="#/approvals">Approvals</a></span>
       </h1>
       <div className="actions">
         {projects && projects.length > 1 && (

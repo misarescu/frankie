@@ -40,3 +40,6 @@ table.issues td { vertical-align: top; } select { font: inherit; color: var(--fg
 table.issues tr.finished td { opacity: .7; }
 
 .timeline li.st-awaiting_human { border-left-color: var(--accent); border-left-style: double; border-left-width: 3px; }
+.st-in_progress { color: var(--accent); border-color: var(--accent); } .st-rolled_back, .st-inconclusive { color: var(--bad); border-color: var(--bad); border-style: dashed; }
+table.releases .chip { margin-right: 4px; } ul.plain, ul.failures { list-style: none; margin: 0; padding: 0; } ul.plain li { padding: 2px 0; }
+ul.failures li { padding: 4px 0; border-top: 1px solid var(--line); } ul.failures pre { max-height: 160px; } section h3 { font-size: 14px; margin: 16px 0 8px; }

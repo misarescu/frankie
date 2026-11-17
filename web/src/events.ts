@@ -13,6 +13,10 @@ export type RunSummary = {
   Status: string;
   IssueKey: string;
   IssueTitle: string;
+  // A release run (D129) has no issue; it names its release (D130).
+  ReleaseID?: string;
+  ReleaseSHA?: string;
+  ReleaseVersion?: string;
   CreatedAt: string;
   CostUSD: number;
 };

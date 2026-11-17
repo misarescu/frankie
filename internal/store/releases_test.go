@@ -263,3 +263,26 @@ func TestDeployments(t *testing.T) {
 		t.Errorf("ListDeployments = %+v, %v; want staging then prod", list, err)
 	}
 }
+
+// M7, D115: a release records the bug issue its failed verification opened, once.
+func TestSetReleaseBugIssue(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	rel := mustRelease(t, s, p.ID, "m1")
+	if rel.BugIssueRef != "" {
+		t.Fatalf("new release has bug issue %q", rel.BugIssueRef)
+	}
+	got, err := s.SetReleaseBugIssue(t.Context(), rel.ID, "https://github.com/o/r/issues/131")
+	if err != nil || got.BugIssueRef != "https://github.com/o/r/issues/131" {
+		t.Fatalf("SetReleaseBugIssue = %+v, %v", got, err)
+	}
+	if again, err := s.SetReleaseBugIssue(t.Context(), rel.ID, "https://github.com/o/r/issues/132"); err != nil || again.BugIssueRef != got.BugIssueRef {
+		t.Errorf("second bug issue = %q, %v; want the first kept", again.BugIssueRef, err)
+	}
+	if _, err := s.SetReleaseBugIssue(t.Context(), rel.ID, " "); err == nil {
+		t.Error("an empty reference accepted")
+	}
+	if _, err := s.SetReleaseBugIssue(t.Context(), uuid.New(), "x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown release = %v, want ErrNotFound", err)
+	}
+}

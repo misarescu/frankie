@@ -75,10 +75,13 @@ type Release struct {
 	// IssueIDs are the issues it contains, in the order they merged.
 	IssueIDs []uuid.UUID
 	// Reason says why it failed or was rolled back.
-	Reason     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	FinishedAt *time.Time
+	Reason string
+	// BugIssueRef is the bug issue opened on the provider when its
+	// verification failed (D115), e.g. a GitHub issue URL.
+	BugIssueRef string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	FinishedAt  *time.Time
 }
 
 // Deployment is a Release at one Stage: what its driver did and how it ended.

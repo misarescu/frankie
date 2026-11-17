@@ -88,3 +88,9 @@ RETURNING *;
 UPDATE deployments SET driver_state = @driver_state, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- Records the bug issue a failed verification opened, once: the first one stays.
+-- name: SetReleaseBugIssue :one
+UPDATE releases SET bug_issue_ref = coalesce(bug_issue_ref, @bug_issue_ref::text), updated_at = now()
+WHERE id = @id
+RETURNING *;

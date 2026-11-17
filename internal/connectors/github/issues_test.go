@@ -1,6 +1,7 @@
 package github
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -162,5 +163,36 @@ func TestIssueWriteBack(t *testing.T) {
 	}
 	if err := c.UpdateStatus(ctx, "https://github.com/o/r/issues/8", domain.IssueCanceled); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("a refused write = %v, want the 403", err)
+	}
+}
+
+// M7, D115: the factory opens an issue with labels.
+func TestCreateIssue(t *testing.T) {
+	var got struct {
+		method, path string
+		body         map[string]any
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.method, got.path = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&got.body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":131,"title":"t","state":"open","html_url":"https://github.com/o/r/issues/131",
+ "repository_url":"https://api.github.com/repos/o/r","labels":[{"name":"factory"},{"name":"bug"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient("pat", srv.URL)
+	is, err := c.CreateIssue(t.Context(), "o/r", domain.NewExternalIssue{Title: "staging failed", Body: "details", Labels: []string{"factory", "bug"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.method != http.MethodPost || got.path != "/repos/o/r/issues" || got.body["title"] != "staging failed" || got.body["body"] != "details" ||
+		!reflect.DeepEqual(got.body["labels"], []any{"factory", "bug"}) {
+		t.Errorf("request = %+v", got)
+	}
+	if is.Number != 131 || is.Ref != "https://github.com/o/r/issues/131" || is.Repo != "o/r" || !slices.Equal(is.Labels, []string{"factory", "bug"}) {
+		t.Errorf("issue = %+v", is)
+	}
+	if _, err := c.CreateIssue(t.Context(), "o/r", domain.NewExternalIssue{Title: " "}); err == nil {
+		t.Error("an issue without a title was created")
 	}
 }

@@ -342,6 +342,9 @@ type Activities struct {
 	Verifier Verifier
 	// Release times the release stages (D114).
 	Release ReleaseConfig
+	// IntakeLabel is the label intake syncs issues by; the bug issue a failed
+	// release opens carries it (D115).
+	IntakeLabel string
 }
 
 // ReleaseConfig times a release's stages.

@@ -38,3 +38,13 @@ func TestInferIssueType(t *testing.T) {
 		t.Errorf("grandparent = %s, want epic", got)
 	}
 }
+
+// M7, D115.
+func TestNewExternalIssueValidate(t *testing.T) {
+	if err := (NewExternalIssue{Title: "staging failed"}).Validate(); err != nil {
+		t.Errorf("valid issue = %v", err)
+	}
+	if err := (NewExternalIssue{Title: "  ", Body: "x"}).Validate(); err == nil {
+		t.Error("an issue without a title passed")
+	}
+}

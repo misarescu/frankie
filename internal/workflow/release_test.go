@@ -22,6 +22,7 @@ type releaseFixture struct {
 	calls    []string // "<activity> <stage or sha>"
 	finished []activities.FinishReleaseRequest
 	ended    []activities.EndDeploymentRequest
+	reported []activities.ReleaseFailureReport
 
 	plan     func(sha string) activities.ReleasePlan
 	publish  func(req activities.StageRequest) error
@@ -96,6 +97,10 @@ func newReleaseFixture(t *testing.T, opts ...func(*releaseFixture)) *releaseFixt
 		f.finished = append(f.finished, req)
 		return nil
 	})
+	f.env.OnActivity(a.ReportReleaseFailure, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseFailureReport) (string, error) {
+		f.reported = append(f.reported, req)
+		return "https://github.com/misarescu/Goodreads-Clone/issues/131", nil
+	})
 	return f
 }
 
@@ -147,6 +152,15 @@ func TestReleaseRollsBackAFailedStage(t *testing.T) {
 	}
 	if len(f.finished) != 1 || f.finished[0] != (activities.FinishReleaseRequest{ReleaseID: "rel-" + shaA, Status: domain.ReleaseRolledBack, Reason: reason}) {
 		t.Errorf("finished = %+v", f.finished)
+	}
+	// D115: the failed verification opens a bug issue.
+	if len(f.reported) != 1 {
+		t.Fatalf("reported = %+v, want one bug issue", f.reported)
+	}
+	r := f.reported[0]
+	if r.ReleaseID != "rel-"+shaA || r.Repo != "misarescu/Goodreads-Clone" || r.SHA != shaA || r.Stage != "staging" || r.URL != "https://stg" ||
+		!r.RolledBack || r.Verification.Summary != "1 of 12 tests failed: Books/search" {
+		t.Errorf("report = %+v", r)
 	}
 }
 
@@ -221,7 +235,29 @@ func TestReleaseFailures(t *testing.T) {
 			if len(f.finished) != 1 || f.finished[0].Status != tt.wantStatus || !strings.HasPrefix(f.finished[0].Reason, tt.wantReason) {
 				t.Errorf("finished = %+v, want %s: %s", f.finished, tt.wantStatus, tt.wantReason)
 			}
+			// D115: only a failed verification is a bug in the release.
+			if len(f.reported) != 0 {
+				t.Errorf("reported %+v, want no bug issue", f.reported)
+			}
 		})
+	}
+}
+
+// A failed verification on a stage that is not rolled back says so in its bug issue.
+func TestReleaseReportsVerificationFailureWithoutRollback(t *testing.T) {
+	f := newReleaseFixture(t, func(f *releaseFixture) {
+		f.plan = func(sha string) activities.ReleasePlan {
+			st := stagingStage
+			st.Rollback = false
+			return activities.ReleasePlan{ReleaseID: "rel", Stages: []activities.ReleaseStage{st}}
+		}
+		f.verify = func(activities.StageRequest) activities.Verification {
+			return activities.Verification{Summary: "2 failed"}
+		}
+	})
+	f.run(t, shaA)
+	if len(f.reported) != 1 || f.reported[0].RolledBack || f.finished[0].Status != domain.ReleaseFailed {
+		t.Errorf("reported = %+v, finished %+v; want one report, not rolled back", f.reported, f.finished)
 	}
 }
 
@@ -272,7 +308,7 @@ func TestReleaseBatchesRequests(t *testing.T) {
 func TestReleaseReplaysRecordedHistories(t *testing.T) {
 	r := worker.NewWorkflowReplayer()
 	r.RegisterWorkflow(Release)
-	for _, f := range []string{"release_succeeded.json", "release_verify_failed_rolled_back.json", "release_batched.json"} {
+	for _, f := range []string{"release_succeeded.json", "release_verify_failed_rolled_back.json", "release_batched.json", "release_bug_issue.json"} {
 		if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/"+f); err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}

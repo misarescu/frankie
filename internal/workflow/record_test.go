@@ -540,11 +540,17 @@ func (s *releaseStub) FinishRelease(context.Context, activities.FinishReleaseReq
 	return nil
 }
 
+func (s *releaseStub) ReportReleaseFailure(context.Context, activities.ReleaseFailureReport) (string, error) {
+	return "https://github.com/misarescu/Goodreads-Clone/issues/131", nil
+}
+
 // TestRecordReleaseHistories records Release (D114): a release through two
-// stages; one whose staging verification fails and is rolled back; and two
-// requests arriving during a release, batched into one more.
+// stages; one whose staging verification fails and is rolled back; two
+// requests arriving during a release, batched into one more; and (D115) a
+// failed verification that opens a bug issue. FRANKIE_RECORD_ONLY records one
+// file, so the others stay as recorded.
 //
-//	FRANKIE_RECORD_TEMPORAL=localhost:7266 mise exec -- go test -tags record ./internal/workflow -run TestRecordReleaseHistories
+//	FRANKIE_RECORD_TEMPORAL=localhost:7266 FRANKIE_RECORD_ONLY=release_bug_issue.json mise exec -- go test -tags record ./internal/workflow -run TestRecordReleaseHistories
 func TestRecordReleaseHistories(t *testing.T) {
 	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
 	if addr == "" {
@@ -564,7 +570,11 @@ func TestRecordReleaseHistories(t *testing.T) {
 		{"release_succeeded.json", &releaseStub{}, nil},
 		{"release_verify_failed_rolled_back.json", &releaseStub{failVerify: true}, nil},
 		{"release_batched.json", &releaseStub{awaitFor: 2 * time.Second}, []string{sha(2), sha(3)}},
+		{"release_bug_issue.json", &releaseStub{failVerify: true}, nil},
 	} {
+		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != rec.file {
+			continue
+		}
 		queue := fmt.Sprintf("record-rel-%d", time.Now().UnixNano())
 		w := worker.New(c, queue, worker.Options{})
 		w.RegisterWorkflow(Release)

@@ -140,6 +140,19 @@ func (s *Store) TransitionRelease(ctx context.Context, id uuid.UUID, from, to do
 	return s.GetRelease(ctx, id)
 }
 
+// SetReleaseBugIssue records the bug issue a release's failed verification
+// opened (D115). The first one recorded stays: a release reports one bug.
+func (s *Store) SetReleaseBugIssue(ctx context.Context, id uuid.UUID, ref string) (domain.Release, error) {
+	if strings.TrimSpace(ref) == "" {
+		return domain.Release{}, errors.New("store: a bug issue needs a reference")
+	}
+	row, err := s.q.SetReleaseBugIssue(ctx, db.SetReleaseBugIssueParams{ID: id, BugIssueRef: ref})
+	if err != nil {
+		return domain.Release{}, mapErr("set release bug issue", err)
+	}
+	return s.releaseWithIssues(ctx, s.q, row)
+}
+
 func (s *Store) releaseWithIssues(ctx context.Context, q *db.Queries, r db.Release) (domain.Release, error) {
 	ids, err := q.ListReleaseIssueIDs(ctx, r.ID)
 	if err != nil {
@@ -147,7 +160,7 @@ func (s *Store) releaseWithIssues(ctx context.Context, q *db.Queries, r db.Relea
 	}
 	return domain.Release{
 		ID: r.ID, ProjectID: r.ProjectID, Repo: r.Repo, SHA: r.Sha, Status: domain.ReleaseStatus(r.Status),
-		IssueIDs: nonNil(ids), Reason: r.Reason, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		IssueIDs: nonNil(ids), Reason: r.Reason, BugIssueRef: deref(r.BugIssueRef), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
 	}, nil
 }
 

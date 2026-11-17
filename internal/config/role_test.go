@@ -131,6 +131,11 @@ func TestResolveRolesRejects(t *testing.T) {
 		{"reviewer outside a verdict group", head + "  - id: x\n    agent: {role: code-reviewer}\n", "put it in a parallel group with an agent-verdict gate"},
 		{"coder judged by an agent-verdict gate", head + checks + "  - id: r\n    parallel: [{agent: {role: coder}}]\n    gate: {type: agent-verdict}\n", "does not return a review verdict"},
 		{"refiner in a workflow", head + "  - id: x\n    agent: {role: refiner}\n", "only refinement runs it"},
+		// M7 (D122): writers of one group run at the same time.
+		{"a group of writers without an id", head + "  - parallel: [{id: a, agent: {role: coder}}, {id: b, agent: {role: coder}}]\n",
+			"a group of writers needs an id"},
+		{"a group of writers with a gate", head + "  - id: g\n    parallel: [{id: a, agent: {role: coder}}, {id: b, agent: {role: coder}}]\n    gate: {type: command}\n",
+			"a group of writers runs them at the same time and has no gate"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,6 +149,20 @@ func TestResolveRolesRejects(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a group of writers with an id and no gate, and a single writer without", func(t *testing.T) {
+		for _, y := range []string{
+			head + "  - id: g\n    parallel: [{id: a, agent: {role: coder}}, {id: b, agent: {role: coder}}]\n",
+			head + "  - parallel: [{id: a, agent: {role: coder}}]\n    id: one\n    gate: {type: command}\n",
+		} {
+			w, err := ParseWorkflow([]byte(y))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ResolveRoles(w, lookupIn(coderRole)); err != nil {
+				t.Errorf("%s: %v", y, err)
+			}
+		}
+	})
 	t.Run("an explicit model overrides the role default", func(t *testing.T) {
 		w, err := ParseWorkflow([]byte(head + "  - id: x\n    agent: {role: gpt-coder, model: anthropic/claude-sonnet-5-5}\n"))
 		if err != nil {

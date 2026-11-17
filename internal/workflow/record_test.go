@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,8 @@ import (
 // stubActivities answer for the Activities in a recording; failGate decides
 // whether a gate execution fails.
 type stubActivities struct {
+	// mu guards pushes: a group of writers runs its sessions at once (D122).
+	mu         sync.Mutex
 	failGate   func(req activities.GateRequest) bool
 	failReview func(req activities.VerdictGateRequest) bool
 	pushes     int
@@ -159,6 +162,8 @@ func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRu
 		<-s.abort
 		return activities.SessionResult{Status: "aborted", Reason: "aborted by ana: wrong approach"}, nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.pushes++
 	return activities.SessionResult{Status: "succeeded", Result: "Done.", Branch: run.Branch,
 		CommitSHA: fmt.Sprintf("%040d", s.pushes), Pushed: true}, nil
@@ -305,6 +310,10 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// bug-gates version: a testable bug's test must fail before the fix,
 		// and the fix keeps it.
 		{"interpret_bug_testable.json", bugSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, false, false, false},
+		// concurrent-writers version (D122): the coder and a second writer
+		// run at once, the second on its own branch, merged into the issue's;
+		// the first checks fail and only the coder runs again.
+		{"interpret_concurrent_writers.json", loopSnapshot(t, writersDefinition), failFirst("checks"), nil, false, false, false, false, false, false, false},
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -382,6 +391,21 @@ func TestRecordInterpretHistories(t *testing.T) {
 	}
 }
 
+// failFirst fails a gate step's first execution only.
+func failFirst(stepID string) func(req activities.GateRequest) bool {
+	var mu sync.Mutex
+	failed := false
+	return func(req activities.GateRequest) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if req.StepID != stepID || failed {
+			return false
+		}
+		failed = true
+		return true
+	}
+}
+
 // writeHistory saves a finished workflow's history to testdata/ for the replayer.
 func writeHistory(t *testing.T, c client.Client, run client.WorkflowRun, file string) {
 	t.Helper()
@@ -408,6 +432,8 @@ func (s *stubActivities) CheckQueueEntry(context.Context, activities.IssueRunInp
 }
 
 func (s *stubActivities) UpdateBranch(_ context.Context, req activities.BranchUpdateRequest) (activities.BranchUpdateResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.conflict {
 		return activities.BranchUpdateResult{Outcome: activities.BranchConflict, BaseSHA: fmt.Sprintf("%040d", 200), Conflicts: []string{"web/App.jsx"}}, nil
 	}

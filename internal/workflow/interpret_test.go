@@ -949,6 +949,13 @@ func TestInterpretBuiltInBuildE2E(t *testing.T) {
 	if writer.Step.Role != "e2e-test-writer" || writer.Branch != testRun.Branch+"--e2e-tests" || slices.Contains(writer.Step.Inputs, "diff") {
 		t.Errorf("writer session = %+v, step %+v", writer, writer.Step)
 	}
+	// The coder knows the e2e test writer works alongside it, and so leaves
+	// it the suite.
+	coder := f.session(t, "sr-implement-1")
+	if !slices.Equal(coder.Step.Alongside, []string{"e2e-test-writer"}) || coder.Step.RoleVersion != 2 ||
+		!strings.Contains(coder.Step.SystemPrompt, "Leave the end-to-end suite to it") {
+		t.Errorf("coder step = %+v", coder.Step)
+	}
 	if len(f.gates) != 2 || f.gates[1].StepID != "e2e" || strings.Join(f.gates[1].Commands, ";") != "mise run e2e:local" || f.gates[1].CommitSHA != "merged-1" {
 		t.Errorf("gates = %+v", f.gates)
 	}

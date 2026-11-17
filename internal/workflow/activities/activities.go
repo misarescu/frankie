@@ -114,6 +114,9 @@ type AgentStep struct {
 	// Findings is what an earlier investigating step found, rendered, when
 	// the step takes the findings input (D94).
 	Findings string `json:",omitempty"`
+	// Alongside are the roles of the other writers of the step's group,
+	// which work on the issue at the same time on their own branches (D122).
+	Alongside []string `json:",omitempty"`
 	// AllowedTools are the role's harness-neutral tools; empty means all.
 	AllowedTools []string `json:",omitempty"`
 	// Contract is the role's output contract, e.g. review-verdict. A step with

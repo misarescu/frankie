@@ -75,6 +75,19 @@ func TestStepPromptHonorsInputs(t *testing.T) {
 	}
 }
 
+// M7 (D122): a writer of a concurrent group learns who works alongside it;
+// a step on its own does not.
+func TestStepPromptNamesWritersAlongside(t *testing.T) {
+	in := IssueRunInput{IssueKey: "gc-3", Title: "Add search", Spec: "Users can search.", BaseBranch: "main"}
+	p := StepPrompt(in, "agent/gc-3/add-search", false, AgentStep{StepID: "implement", Alongside: []string{"e2e-test-writer"}}, nil)
+	if !strings.Contains(p, "Working on this issue at the same time, each on its own branch that is merged with yours: e2e-test-writer.") {
+		t.Errorf("prompt:\n%s", p)
+	}
+	if p = StepPrompt(in, "agent/gc-3/add-search", false, AgentStep{StepID: "implement"}, nil); strings.Contains(p, "at the same time") {
+		t.Errorf("a lone step's prompt names writers alongside:\n%s", p)
+	}
+}
+
 // A reviewer is told to end with its verdict, not a summary of changes.
 func TestStepPromptForAReviewer(t *testing.T) {
 	in := IssueRunInput{IssueKey: "gc-3", Title: "Add search", Spec: "Users can search.", BaseBranch: "main"}

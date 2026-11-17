@@ -79,6 +79,9 @@ func StepPrompt(in IssueRunInput, branch string, continuing bool, s AgentStep, a
 	if continuing {
 		b.WriteString("The branch already has earlier work on this issue (see git log). Build on it: keep what is right and fix what is not.\n")
 	}
+	if len(s.Alongside) > 0 {
+		fmt.Fprintf(&b, "Working on this issue at the same time, each on its own branch that is merged with yours: %s.\n", strings.Join(s.Alongside, ", "))
+	}
 	if has("diff") {
 		fmt.Fprintf(&b, "The change so far is `git diff origin/%s...HEAD`.\n", in.BaseBranch)
 	}

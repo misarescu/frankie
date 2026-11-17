@@ -73,6 +73,14 @@ agents:
   runnerPort: 7070
   # Pod Security Admission level enforced on the agents namespace.
   podSecurity: restricted
+  verify:
+    # Where release verification pods (role verify, D116) may also connect,
+    # beyond a command gate's egress (D118): the stages they test, e.g. the
+    # Tailscale operator's egress proxies to a homelab stage:
+    #   stageEgress: [{namespace: tailscale, ports: [80]}]
+    # Agents and command gates never get it. Empty: verification reaches no stage
+    # in the cluster, and a suite that cannot connect is inconclusive.
+    stageEgress: []
 
 # Toolchain images (D15, D30, docs/spec/05): built in-cluster by a one-off Job
 # per image that appends a layer (D81), pushed to a plain registry:2 (docs/spec/09).

@@ -219,6 +219,13 @@ func TestGatePodReleased(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// M7, D118: verification pods have their own role and NetworkPolicy.
+	if got := pod.Labels[RoleLabel]; got != RoleVerify {
+		t.Errorf("role = %q, want %q", got, RoleVerify)
+	}
+	if gate, _ := GatePod(gateSpec()); gate.Labels[RoleLabel] != RoleGate {
+		t.Errorf("command gate role = %q, want %q", gate.Labels[RoleLabel], RoleGate)
+	}
 	for _, c := range pod.Spec.InitContainers {
 		if c.Name == GateCloneContainer && envValue(c.Env, "GATE_BRANCH") != "main" {
 			t.Errorf("clone branch = %q, want main", envValue(c.Env, "GATE_BRANCH"))

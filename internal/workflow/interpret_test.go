@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +95,18 @@ type interpretFixture struct {
 	// preserved records preserve gate requests; preserve decides them (nil passes).
 	preserved []activities.PreserveRequest
 	preserve  func(req activities.PreserveRequest) activities.GateOutcome
+	// mu guards what Activities record: a group of writers runs them at
+	// the same time (D122).
+	mu sync.Mutex
+	// mainSessions counts the sessions on the issue's branch, which name
+	// their commits sha<n>; a side writer's commit is side-<step run>.
+	mainSessions int
+	// statusFor, when set, says how a session ends ("" succeeds).
+	statusFor func(run activities.StartRunResult) string
+	// updates records branch updates; update decides them (nil: updated
+	// to merged-<n>).
+	updates []activities.BranchUpdateRequest
+	update  func(req activities.BranchUpdateRequest) activities.BranchUpdateResult
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -108,10 +121,14 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 	f.env.OnActivity(a.StartWorkflowRun, mock.Anything, testInput, mock.Anything).Return(
 		activities.StartRunResult{RunID: testRun.RunID, Branch: testRun.Branch}, nil)
 	f.env.OnActivity(a.StartStep, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.StepStart) (string, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.steps = append(f.steps, in)
 		return fmt.Sprintf("sr-%s-%d", in.StepID, in.Attempt), nil
 	})
 	f.env.OnActivity(a.FinishStep, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.StepEnd) error {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.ended[in.StepRunID] = in.Succeeded
 		return nil
 	})
@@ -121,11 +138,22 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		return activities.AgentPod{Name: "pod-" + run.StepRunID, IP: "10.0.0.1"}, nil
 	})
 	f.env.OnActivity(a.RunAgentSession, mock.Anything, testInput, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.sessions = append(f.sessions, run)
-		n := len(f.sessions)
+		if f.statusFor != nil {
+			if st := f.statusFor(run); st != "" {
+				return activities.SessionResult{Status: st, Reason: "stopped"}, nil
+			}
+		}
 		if f.sessionStatus != "" {
 			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
 		}
+		if run.Branch != testRun.Branch { // a side writer (D122)
+			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: "side-" + run.StepRunID, Pushed: true}, nil
+		}
+		f.mainSessions++
+		n := f.mainSessions
 		if run.Step.Contract == config.ContractBugFindings { // an investigator reads and pushes nothing
 			result := f.findings
 			if f.findingsFor != nil {
@@ -149,7 +177,19 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		}
 		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("sha%d", n), Pushed: pushed}, nil
 	}).After(f.sessionTime)
+	f.env.OnActivity(a.UpdateBranch, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.BranchUpdateRequest) (activities.BranchUpdateResult, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.updates = append(f.updates, req)
+		if f.update != nil {
+			return f.update(req), nil
+		}
+		f.head = fmt.Sprintf("merged-%d", len(f.updates))
+		return activities.BranchUpdateResult{Outcome: activities.BranchUpdated, HeadSHA: f.head}, nil
+	})
 	f.env.OnActivity(a.InterveneSession, mock.Anything, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.AgentPod, in activities.Intervention) (bool, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.interventions = append(f.interventions, in)
 		return true, nil
 	})
@@ -414,6 +454,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_image_build_events.json", "M6: image-build-events version, agent steps resolve their image as themselves"},
 	{"testdata/interpret_investigate_testable.json", "M6: bug-findings version, a testable bug is investigated, reproduced and fixed"},
 	{"testdata/interpret_bug_testable.json", "M6: bug-gates version, a test that must fail, then a fix that keeps it"},
+	{"testdata/interpret_concurrent_writers.json", "M7: concurrent-writers version, two writers at once, the side branch merged, a loop back to the coder"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -516,36 +557,6 @@ func TestInterpretInconclusiveReviewFailsTheRun(t *testing.T) {
 	out := f.run(t, defaultBuildSnapshot(t))
 	if out.Succeeded || !strings.HasPrefix(out.Reason, "step review: gate inconclusive: code-reviewer returned no valid verdict") || len(f.loops) != 0 {
 		t.Fatalf("result = %+v, loops %v", out, f.loops)
-	}
-}
-
-// A loop back to a branch re-runs only that branch, then continues after its group.
-func TestInterpretGotoIntoABranch(t *testing.T) {
-	const def = `
-name: split
-version: 1
-steps:
-  - parallel:
-      - id: implement
-        agent: {role: coder}
-      - id: docs
-        agent: {role: coder}
-        inputs: [spec]
-  - id: checks
-    gate: {type: command, onFail: {goto: implement, maxLoops: 1}}
-  - id: open
-    action: change-request.open
-`
-	f := newInterpretFixture(t)
-	f.gate = func(req activities.GateRequest) activities.GateOutcome {
-		return activities.GateOutcome{Passed: req.CommitSHA != "sha2", Summary: "mise run test exited 1"}
-	}
-	out := f.run(t, loopSnapshot(t, def))
-	if !out.Succeeded {
-		t.Fatalf("result = %+v", out)
-	}
-	if got := f.stepIDs(); got != "implement/1 docs/1 checks/1 implement/2 checks/2 open/1" {
-		t.Errorf("steps = %s", got)
 	}
 }
 

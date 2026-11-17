@@ -54,6 +54,8 @@ func CheckSupported(w config.Workflow) error {
 // from one step and one loop to the next. A parallel group runs its branches
 // one after another (D42); branches whose role returns a review verdict
 // review the last pushed commit, read-only, for the group's agent-verdict gate.
+// A group of writers runs them at the same time, each after the first on its
+// own branch, merged into the issue's branch once all succeeded (D122).
 func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) {
 	var a *activities.Activities
 	var run activities.StartRunResult
@@ -64,7 +66,8 @@ func Interpret(ctx workflow.Context, in InterpretInput) (IssueRunResult, error) 
 	if in.Snapshot.Error != "" {
 		out.Reason = in.Snapshot.Error
 	} else {
-		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}, findings: map[string]domain.BugFindings{}, pushed: map[string][2]string{}}
+		it := &interpreter{in: in, run: run, attempts: map[string]int{}, loops: map[string]int{}, findings: map[string]domain.BugFindings{}, pushed: map[string][2]string{},
+			sideHeads: map[string]string{}}
 		out.Reason = it.execute(ctx)
 		out.Succeeded, out.ChangeRequestURL = out.Reason == "", it.changeRequest
 		out.Merged = it.merged
@@ -106,6 +109,9 @@ type interpreter struct {
 	// pushed is the commit range each agent step's last execution pushed, by
 	// step ID, for preserve gates (D95).
 	pushed map[string][2]string
+	// sideHeads is the head of each side writer's own branch, by step ID
+	// (D122): where its next execution's pushed range starts.
+	sideHeads map[string]string
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -289,9 +295,20 @@ func (it *interpreter) reviewer(ctx workflow.Context, s config.Step) (activities
 // returns why the session failed, if it did, and leaves ending the StepRun to
 // the caller; an empty stepRunID means no StepRun was created.
 func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activities.SessionResult, string, string) {
+	return it.agentSessionOn(ctx, s, it.run.Branch, nil)
+}
+
+// agentSessionOn runs one agent step's session on branch. With a router, the
+// session is one of several running at once and reads the signals routed to
+// it (D122).
+func (it *interpreter) agentSessionOn(ctx workflow.Context, s config.Step, branch string, router *signalRouter) (activities.SessionResult, string, string) {
 	stepRunID, err := it.startStep(ctx, s.ID, domain.StepAgent)
 	if err != nil {
 		return activities.SessionResult{}, "", err.Error()
+	}
+	var box *sessionInbox
+	if router != nil {
+		box = router.inbox(ctx, stepRunID)
 	}
 	role := it.in.Snapshot.Roles[s.Agent.RoleName()]
 	step := &activities.AgentStep{StepID: s.ID, Role: role.Name, RoleVersion: role.Version, SystemPrompt: role.SystemPrompt,
@@ -303,7 +320,7 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 	if slices.Contains(s.Inputs, "findings") && step.Contract != config.ContractBugFindings {
 		step.Findings = it.run.Findings
 	}
-	run := activities.StartRunResult{RunID: it.run.RunID, StepRunID: stepRunID, Branch: it.run.Branch, Step: step}
+	run := activities.StartRunResult{RunID: it.run.RunID, StepRunID: stepRunID, Branch: branch, Step: step}
 
 	// A build the step waits for is recorded on the step (D93); runs from
 	// before that resolve the image without a step to record on.
@@ -334,7 +351,7 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 		step.AskHuman = supervised && workflow.GetVersion(ctx, "step-answers", workflow.DefaultVersion, 1) >= 1
 		running := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), it.a.RunAgentSession, it.in.Issue, run, pod)
 		if supervised {
-			aborted, err = it.awaitSession(ctx, stepRunID, pod, running, step.AskHuman, &session)
+			aborted, err = it.awaitSession(ctx, stepRunID, pod, running, step.AskHuman, &session, box)
 		} else {
 			err = running.Get(ctx, &session)
 		}
@@ -357,8 +374,12 @@ func (it *interpreter) agentSession(ctx workflow.Context, s config.Step) (activi
 }
 
 // parallel runs a group's branches one after another (D42), or only the branch
-// a loop back targets, then judges the group's gate.
+// a loop back targets, then judges the group's gate. A group of writers runs
+// them at the same time instead (D122).
 func (it *interpreter) parallel(ctx workflow.Context, pc int, s config.Step, only string) (int, string) {
+	if it.writerCount(s) > 1 && workflow.GetVersion(ctx, "concurrent-writers", workflow.DefaultVersion, 1) >= 1 {
+		return it.writers(ctx, pc, s, only)
+	}
 	var reviews []activities.Review
 	for _, b := range s.Parallel {
 		if only != "" && b.ID != only {

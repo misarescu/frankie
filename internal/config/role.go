@@ -206,6 +206,16 @@ func resolveRoles(w Workflow, lookup RoleLookup, refinement bool) (map[string]Ro
 			for j, b := range s.Parallel {
 				check(fmt.Sprintf("%s.parallel[%d]", path, j), b, verdictGroup)
 			}
+			// Writers of one group run at the same time and their branches
+			// are merged as the group's <id>-merge step (D122).
+			if !verdictGroup && len(s.Parallel) > 1 {
+				if s.ID == "" {
+					errs = append(errs, fmt.Errorf("%s: a group of writers needs an id, which names its merge step (<id>-merge)", path))
+				}
+				if s.Gate != nil {
+					errs = append(errs, fmt.Errorf("%s.gate: a group of writers runs them at the same time and has no gate; add the gate as the next step", path))
+				}
+			}
 		}
 	}
 	if !refinement {

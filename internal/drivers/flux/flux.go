@@ -1,9 +1,11 @@
-// Package flux is the `flux` release driver (D117): it deploys a release to a
-// stage that a Flux instance syncs from a GitOps repository, by committing the
-// stage's image tag there, and rolls it back by committing the previous tag.
-// It holds no credential for the stage's cluster (D108): it writes to the
-// repository through the git provider and learns whether the stage runs a
-// release only from the version the app reports.
+// Package flux holds the release drivers for targets a Flux instance syncs
+// from a GitOps repository. The `flux` driver (D117) deploys a release to a
+// stage by committing the stage's image tag there, and rolls it back by
+// committing the previous tag; the `flux-preview` driver (D124, D125) deploys a
+// change request's head as a preview by committing an entry to a ResourceSet's
+// inputs. Neither holds a credential for the target's cluster (D108): they
+// write to the repository through the git provider and learn what a target
+// runs only from the version the app reports.
 package flux
 
 import (
@@ -120,14 +122,20 @@ func (d *Driver) Status(ctx context.Context, r drivers.Request) (drivers.Status,
 	if err != nil {
 		return drivers.Status{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.VersionURL, nil)
+	return versionStatus(ctx, d.http, cfg.VersionURL, cfg.VersionField, r.Subject.SHA)
+}
+
+// versionStatus asks versionURL which version the target runs: ready once
+// field names commit sha. Only the version is ever quoted back.
+func versionStatus(ctx context.Context, client *http.Client, versionURL, field, sha string) (drivers.Status, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
 		return drivers.Status{}, fmt.Errorf("%w: %w", drivers.ErrInvalidConfig, err)
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := d.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return drivers.Status{}, fmt.Errorf("flux: %s: %w", cfg.VersionURL, err)
+		return drivers.Status{}, fmt.Errorf("flux: %s: %w", versionURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -137,11 +145,11 @@ func (d *Driver) Status(ctx context.Context, r drivers.Request) (drivers.Status,
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
 		return drivers.Status{Phase: drivers.PhaseProgressing, Message: "the version URL did not answer JSON"}, nil
 	}
-	v, _ := body[cfg.VersionField].(string)
+	v, _ := body[field].(string)
 	switch {
 	case v == "":
-		return drivers.Status{Phase: drivers.PhaseProgressing, Message: "the version URL reports no " + cfg.VersionField}, nil
-	case versionMatches(v, r.Subject.SHA):
+		return drivers.Status{Phase: drivers.PhaseProgressing, Message: "the version URL reports no " + field}, nil
+	case versionMatches(v, sha):
 		return drivers.Status{Phase: drivers.PhaseReady, Message: "version is " + v}, nil
 	}
 	if len(v) > 64 {

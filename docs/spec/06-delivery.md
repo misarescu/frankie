@@ -89,6 +89,21 @@ Each merge the merge queue makes asks the repo's `Release` workflow (one per rep
 
 A merge made by a person on the provider (D61) asks for no release; the next merge from the queue releases it with everything else.
 
+### The flux driver (D117)
+
+```yaml
+- name: staging
+  driver: flux
+  config:
+    repo: misarescu/Goodreads-CD                          # the GitOps repository Flux syncs
+    path: apps/goodreads/staging/kustomization.yaml       # pins the stage's image
+    image: ghcr.io/misarescu/goodreads-clone              # the images entry a release sets
+    versionURL: http://goodreads-stg.192.168.3.7.nip.io/api/version
+    # branch: main, tag: "sha-{short}", versionField: version (defaults)
+```
+
+`Publish` commits the release's tag (`newTag` of `image`) to `path` on `branch` with the provider credential, editing only that line, and names the deployment in the commit message; a stage that already pins the tag is left alone. `Status` is ready once `versionURL` reports the release's commit (its full SHA or a prefix of at least 7). `Rollback` commits the previous tag back, only while the stage still pins the release's tag. Capabilities: rollback and health.
+
 ### Where stages run (D108)
 
 For Goodreads-Clone, the M7 proving project:

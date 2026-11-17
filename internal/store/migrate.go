@@ -20,6 +20,12 @@ var migrationFiles embed.FS
 // Migrate applies all pending migrations, forward only, under a Postgres advisory
 // lock so concurrent control plane replicas can call it safely at startup.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	return migrateTo(ctx, pool, 0)
+}
+
+// migrateTo applies the pending migrations up to version, or all of them when
+// version is 0; tests use it to check a data migration against older data.
+func migrateTo(ctx context.Context, pool *pgxpool.Pool, version int64) error {
 	fsys, err := fs.Sub(migrationFiles, "migrations")
 	if err != nil {
 		return fmt.Errorf("store: migrations fs: %w", err)
@@ -35,7 +41,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("store: migration provider: %w", err)
 	}
-	if _, err := provider.Up(ctx); err != nil {
+	if version == 0 {
+		_, err = provider.Up(ctx)
+	} else {
+		_, err = provider.UpTo(ctx, version)
+	}
+	if err != nil {
 		return fmt.Errorf("store: migrate up: %w", err)
 	}
 	return nil

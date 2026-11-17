@@ -14,10 +14,17 @@ import (
 const releaseRepo = "misarescu/toy"
 
 // mergedIssue records an issue of the project whose change request in repo
-// merged as mergeSHA, in the order of the calls.
+// merged as mergeSHA, in the order of the calls: a person's merge (D61).
 func mergedIssue(t *testing.T, s *Store, projectID uuid.UUID, repo string, number int, mergeSHA string) domain.Issue {
 	t.Helper()
-	is := mustIssue(t, s, projectID, domain.IssueAwaitingHuman)
+	return mergedIssueFrom(t, s, projectID, domain.IssueAwaitingHuman, repo, number, mergeSHA)
+}
+
+// mergedIssueFrom is mergedIssue for an issue that waited in status from,
+// e.g. queued for the merge queue's merge.
+func mergedIssueFrom(t *testing.T, s *Store, projectID uuid.UUID, from domain.IssueStatus, repo string, number int, mergeSHA string) domain.Issue {
+	t.Helper()
+	is := mustIssue(t, s, projectID, from)
 	r := mustRun(t, s, is.ID)
 	cr, err := s.UpsertChangeRequest(t.Context(), NewChangeRequest{IssueID: is.ID, RunID: r.ID, Repo: repo, Number: number,
 		ProviderRef: "https://github.com/" + repo + "/pull/1", Branch: "agent/p-1/x", HeadSHA: "h" + mergeSHA})
@@ -109,6 +116,22 @@ func TestCreateReleaseContainsMergedIssuesUpToItsCommit(t *testing.T) {
 	}
 	if _, err := s.ListReleases(t.Context(), p.ID, 0); err == nil {
 		t.Error("ListReleases with limit 0 accepted")
+	}
+}
+
+// M7 (D121): the merge queue's merge asks for its release right away, before
+// the issue's run ends, so the release still contains the issue it merged
+// (gc-71's release contained none, and gc-72's contained gc-71).
+func TestCreateReleaseContainsTheQueuesMerge(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	a := mergedIssueFrom(t, s, p.ID, domain.IssueQueued, releaseRepo, 1, "m1")
+	first := mustRelease(t, s, p.ID, "m1")
+	mustTransitionRelease(t, s, first.ID, domain.ReleasePending, domain.ReleaseInProgress, domain.ReleaseSucceeded)
+	b := mergedIssueFrom(t, s, p.ID, domain.IssueQueued, releaseRepo, 2, "m2")
+	second := mustRelease(t, s, p.ID, "m2")
+	if !slices.Equal(first.IssueIDs, ids(a)) || !slices.Equal(second.IssueIDs, ids(b)) {
+		t.Errorf("releases contain %v and %v, want %v and %v", first.IssueIDs, second.IssueIDs, ids(a), ids(b))
 	}
 }
 

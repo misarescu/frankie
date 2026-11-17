@@ -143,3 +143,38 @@ func TestFinishRunFromTheQueue(t *testing.T) {
 		})
 	}
 }
+
+// M7 (D121): the queue's merge moved the issue to merged already, and its
+// release may have finished before the run ends; the run ends without
+// moving the issue back.
+func TestFinishRunAfterTheQueuesMerge(t *testing.T) {
+	for _, status := range []domain.IssueStatus{domain.IssueMerged, domain.IssueReleased} {
+		t.Run(string(status), func(t *testing.T) {
+			st, in := readyIssue(t)
+			a := &Activities{Store: st, Log: quietLog()}
+			env := activityEnv(a)
+			var run StartRunResult
+			v, err := env.ExecuteActivity(a.StartRun, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = v.Get(&run)
+			path := []domain.IssueStatus{domain.IssueRunning, domain.IssueQueued, domain.IssueMerged, domain.IssueReleased}
+			for i := 1; i < len(path) && path[i-1] != status; i++ {
+				if _, err := st.TransitionIssue(t.Context(), uuid.MustParse(in.IssueID), path[i-1], path[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			finish := FinishInput{IssueID: in.IssueID, RunID: run.RunID, Succeeded: true, Merged: true}
+			if _, err := env.ExecuteActivity(a.FinishRun, finish); err != nil {
+				t.Fatalf("FinishRun: %v", err)
+			}
+			if issue, _ := st.GetIssueByKey(t.Context(), in.IssueKey); issue.Status != status {
+				t.Errorf("issue %s, want %s", issue.Status, status)
+			}
+			if r, _ := st.GetRun(t.Context(), uuid.MustParse(run.RunID)); r.Status != domain.ExecSucceeded {
+				t.Errorf("run %s, want succeeded", r.Status)
+			}
+		})
+	}
+}

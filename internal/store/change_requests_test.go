@@ -116,6 +116,17 @@ func TestRecordChangeRequestMerged(t *testing.T) {
 	}
 }
 
+// M7 (D121): the merge queue's merge moves its queued issue to merged with
+// the change request, so the release the merge asks for contains it.
+func TestRecordChangeRequestMergedFromTheQueue(t *testing.T) {
+	s := newTestStore(t)
+	_, _, cr := mustChangeRequest(t, s, domain.IssueQueued, 1)
+	got, err := s.RecordChangeRequestMerged(t.Context(), cr.ID, "m1")
+	if err != nil || got.Status != domain.IssueMerged {
+		t.Fatalf("RecordChangeRequestMerged = %s, %v; want merged", got.Status, err)
+	}
+}
+
 // An issue that moved on keeps its status; the change request is still merged.
 func TestRecordChangeRequestMergedLeavesBusyIssue(t *testing.T) {
 	s := newTestStore(t)

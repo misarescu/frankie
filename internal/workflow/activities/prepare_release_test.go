@@ -21,6 +21,7 @@ const (
 	relSHA   = "cccccccccccccccccccccccccccccccccccccccc"
 	relRepo  = "misarescu/Goodreads-Clone"
 	stagesOK = `
+e2e: {command: mise run e2e}
 stages:
   - name: staging
     driver: flux

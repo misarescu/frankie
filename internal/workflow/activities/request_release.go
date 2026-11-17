@@ -29,17 +29,20 @@ type ReleaseInput struct {
 // ReleaseRequest asks for a release of a commit on the base branch.
 type ReleaseRequest struct {
 	SHA string
+	// BaseBranch is the branch the commit is on; empty in requests from
+	// before D116, which mean main.
+	BaseBranch string `json:",omitempty"`
 }
 
 // requestRelease signals repo's release workflow to release sha, starting the
 // workflow if none is running (signal-with-start). Without a Temporal client
 // (some tests) nothing is requested.
-func (a *Activities) requestRelease(ctx context.Context, repo, sha string) error {
+func (a *Activities) requestRelease(ctx context.Context, repo, baseBranch, sha string) error {
 	if a.Queue == nil {
 		return nil
 	}
 	id := ReleaseWorkflowID(repo)
-	_, err := a.Queue.SignalWithStartWorkflow(ctx, id, ReleaseRequestSignal, ReleaseRequest{SHA: sha},
+	_, err := a.Queue.SignalWithStartWorkflow(ctx, id, ReleaseRequestSignal, ReleaseRequest{SHA: sha, BaseBranch: baseBranch},
 		client.StartWorkflowOptions{ID: id, TaskQueue: a.TaskQueue}, releaseWorkflow, ReleaseInput{Repo: repo})
 	if err != nil {
 		return fmt.Errorf("request release on %s: %w", id, err)

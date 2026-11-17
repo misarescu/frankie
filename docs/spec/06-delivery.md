@@ -14,6 +14,18 @@ Each stage after the build loop is the same interpreter workflow with a differen
 - **FR-TA-4** When feature flags are enabled for the project, it writes tests for **both flag states**. Staging runs regression with flags off and new behavior with flags on.
 - E2E tests run in the per-PR preview environment before merge (D14). The build loop's deterministic gate additionally verifies the tests compile and lint.
 
+### Running the suite (D116)
+
+A project declares its suite in `.factory/config.yaml`; a stage with `verify: e2e-suite` needs it:
+
+```yaml
+e2e:
+  command: mise run e2e        # e.g. bru run api --env-var baseUrl=$E2E_BASE_URL --reporter-junit $E2E_RESULTS
+  results: e2e-results.xml     # JUnit XML, relative to the repo (default)
+```
+
+The control plane runs `command` in a sandboxed gate pod (Kata, read-only git token) at the released commit, checked out from the base branch, in that commit's toolchain image, with `E2E_BASE_URL` (the stage's `url`), `E2E_RESULTS`, `E2E_STAGE` and `E2E_COMMIT`. The stage's host joins the project's egress hosts for the pod. The command's exit code, which the kubelet records, decides the verdict (invariant 2). The JUnit results, which Bruno and Playwright both write and the pod prints to its log, name the failing tests. A test is tagged with the issues whose keys appear in its name or its suite's (FR-TA-3), e.g. a Bruno request `gc-65 search by tag` or a Playwright title with `@gc-65`. A run that wrote no results, could not check out the commit, or whose failing tests all errored (e.g. could not reach the stage) is inconclusive: the stage fails and is rolled back, but no bug issue is opened.
+
 ### Preview environments
 
 One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the concrete profile allows at most one at a time or none. Since M7 previews run on Frankie's Kapsule cluster, not where the project's stages run (D108).

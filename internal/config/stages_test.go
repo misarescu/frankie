@@ -23,6 +23,7 @@ func testDrivers(t *testing.T) *drivers.Registry {
 }
 
 const goodreadsStages = `
+e2e: {command: mise run e2e}
 stages:
   - name: preview
     driver: flux-preview
@@ -111,7 +112,7 @@ func TestValidateStagesRejects(t *testing.T) {
 	tests := []struct{ name, yaml, want string }{
 		{"unknown driver", "stages: [{name: stg, driver: argocd}]", `unknown release driver "argocd"`},
 		{"rollback required", "stages: [{name: stg, driver: plain, rollback: true}]", "cannot roll back"},
-		{"verify needs health", "stages: [{name: stg, driver: plain, verify: e2e-suite, url: 'https://x'}]", "health"},
+		{"verify needs health", "e2e: {command: x}\nstages: [{name: stg, driver: plain, verify: e2e-suite, url: 'https://x'}]", "health"},
 		{"driver rejects config", "stages: [{name: stg, driver: flux, config: {token: x}}]", "token is not allowed"},
 		{"two previews", "stages: [{name: a, driver: flux-preview}, {name: b, driver: flux-preview}]", "at most one preview stage"},
 		{"preview after release", "stages: [{name: stg, driver: flux}, {name: pr, driver: flux-preview}]", "comes before the release stages"},

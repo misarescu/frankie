@@ -209,8 +209,11 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 			return nil, nil, fmt.Errorf("controlplane: egress key: %w", err)
 		}
 	}
-	w.RegisterActivity(&activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
-		Egress: egressSigner, Queue: c, TaskQueue: workflow.TaskQueue, IntakeLabel: cfg.IntakeLabel, Log: log.With("component", "activities")})
+	acts := &activities.Activities{Store: st, Kube: cfg.Kube, Gateway: gw, Signer: signer, GitHub: gh, Toolchain: toolchain, Agent: cfg.Agent, Gate: cfg.Gate, Services: cfg.Services,
+		Egress: egressSigner, Queue: c, TaskQueue: workflow.TaskQueue, IntakeLabel: cfg.IntakeLabel, Log: log.With("component", "activities")}
+	// Stages that verify with e2e-suite run the project's suite in a gate pod (D116).
+	acts.Verifier = activities.SuiteVerifier{A: acts}
+	w.RegisterActivity(acts)
 	if err := w.Start(); err != nil {
 		c.Close()
 		return nil, nil, fmt.Errorf("controlplane: worker: %w", err)

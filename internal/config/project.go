@@ -60,6 +60,9 @@ type Project struct {
 	// optional preview stage for change requests before they merge (D113).
 	// ParseProject checks them alone; ValidateStages against their drivers.
 	Stages []Stage `json:"stages,omitempty"`
+	// E2E runs the project's end-to-end suite for stages that verify with
+	// e2e-suite (D116).
+	E2E *E2E `json:"e2e,omitempty"`
 }
 
 // Merge approval labels (D92).
@@ -308,6 +311,15 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 		errs = append(errs, err)
 	}
 	errs = append(errs, validateStages(p.Stages)...)
+	if p.E2E != nil {
+		errs = append(errs, p.E2E.validate()...)
+	}
+	for _, s := range p.Stages {
+		if s.Verify == VerifyE2ESuite && p.E2E == nil {
+			errs = append(errs, fmt.Errorf("stages.%s: verify %s needs e2e.command", s.Name, VerifyE2ESuite))
+			break
+		}
+	}
 	seen := map[string]bool{}
 	for i := range p.Services {
 		s := &p.Services[i]

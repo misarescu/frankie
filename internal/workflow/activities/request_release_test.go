@@ -38,7 +38,7 @@ func TestMergeQueuedRequestsRelease(t *testing.T) {
 		t.Fatalf("calls = %+v, want one per merge attempt", starter.calls)
 	}
 	c := starter.calls[0]
-	if c.id != "release/misarescu/Goodreads-Clone" || c.signal != ReleaseRequestSignal || c.arg != (ReleaseRequest{SHA: "m3rge"}) ||
+	if c.id != "release/misarescu/Goodreads-Clone" || c.signal != ReleaseRequestSignal || c.arg != (ReleaseRequest{SHA: "m3rge", BaseBranch: "main"}) ||
 		c.opts.ID != c.id || c.opts.TaskQueue != "frankie" || c.workflow != "Release" || c.input.(ReleaseInput).Repo != "misarescu/Goodreads-Clone" {
 		t.Errorf("call = %+v", c)
 	}

@@ -87,7 +87,7 @@ func (a *Activities) MergeQueued(ctx context.Context, req QueueMergeRequest) (Qu
 	}
 	// The merge asks for a release of its commit (D114); a retry asks again,
 	// which the release workflow takes as the same request.
-	if err := a.requestRelease(ctx, repo, sha); err != nil {
+	if err := a.requestRelease(ctx, repo, req.Issue.BaseBranch, sha); err != nil {
 		return QueueMergeResult{}, err
 	}
 	return a.endMerge(ctx, stepID, QueueMergeResult{Outcome: QueueMerged, MergeSHA: sha})

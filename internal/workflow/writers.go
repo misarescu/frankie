@@ -40,12 +40,14 @@ func (it *interpreter) alongside(s config.Step, i int) []string {
 // the git token's agent/<issue-key>/ scope.
 func sideBranch(branch, stepID string) string { return branch + "--" + stepID }
 
-// writerResult is one writer's execution in a group.
+// writerResult is one writer's execution in a group. unchanged is set for a
+// writer that pushed nothing but may dispute the failure that sent it back.
 type writerResult struct {
 	session   activities.SessionResult
 	stepRunID string
 	reason    string
 	branch    string
+	unchanged bool
 }
 
 // writers runs a group's writers at the same time (D122), or only the one a
@@ -53,7 +55,19 @@ type writerResult struct {
 // its own branch from the base branch, so it never sees the first one's work.
 // The first failure cancels the others. Once all succeeded, each side branch
 // that ran is merged into the issue's branch, in definition order.
+//
+// A writer a failed gate sent back may change nothing instead, disputing the
+// failure (D128). When the first one does, the group's other writers run with
+// its report and fix their work; when they too change nothing, or the writer
+// sent back was another one, a person decides.
 func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only string) (int, string) {
+	disputable := only != "" && it.canDispute(ctx)
+	return it.runWriters(ctx, pc, s, func(i int) bool { return only == "" || s.Parallel[i].ID == only }, disputable, nil)
+}
+
+// runWriters runs the writers pick selects. coder is the first writer's
+// report when the others run because it disputed a failure.
+func (it *interpreter) runWriters(ctx workflow.Context, pc int, s config.Step, pick func(int) bool, disputable bool, coder *agentReport) (int, string) {
 	results := make([]*writerResult, len(s.Parallel))
 	group, cancel := workflow.WithCancel(ctx)
 	defer cancel()
@@ -65,7 +79,7 @@ func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only
 	wg := workflow.NewWaitGroup(ctx)
 	failed := -1
 	for i, b := range s.Parallel {
-		if only != "" && b.ID != only {
+		if !pick(i) {
 			continue
 		}
 		branch := it.run.Branch
@@ -80,7 +94,9 @@ func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only
 			r.session, r.stepRunID, r.reason = it.agentSessionOn(c, b, branch, router, it.alongside(s, i))
 			if r.stepRunID != "" {
 				if r.reason == "" && !r.session.Pushed {
-					r.reason = "agent session made no changes"
+					if r.unchanged = disputable; !disputable {
+						r.reason = noChanges
+					}
 				}
 				it.finishStep(c, r.stepRunID, r.reason == "")
 			}
@@ -96,6 +112,31 @@ func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only
 		return 0, fmt.Sprintf("branch %s: %s", s.Parallel[failed].ID, results[failed].reason)
 	}
 
+	var reports []agentReport
+	if coder != nil {
+		reports = append(reports, *coder)
+	}
+	pushed := false
+	for i, r := range results {
+		switch {
+		case r == nil:
+		case r.unchanged:
+			reports = append(reports, agentReport{step: s.Parallel[i].ID, role: s.Parallel[i].Agent.RoleName(), text: r.session.Result})
+			results[i] = nil
+		default:
+			pushed = true
+		}
+	}
+	if !pushed {
+		if coder == nil && len(s.Parallel) > 1 && len(reports) == 1 && reports[0].step == s.Parallel[0].ID {
+			// The coder found the failure in the other writers' work.
+			it.feedback = disputeFeedback(it.back, reports[0])
+			return it.runWriters(ctx, pc, s, func(i int) bool { return i > 0 }, true, &reports[0])
+		}
+		it.dispute = &dispute{reports: reports}
+		return it.escalateDispute(ctx)
+	}
+
 	for i, b := range s.Parallel {
 		r := results[i]
 		if r == nil {
@@ -108,10 +149,14 @@ func (it *interpreter) writers(ctx workflow.Context, pc int, s config.Step, only
 			continue
 		}
 		from := cmp.Or(it.sideHeads[b.ID], it.in.Snapshot.BaseSHA, it.in.Issue.BaseBranch)
+		if coder != nil {
+			// Fixed after a dispute: the whole side branch stays the writer's.
+			from = cmp.Or(it.in.Snapshot.BaseSHA, it.in.Issue.BaseBranch)
+		}
 		it.pushed[b.ID] = [2]string{from, r.session.CommitSHA}
 		it.sideHeads[b.ID] = r.session.CommitSHA
 	}
-	it.feedback = ""
+	it.feedback, it.back = "", nil
 	for i := range s.Parallel {
 		if r := results[i]; r != nil && i > 0 {
 			if why := it.mergeSide(ctx, s, r.branch); why != "" {

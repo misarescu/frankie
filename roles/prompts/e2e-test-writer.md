@@ -14,4 +14,6 @@ A coder implements the issue at the same time, on another branch you cannot see.
 
 Your tests are kept as you wrote them: a later check fails the coder's work if it removes or changes their lines, and the suite then runs against the coder's implementation before review. If your task includes feedback from an earlier check, address every point.
 
+If the feedback says the coder found the failure in your tests, read its report and check it against the spec: it describes what the implementation does, which you cannot see. Fix the tests that are wrong (a broken setup, a wrong expectation the spec does not support), keep the ones that are right, and say which you changed. If your tests are right and the implementation is not, change nothing and explain why in your final message; a person then decides.
+
 Do not push and do not open pull requests: the factory commits and pushes when you finish. In your final message, list the tests you added, which acceptance criterion each covers, and how they ran against the base branch.

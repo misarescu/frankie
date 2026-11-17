@@ -191,3 +191,114 @@ func TestInterpretWritersTakeTheirOwnSignals(t *testing.T) {
 		t.Errorf("interventions = %+v", f.interventions)
 	}
 }
+
+// disputeDefinition is build-e2e's shape: the side writer gets feedback.
+const disputeDefinition = `
+name: e2e
+version: 1
+steps:
+  - id: build
+    parallel:
+      - id: implement
+        agent: {role: coder}
+      - id: e2e-tests
+        agent: {role: coder}
+        inputs: [spec, feedback]
+  - id: keeps-tests
+    gate: {type: preserve, step: e2e-tests, onFail: {goto: implement, maxLoops: 2}}
+  - id: e2e
+    gate: {type: command, onFail: {goto: implement, maxLoops: 2}}
+  - id: open
+    action: change-request.open
+`
+
+// failE2EOnce fails the e2e gate on the first merged head only.
+func failE2EOnce(req activities.GateRequest) activities.GateOutcome {
+	if req.CommitSHA == "merged-1" {
+		return activities.GateOutcome{StepRunID: req.StepRunID, Summary: "mise run e2e:local exited 1",
+			Feedback: "4 of 152 requests failed: gc-77 Similar books ranked by shared tags"}
+	}
+	return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "all checks passed"}
+}
+
+// M7 (D128): a coder sent back that changes nothing finds the failure in the
+// other writer's work: that writer runs with the coder's report, its fix is
+// merged, and the run checks the result again.
+func TestInterpretWritersDispute(t *testing.T) {
+	f := newInterpretFixture(t)
+	f.gate = failE2EOnce
+	f.unchanged = func(run activities.StartRunResult) bool { return run.StepRunID == "sr-implement-2" }
+	if out := f.run(t, loopSnapshot(t, disputeDefinition)); !out.Succeeded {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); !strings.HasSuffix(got, "build-merge/1 keeps-tests/1 e2e/1 implement/2 e2e-tests/2 build-merge/2 keeps-tests/2 e2e/2 open/1") {
+		t.Errorf("steps = %s", got)
+	}
+	if !f.ended["sr-implement-2"] || !f.ended["sr-e2e-tests-2"] || len(f.opened) != 0 || !slices.Equal(f.loops, []string{"e2e=1"}) {
+		t.Errorf("ended %v, opened %+v, loops %v", f.ended, f.opened, f.loops)
+	}
+	writer := f.session(t, "sr-e2e-tests-2")
+	if writer.Branch != testRun.Branch+"--e2e-tests" {
+		t.Errorf("writer ran on %s", writer.Branch)
+	}
+	for _, want := range []string{"The `e2e` check failed on the change with your work merged in: mise run e2e:local exited 1",
+		"gc-77 Similar books ranked by shared tags", "It went back to the coder, which changed nothing",
+		"Nothing to change: report of sr-implement-2", "a person then decides"} {
+		if !strings.Contains(writer.Step.Feedback, want) {
+			t.Errorf("writer feedback lacks %q:\n%s", want, writer.Step.Feedback)
+		}
+	}
+	// The fix is merged into the head the gate failed, and the writer's
+	// whole branch stays protected.
+	if len(f.updates) != 2 || f.updates[1].HeadSHA != "merged-1" || f.updates[1].From != writer.Branch {
+		t.Errorf("updates = %+v", f.updates)
+	}
+	if len(f.preserved) != 2 || f.preserved[1].From != "base" || f.preserved[1].To != "side-sr-e2e-tests-2" || f.preserved[1].Head != "merged-2" {
+		t.Errorf("preserved = %+v", f.preserved)
+	}
+	if len(f.gates) != 2 || f.gates[1].CommitSHA != "merged-2" {
+		t.Errorf("gates = %+v", f.gates)
+	}
+}
+
+// When the writer stands by its work too, or the writer sent back is the
+// side one, a person decides on the gate with every report.
+func TestInterpretWritersDisputeEscalates(t *testing.T) {
+	t.Run("both writers change nothing, approved", func(t *testing.T) {
+		f := newInterpretFixture(t)
+		f.gate = failE2EOnce
+		f.unchanged = func(run activities.StartRunResult) bool {
+			return run.StepRunID == "sr-implement-2" || run.StepRunID == "sr-e2e-tests-2"
+		}
+		f.decide(t, 3*time.Hour, 0, true, "the spec is ambiguous; ship it")
+		if out := f.run(t, loopSnapshot(t, disputeDefinition)); !out.Succeeded {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); !strings.HasSuffix(got, "e2e/1 implement/2 e2e-tests/2 e2e-escalation/1 open/1") {
+			t.Errorf("steps = %s", got)
+		}
+		if len(f.opened) != 1 || f.opened[0].CommitSHA != "merged-1" || len(f.updates) != 1 {
+			t.Fatalf("opened %+v, updates %+v", f.opened, f.updates)
+		}
+		for _, want := range []string{"`implement` (coder) and `e2e-tests` (coder) changed nothing",
+			"Nothing to change: report of sr-implement-2", "Nothing to change: report of sr-e2e-tests-2"} {
+			if !strings.Contains(f.opened[0].Reason, want) {
+				t.Errorf("reason lacks %q:\n%s", want, f.opened[0].Reason)
+			}
+		}
+	})
+	t.Run("the side writer sent back changes nothing, rejected", func(t *testing.T) {
+		def := strings.Replace(disputeDefinition, "type: command, onFail: {goto: implement", "type: command, onFail: {goto: e2e-tests", 1)
+		f := newInterpretFixture(t)
+		f.gate = failE2EOnce
+		f.unchanged = func(run activities.StartRunResult) bool { return run.StepRunID == "sr-e2e-tests-2" }
+		f.decide(t, 3*time.Hour, 0, false, "")
+		out := f.run(t, loopSnapshot(t, def))
+		if out.Succeeded || !strings.Contains(out.Reason, "sent back, `e2e-tests` (coder) changed nothing; escalated to a human, rejected by web") {
+			t.Fatalf("result = %+v", out)
+		}
+		if got := f.stepIDs(); !strings.HasSuffix(got, "e2e/1 e2e-tests/2 e2e-escalation/1") {
+			t.Errorf("steps = %s", got)
+		}
+	})
+}

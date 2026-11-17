@@ -73,7 +73,9 @@ type Release struct {
 	SHA       string
 	Status    ReleaseStatus
 	// IssueIDs are the issues it contains, in the order they merged.
-	IssueIDs   []uuid.UUID
+	IssueIDs []uuid.UUID
+	// Reason says why it failed or was rolled back.
+	Reason     string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	FinishedAt *time.Time

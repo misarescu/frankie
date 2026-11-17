@@ -86,15 +86,16 @@ func (s *Store) ListReleases(ctx context.Context, projectID uuid.UUID, limit int
 
 // TransitionRelease moves a release between statuses with the same contract as
 // TransitionRun: an invalid transition is rejected, a release found in to is
-// returned as it is, and one in another status is a conflict. A release that
+// returned as it is, and one in another status is a conflict. reason, when not
+// empty, says why it failed or was rolled back. A release that
 // succeeds has reached its last stage, so its issues still merged move to
 // released in the same transaction, each with a state_change event (D110).
-func (s *Store) TransitionRelease(ctx context.Context, id uuid.UUID, from, to domain.ReleaseStatus) (domain.Release, error) {
+func (s *Store) TransitionRelease(ctx context.Context, id uuid.UUID, from, to domain.ReleaseStatus, reason string) (domain.Release, error) {
 	if !domain.CanTransitionRelease(from, to) {
 		return domain.Release{}, fmt.Errorf("store: release %s: %w: %s -> %s", id, domain.ErrInvalidTransition, from, to)
 	}
 	err := s.inTx(ctx, func(q *db.Queries) error {
-		if _, err := q.TransitionRelease(ctx, db.TransitionReleaseParams{ID: id, FromStatus: string(from), ToStatus: string(to)}); err != nil {
+		if _, err := q.TransitionRelease(ctx, db.TransitionReleaseParams{ID: id, FromStatus: string(from), ToStatus: string(to), Reason: reason}); err != nil {
 			return mapErr("transition release", err)
 		}
 		if err := appendStateChange(ctx, q, nil, nil, domain.StateChange{Entity: "release", ID: id, From: string(from), To: string(to)}); err != nil {
@@ -146,7 +147,7 @@ func (s *Store) releaseWithIssues(ctx context.Context, q *db.Queries, r db.Relea
 	}
 	return domain.Release{
 		ID: r.ID, ProjectID: r.ProjectID, Repo: r.Repo, SHA: r.Sha, Status: domain.ReleaseStatus(r.Status),
-		IssueIDs: nonNil(ids), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		IssueIDs: nonNil(ids), Reason: r.Reason, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
 	}, nil
 }
 

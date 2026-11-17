@@ -82,7 +82,7 @@ Every status change (Issue, Run, StepRun) is a compare-and-set on the expected c
 `id, change_request_id, position, state (waiting|rebasing|testing|merging|returned|merged), reason?`.
 
 ### Release / Stage / Deployment
-- `Release`: `id, project_id, repo, sha, issue_ids[], created_at, finished_at, status (pending|in_progress|succeeded|failed|rolled_back)`. One per project, repo and commit (D110).
+- `Release`: `id, project_id, repo, sha, issue_ids[], created_at, finished_at, status (pending|in_progress|succeeded|failed|rolled_back), reason`. One per project, repo and commit (D110); `reason` says why it failed or was rolled back (D114).
 - `Stage`: `name, order, driver, driver_config, url?, verify?, gate?, rollback?` (stages are project configuration: `stages:` in `.factory/config.yaml`, D113).
 - `Deployment`: `id, release_id, stage, driver, driver_state jsonb, status, reason, started_at, finished_at`. One per release and stage, with the release's statuses.
 

@@ -15,6 +15,7 @@ import (
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/drivers"
 	"github.com/misarescu/frankie/internal/egress"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
@@ -329,9 +330,50 @@ type Activities struct {
 	// SessionPodCheck is how often a session checks that its agent pod still
 	// runs; default 15s (D102).
 	SessionPodCheck time.Duration
-	// Queue starts and signals the merge queue workflows (D88), on TaskQueue.
+	// Queue starts and signals the merge queue workflows (D88) and the release
+	// workflows (D114), on TaskQueue.
 	Queue     QueueStarter
 	TaskQueue string
+	// Drivers are the release drivers stages name (D112); nil has none, so a
+	// project's stages are invalid until its drivers exist.
+	Drivers *drivers.Registry
+	// Verifier checks a stage once it runs a release (verify: e2e-suite);
+	// nil makes stages that verify invalid.
+	Verifier Verifier
+	// Release times the release stages (D114).
+	Release ReleaseConfig
+}
+
+// ReleaseConfig times a release's stages.
+type ReleaseConfig struct {
+	// StageTimeout bounds waiting for a stage to run a release; default 15m.
+	StageTimeout time.Duration
+	// PollInterval is how often a driver is asked whether its stage runs the
+	// release; default 10s.
+	PollInterval time.Duration
+}
+
+func (c ReleaseConfig) stageTimeout() time.Duration {
+	if c.StageTimeout > 0 {
+		return c.StageTimeout
+	}
+	return 15 * time.Minute
+}
+
+func (c ReleaseConfig) pollInterval() time.Duration {
+	if c.PollInterval > 0 {
+		return c.PollInterval
+	}
+	return 10 * time.Second
+}
+
+// driverRegistry returns the release drivers, none when unconfigured.
+func (a *Activities) driverRegistry() *drivers.Registry {
+	if a.Drivers != nil {
+		return a.Drivers
+	}
+	r, _ := drivers.NewRegistry()
+	return r
 }
 
 // hardcodedWorkflow is the snapshot recorded on M1 runs (invariant 4).

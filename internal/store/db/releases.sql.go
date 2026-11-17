@@ -63,7 +63,7 @@ func (q *Queries) GetDeploymentByStage(ctx context.Context, arg GetDeploymentByS
 }
 
 const getRelease = `-- name: GetRelease :one
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at FROM releases WHERE id = $1
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason FROM releases WHERE id = $1
 `
 
 func (q *Queries) GetRelease(ctx context.Context, id uuid.UUID) (Release, error) {
@@ -78,12 +78,13 @@ func (q *Queries) GetRelease(ctx context.Context, id uuid.UUID) (Release, error)
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reason,
 	)
 	return i, err
 }
 
 const getReleaseByCommit = `-- name: GetReleaseByCommit :one
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at FROM releases WHERE project_id = $1 AND repo = $2 AND sha = $3
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason FROM releases WHERE project_id = $1 AND repo = $2 AND sha = $3
 `
 
 type GetReleaseByCommitParams struct {
@@ -104,6 +105,7 @@ func (q *Queries) GetReleaseByCommit(ctx context.Context, arg GetReleaseByCommit
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reason,
 	)
 	return i, err
 }
@@ -152,7 +154,7 @@ const insertRelease = `-- name: InsertRelease :one
 INSERT INTO releases (id, project_id, repo, sha)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (project_id, repo, sha) DO NOTHING
-RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason
 `
 
 type InsertReleaseParams struct {
@@ -182,6 +184,7 @@ func (q *Queries) InsertRelease(ctx context.Context, arg InsertReleaseParams) (R
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reason,
 	)
 	return i, err
 }
@@ -289,7 +292,7 @@ func (q *Queries) ListReleaseIssueIDs(ctx context.Context, releaseID uuid.UUID) 
 }
 
 const listReleasesForProject = `-- name: ListReleasesForProject :many
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at FROM releases WHERE project_id = $1
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason FROM releases WHERE project_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
 `
@@ -318,6 +321,7 @@ func (q *Queries) ListReleasesForProject(ctx context.Context, arg ListReleasesFo
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -405,20 +409,28 @@ func (q *Queries) TransitionDeployment(ctx context.Context, arg TransitionDeploy
 const transitionRelease = `-- name: TransitionRelease :one
 UPDATE releases
 SET status      = $1::text,
+    reason      = CASE WHEN $2::text <> '' THEN $2::text ELSE reason END,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'rolled_back') THEN coalesce(finished_at, now()) ELSE finished_at END,
     updated_at  = now()
-WHERE id = $2 AND status = $3::text
-RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at
+WHERE id = $3 AND status = $4::text
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason
 `
 
 type TransitionReleaseParams struct {
 	ToStatus   string
+	Reason     string
 	ID         uuid.UUID
 	FromStatus string
 }
 
+// A reason, when given, replaces the earlier one.
 func (q *Queries) TransitionRelease(ctx context.Context, arg TransitionReleaseParams) (Release, error) {
-	row := q.db.QueryRow(ctx, transitionRelease, arg.ToStatus, arg.ID, arg.FromStatus)
+	row := q.db.QueryRow(ctx, transitionRelease,
+		arg.ToStatus,
+		arg.Reason,
+		arg.ID,
+		arg.FromStatus,
+	)
 	var i Release
 	err := row.Scan(
 		&i.ID,
@@ -429,6 +441,7 @@ func (q *Queries) TransitionRelease(ctx context.Context, arg TransitionReleasePa
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reason,
 	)
 	return i, err
 }

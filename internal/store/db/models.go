@@ -151,6 +151,7 @@ type Release struct {
 	FinishedAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	Reason     string
 }
 
 type ReleaseIssue struct {

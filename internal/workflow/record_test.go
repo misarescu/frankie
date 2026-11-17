@@ -57,6 +57,8 @@ type stubActivities struct {
 	conflict bool
 	// ciFails makes the repo's CI fail on the commit the queue would merge.
 	ciFails bool
+	// unchanged, when set, says which agent sessions push nothing (D128).
+	unchanged func(run activities.StartRunResult) bool
 }
 
 func (s *stubActivities) AwaitProviderChecks(_ context.Context, req activities.ProviderChecksRequest) (activities.GateOutcome, error) {
@@ -187,6 +189,10 @@ func (s *stubActivities) RunAgentSession(_ context.Context, _ activities.IssueRu
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.unchanged != nil && s.unchanged(run) {
+		return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: fmt.Sprintf("%040d", s.pushes),
+			Result: "Nothing to change: the e2e test's setup never tags book B1."}, nil
+	}
 	s.pushes++
 	return activities.SessionResult{Status: "succeeded", Result: "Done.", Branch: run.Branch,
 		CommitSHA: fmt.Sprintf("%040d", s.pushes), Pushed: true}, nil
@@ -341,6 +347,14 @@ func TestRecordInterpretHistories(t *testing.T) {
 		// its suite in a preview, the coder fixes it, the second head passes
 		// there, and the queue merges it.
 		{"interpret_preview_gate.json", previewSnapshot(t), func(activities.GateRequest) bool { return false }, nil, false, false, false, false, true, false, false},
+		// disputed-changes version (D128): the e2e gate fails, the coder sent
+		// back changes nothing, the test writer fixes its tests with the
+		// coder's report, and the merged fix passes.
+		{"interpret_disputed_tests.json", loopSnapshot(t, disputeDefinition), failFirst("e2e"), nil, false, false, false, false, false, false, false},
+	}
+	// setup adjusts the stub Activities of the scenarios that need more.
+	setup := map[string]func(*stubActivities){
+		"interpret_disputed_tests.json": func(s *stubActivities) { s.unchanged = nthSession("implement", 2) },
 	}
 	for i, sc := range scenarios {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != sc.file {
@@ -357,6 +371,9 @@ func TestRecordInterpretHistories(t *testing.T) {
 			}
 			if sc.answer {
 				stub.started, stub.answered = make(chan string, 1), make(chan struct{})
+			}
+			if f := setup[sc.file]; f != nil {
+				f(stub)
 			}
 			w.RegisterActivity(stub)
 			if err := w.Start(); err != nil {
@@ -430,6 +447,19 @@ func failFirst(stepID string) func(req activities.GateRequest) bool {
 		}
 		failed = true
 		return true
+	}
+}
+
+// nthSession matches the n-th session of an agent step; the stub calls it
+// holding its lock.
+func nthSession(stepID string, n int) func(run activities.StartRunResult) bool {
+	seen := 0
+	return func(run activities.StartRunResult) bool {
+		if run.Step.StepID != stepID {
+			return false
+		}
+		seen++
+		return seen == n
 	}
 }
 

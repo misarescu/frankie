@@ -186,6 +186,12 @@ func (it *interpreter) humanGate(ctx workflow.Context, pc int, s config.Step) (i
 // gate; rejecting, or no decision in time, fails the run.
 func (it *interpreter) escalate(ctx workflow.Context, pc int, s config.Step, failure string) (int, string) {
 	reason := fmt.Sprintf("The `%s` gate failed: %s. Approve to accept the change anyway and continue, or reject to fail the run.", s.ID, failure)
+	return it.askToContinue(ctx, pc, s, failure, reason)
+}
+
+// askToContinue opens the escalation of the failed gate s, at pc, with
+// reason: approving continues after the gate, rejecting fails the run.
+func (it *interpreter) askToContinue(ctx workflow.Context, pc int, s config.Step, failure, reason string) (int, string) {
 	if why := it.awaitHuman(ctx, s.ID+escalationSuffix, reason, time.Duration(config.DefaultHumanTimeout), config.OnTimeoutFail); why != "" {
 		return 0, fmt.Sprintf("gate failed: %s; escalated to a human, %s", failure, why)
 	}

@@ -112,6 +112,11 @@ type interpreter struct {
 	// sideHeads is the head of each side writer's own branch, by step ID
 	// (D122): where its next execution's pushed range starts.
 	sideHeads map[string]string
+	// back is the failed gate that last sent the change back, until an agent
+	// pushes again; dispute is set when the agents it went to changed nothing
+	// (D128).
+	back    *sentBack
+	dispute *dispute
 }
 
 // execute runs the steps and returns why the run failed, or "" on success.
@@ -132,7 +137,9 @@ func (it *interpreter) execute(ctx workflow.Context) string {
 				reason = it.investigate(ctx, s)
 				break
 			}
-			reason = it.agent(ctx, s)
+			if reason = it.agent(ctx, s); reason == "" && it.dispute != nil {
+				next, reason = it.escalateDispute(ctx)
+			}
 		case config.StepGate:
 			next, reason = it.gate(ctx, pc, s)
 		case config.StepAction:
@@ -191,20 +198,31 @@ func (it *interpreter) finishStep(ctx workflow.Context, stepRunID string, succee
 	_ = workflow.ExecuteActivity(cleanup, it.a.FinishStep, activities.StepEnd{StepRunID: stepRunID, Succeeded: succeeded}).Get(cleanup, nil)
 }
 
-// agent runs one execution of a coding agent step, which must push.
+// noChanges fails a coding agent step that pushed nothing.
+const noChanges = "agent session made no changes"
+
+// agent runs one execution of a coding agent step, which must push. One that
+// a failed gate sent back may instead change nothing, disputing the failure
+// (D128): it then succeeds, and the caller escalates.
 func (it *interpreter) agent(ctx workflow.Context, s config.Step) string {
 	session, stepRunID, reason := it.agentSession(ctx, s)
 	if stepRunID == "" {
 		return reason
 	}
+	disputes := false
 	if reason == "" && !session.Pushed {
-		reason = "agent session made no changes"
+		if disputes = it.canDispute(ctx); !disputes {
+			reason = noChanges
+		}
 	}
 	it.finishStep(ctx, stepRunID, reason == "")
-	if reason == "" {
+	switch {
+	case disputes:
+		it.dispute = &dispute{reports: []agentReport{{step: s.ID, role: s.Agent.RoleName(), text: session.Result}}}
+	case reason == "":
 		from := cmp.Or(it.session.CommitSHA, it.in.Snapshot.BaseSHA, it.in.Issue.BaseBranch)
 		it.pushed[s.ID] = [2]string{from, session.CommitSHA}
-		it.session, it.feedback = session, ""
+		it.session, it.feedback, it.back = session, "", nil
 	}
 	return reason
 }
@@ -396,6 +414,9 @@ func (it *interpreter) parallel(ctx workflow.Context, pc int, s config.Step, onl
 		if reason := it.agent(ctx, b); reason != "" {
 			return 0, fmt.Sprintf("branch %s: %s", b.ID, reason)
 		}
+		if it.dispute != nil {
+			return it.escalateDispute(ctx)
+		}
 	}
 	if only != "" || s.Gate == nil {
 		return pc + 1, ""
@@ -496,6 +517,7 @@ func (it *interpreter) onFail(ctx workflow.Context, pc int, s config.Step, outco
 		return 0, "recording the loop failed: " + err.Error()
 	}
 	it.feedback = fmt.Sprintf("The `%s` check failed on your last commit: %s\n\n%s", s.ID, outcome.Summary, outcome.Feedback)
+	it.back = &sentBack{pc: pc, step: s, summary: outcome.Summary, feedback: outcome.Feedback}
 	it.only = branch
 	return target, ""
 }
@@ -615,7 +637,7 @@ func (it *interpreter) sendBackTo(ctx workflow.Context, id string, o *config.OnF
 			return 0, "leaving the queue failed: " + err.Error()
 		}
 	}
-	it.feedback = feedback
+	it.feedback, it.back = feedback, nil
 	it.only = branch
 	return target, ""
 }

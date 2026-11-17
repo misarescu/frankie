@@ -120,6 +120,9 @@ type interpretFixture struct {
 	notReady      string
 	verifyPreview func(req activities.PreviewRequest) activities.Verification
 	removeFails   bool
+	// unchanged, when set, says which sessions push nothing; they end with a
+	// report naming their step run.
+	unchanged func(run activities.StartRunResult) bool
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -161,6 +164,9 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 		}
 		if f.sessionStatus != "" {
 			return activities.SessionResult{Status: f.sessionStatus, Reason: "stopped"}, nil
+		}
+		if f.unchanged != nil && f.unchanged(run) {
+			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: f.head, Result: "Nothing to change: report of " + run.StepRunID}, nil
 		}
 		if run.Branch != testRun.Branch { // a side writer (D122)
 			return activities.SessionResult{Status: "succeeded", Branch: run.Branch, CommitSHA: "side-" + run.StepRunID, Pushed: true}, nil
@@ -513,6 +519,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_bug_testable.json", "M6: bug-gates version, a test that must fail, then a fix that keeps it"},
 	{"testdata/interpret_concurrent_writers.json", "M7: concurrent-writers version, two writers at once, the side branch merged, a loop back to the coder"},
 	{"testdata/interpret_preview_gate.json", "M7: preview-gate version, a head fails its suite in a preview, the next passes and merges"},
+	{"testdata/interpret_disputed_tests.json", "M7: disputed-changes version, the coder sent back changes nothing, the test writer fixes its tests"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {
@@ -1004,14 +1011,17 @@ func TestInterpretBuiltInBuildE2E(t *testing.T) {
 		t.Errorf("steps = %s", got)
 	}
 	writer := f.session(t, "sr-e2e-tests-1")
-	if writer.Step.Role != "e2e-test-writer" || writer.Branch != testRun.Branch+"--e2e-tests" || slices.Contains(writer.Step.Inputs, "diff") {
+	if writer.Step.Role != "e2e-test-writer" || writer.Branch != testRun.Branch+"--e2e-tests" || slices.Contains(writer.Step.Inputs, "diff") ||
+		!slices.Contains(writer.Step.Inputs, "feedback") || writer.Step.RoleVersion != 2 ||
+		!strings.Contains(writer.Step.SystemPrompt, "the coder found the failure in your tests") {
 		t.Errorf("writer session = %+v, step %+v", writer, writer.Step)
 	}
 	// The coder knows the e2e test writer works alongside it, and so leaves
-	// it the suite.
+	// it the suite, and that it can report a wrong test to it (D128).
 	coder := f.session(t, "sr-implement-1")
-	if !slices.Equal(coder.Step.Alongside, []string{"e2e-test-writer"}) || coder.Step.RoleVersion != 2 ||
-		!strings.Contains(coder.Step.SystemPrompt, "Leave the end-to-end suite to it") {
+	if !slices.Equal(coder.Step.Alongside, []string{"e2e-test-writer"}) || coder.Step.RoleVersion != 3 ||
+		!strings.Contains(coder.Step.SystemPrompt, "Leave the end-to-end suite to it") ||
+		!strings.Contains(coder.Step.SystemPrompt, "the factory sends your report to the e2e-test-writer") {
 		t.Errorf("coder step = %+v", coder.Step)
 	}
 	if len(f.gates) != 2 || f.gates[1].StepID != "e2e" || strings.Join(f.gates[1].Commands, ";") != "mise run e2e:local" || f.gates[1].CommitSHA != "merged-1" {

@@ -28,7 +28,7 @@
 | Topic | Earlier notes | Resolution in these specs |
 |---|---|---|
 | E2E before merge | Test-agent notes: e2e cannot run before merge without ephemeral environments; build loop only checks tests compile. | Design doc D14: preview per change request from the start, so e2e gates merges. Concrete profile limits previews to 1 (or off, in which case e2e runs on staging as in the earlier notes). |
-| Example workflow shape | Sequential `implement` then `e2e-tests`. | Both steps in a `parallel` group (D9 says parallel). |
+| Example workflow shape | Sequential `implement` then `e2e-tests`. | Both steps in a `parallel` group (D9 says parallel). Resolved by D122: they run at the same time, on separate branches. |
 | Merge approval | Exploration note: human gate for PR merge initially. | D10: auto-merge. See open question 11. |
 | Sandbox workspace | Exploration note: one Job per agent run; design: one pod per agent step with git handoff. | Per step, git branch handoff (`05-sandbox-and-toolchains.md`). |
 | Event bus | Design: NATS/Redis Streams. Laptop sizing: drop NATS. | Profile-dependent (`09-deployment-profiles.md`). |

@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
+
+	"github.com/misarescu/frankie/internal/domain"
 )
 
 // Verifier checks a stage that runs a release, e.g. by running the project's
@@ -49,11 +52,13 @@ type TestFailure struct {
 	Message   string   `json:",omitempty"`
 }
 
-// VerifyStage checks the stage once it runs the release (D114). A stage
-// without verify passes.
+// VerifyStage checks the stage once it runs the release (D114), and records
+// how the check ended on the deployment (D130). A stage without verify passes.
 func (a *Activities) VerifyStage(ctx context.Context, req StageRequest) (Verification, error) {
 	if req.Stage.Verify == "" {
-		return Verification{Passed: true, Summary: "not verified"}, nil
+		v := Verification{Passed: true, Summary: "not verified"}
+		a.recordVerification(ctx, req.DeploymentID, v)
+		return v, nil
 	}
 	if a.Verifier == nil {
 		return Verification{}, temporal.NewNonRetryableApplicationError("no verifier for "+req.Stage.Verify, "config", nil)
@@ -63,5 +68,23 @@ func (a *Activities) VerifyStage(ctx context.Context, req StageRequest) (Verific
 	if err != nil {
 		return Verification{}, fmt.Errorf("verify %s: %w", req.Stage.Name, err)
 	}
+	a.recordVerification(ctx, req.DeploymentID, v)
 	return v, nil
+}
+
+// recordVerification keeps the verification on its deployment for the
+// releases page (D130). A failure to keep it is logged: the release goes on
+// with the verification it has, rather than running the check again.
+func (a *Activities) recordVerification(ctx context.Context, deploymentID string, v Verification) {
+	id, err := uuid.Parse(deploymentID)
+	if err != nil || a.Store == nil {
+		return
+	}
+	rec := domain.Verification{Passed: v.Passed, Inconclusive: v.Inconclusive, Summary: v.Summary}
+	if len(v.Failures) > 0 {
+		rec.Failures = PreviewFailures(v.Failures)
+	}
+	if _, err := a.Store.SetDeploymentVerification(ctx, id, rec); err != nil {
+		a.Log.Warn("record a deployment's verification", "deployment", id, "error", err)
+	}
 }

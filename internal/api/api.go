@@ -5,7 +5,7 @@
 // M4: a run's steps, and steering or aborting a running agent step (docs/spec/04).
 // M5: every write needs the API token (D58); reads stay open. Projects and
 // issues for the board and the issue page (D59); starting issues and retrying
-// failed ones (D62); approving or rejecting specs (D64).
+// failed ones (D62); approving or rejecting specs (D64). M7: releases (D130).
 package api
 
 import (
@@ -53,4 +53,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/specs", s.listSpecs)
 	mux.HandleFunc("POST /api/issues/{key}/spec", s.requireToken(s.decideSpec))
 	mux.HandleFunc("POST /api/questions/{id}/answer", s.requireToken(s.answerQuestion))
+	mux.HandleFunc("GET /api/releases", s.listReleases)
+	mux.HandleFunc("GET /api/releases/{id}", s.getRelease)
 }

@@ -12,7 +12,7 @@ import (
 )
 
 const getDeployment = `-- name: GetDeployment :one
-SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at FROM deployments WHERE id = $1
+SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeployment(ctx context.Context, id uuid.UUID) (Deployment, error) {
@@ -30,12 +30,13 @@ func (q *Queries) GetDeployment(ctx context.Context, id uuid.UUID) (Deployment, 
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verification,
 	)
 	return i, err
 }
 
 const getDeploymentByStage = `-- name: GetDeploymentByStage :one
-SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at FROM deployments WHERE release_id = $1 AND stage = $2
+SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification FROM deployments WHERE release_id = $1 AND stage = $2
 `
 
 type GetDeploymentByStageParams struct {
@@ -58,6 +59,7 @@ func (q *Queries) GetDeploymentByStage(ctx context.Context, arg GetDeploymentByS
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verification,
 	)
 	return i, err
 }
@@ -128,7 +130,7 @@ const insertDeployment = `-- name: InsertDeployment :one
 INSERT INTO deployments (id, release_id, stage, driver)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (release_id, stage) DO NOTHING
-RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at
+RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification
 `
 
 type InsertDeploymentParams struct {
@@ -159,6 +161,7 @@ func (q *Queries) InsertDeployment(ctx context.Context, arg InsertDeploymentPara
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verification,
 	)
 	return i, err
 }
@@ -272,7 +275,7 @@ func (q *Queries) LinkReleaseIssues(ctx context.Context, arg LinkReleaseIssuesPa
 }
 
 const listDeployments = `-- name: ListDeployments :many
-SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at FROM deployments WHERE release_id = $1 ORDER BY created_at, id
+SELECT id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification FROM deployments WHERE release_id = $1 ORDER BY created_at, id
 `
 
 // In the order they started.
@@ -297,6 +300,7 @@ func (q *Queries) ListDeployments(ctx context.Context, releaseID uuid.UUID) ([]D
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Verification,
 		); err != nil {
 			return nil, err
 		}
@@ -384,7 +388,7 @@ func (q *Queries) ListReleasesForProject(ctx context.Context, arg ListReleasesFo
 const setDeploymentDriverState = `-- name: SetDeploymentDriverState :one
 UPDATE deployments SET driver_state = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at
+RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification
 `
 
 type SetDeploymentDriverStateParams struct {
@@ -407,6 +411,40 @@ func (q *Queries) SetDeploymentDriverState(ctx context.Context, arg SetDeploymen
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verification,
+	)
+	return i, err
+}
+
+const setDeploymentVerification = `-- name: SetDeploymentVerification :one
+UPDATE deployments SET verification = $1, updated_at = now()
+WHERE id = $2
+RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification
+`
+
+type SetDeploymentVerificationParams struct {
+	Verification []byte
+	ID           uuid.UUID
+}
+
+// Records how the stage's verification ended (D130), replacing an earlier
+// record of it.
+func (q *Queries) SetDeploymentVerification(ctx context.Context, arg SetDeploymentVerificationParams) (Deployment, error) {
+	row := q.db.QueryRow(ctx, setDeploymentVerification, arg.Verification, arg.ID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.ReleaseID,
+		&i.Stage,
+		&i.Driver,
+		&i.DriverState,
+		&i.Status,
+		&i.Reason,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Verification,
 	)
 	return i, err
 }
@@ -544,7 +582,7 @@ SET status      = $1::text,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'rolled_back') THEN coalesce(finished_at, now()) ELSE finished_at END,
     updated_at  = now()
 WHERE id = $3 AND status = $4::text
-RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at
+RETURNING id, release_id, stage, driver, driver_state, status, reason, started_at, finished_at, created_at, updated_at, verification
 `
 
 type TransitionDeploymentParams struct {
@@ -575,6 +613,7 @@ func (q *Queries) TransitionDeployment(ctx context.Context, arg TransitionDeploy
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verification,
 	)
 	return i, err
 }

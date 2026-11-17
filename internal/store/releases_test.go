@@ -287,6 +287,42 @@ func TestDeployments(t *testing.T) {
 	}
 }
 
+// M7, D130: a deployment keeps how its verification ended; a later record
+// replaces it.
+func TestSetDeploymentVerification(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	p := mustProject(t, s)
+	rel := mustRelease(t, s, p.ID, "m1")
+	dep, err := s.CreateDeployment(ctx, NewDeployment{ReleaseID: rel.ID, Stage: "staging", Driver: "flux"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dep.Verification != nil {
+		t.Errorf("new deployment's verification = %+v, want none", dep.Verification)
+	}
+	failed := domain.Verification{Summary: "1 of 280 tests failed",
+		Failures: []domain.TestFailure{{Test: "Books/search", IssueKeys: []string{"gc-65"}, Message: "expected 200"}}}
+	if _, err := s.SetDeploymentVerification(ctx, dep.ID, failed); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetDeployment(ctx, dep.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Verification == nil || got.Verification.Passed || got.Verification.Summary != failed.Summary ||
+		len(got.Verification.Failures) != 1 || got.Verification.Failures[0].IssueKeys[0] != "gc-65" {
+		t.Errorf("verification = %+v, want the failed one", got.Verification)
+	}
+	passed, err := s.SetDeploymentVerification(ctx, dep.ID, domain.Verification{Passed: true, Summary: "280 tests passed"})
+	if err != nil || passed.Verification == nil || !passed.Verification.Passed || len(passed.Verification.Failures) != 0 {
+		t.Errorf("replaced verification = %+v, %v; want the passed one", passed.Verification, err)
+	}
+	if _, err := s.SetDeploymentVerification(ctx, domain.NewID(), failed); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown deployment = %v, want ErrNotFound", err)
+	}
+}
+
 // M7, D115: a release records the bug issue its failed verification opened, once.
 func TestSetReleaseBugIssue(t *testing.T) {
 	s := newTestStore(t)

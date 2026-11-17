@@ -313,10 +313,30 @@ func (s *Store) SetDeploymentDriverState(ctx context.Context, id uuid.UUID, stat
 	return deploymentFromRow(row), nil
 }
 
+// SetDeploymentVerification records how the deployment's verification ended,
+// replacing an earlier record of it (D130).
+func (s *Store) SetDeploymentVerification(ctx context.Context, id uuid.UUID, v domain.Verification) (domain.Deployment, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return domain.Deployment{}, fmt.Errorf("store: deployment %s: verification: %w", id, err)
+	}
+	row, err := s.q.SetDeploymentVerification(ctx, db.SetDeploymentVerificationParams{ID: id, Verification: raw})
+	if err != nil {
+		return domain.Deployment{}, mapErr("set deployment verification", err)
+	}
+	return deploymentFromRow(row), nil
+}
+
 func deploymentFromRow(r db.Deployment) domain.Deployment {
-	return domain.Deployment{
+	d := domain.Deployment{
 		ID: r.ID, ReleaseID: r.ReleaseID, Stage: r.Stage, Driver: r.Driver, DriverState: json.RawMessage(r.DriverState),
 		Status: domain.ReleaseStatus(r.Status), Reason: r.Reason, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
+	// Only SetDeploymentVerification writes it, from a domain.Verification.
+	var v domain.Verification
+	if len(r.Verification) > 0 && json.Unmarshal(r.Verification, &v) == nil {
+		d.Verification = &v
+	}
+	return d
 }

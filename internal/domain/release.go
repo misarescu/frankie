@@ -95,6 +95,17 @@ type Release struct {
 	FinishedAt         *time.Time
 }
 
+// Verification is how a stage's verification of a release ended (D116), as
+// its deployment records it (D130). Failures name the failed tests and the
+// issues they are tagged with (FR-TA-3). Inconclusive: the verification could
+// not judge the release, so its failure is the stage's, not a bug in it.
+type Verification struct {
+	Passed       bool          `json:"passed"`
+	Inconclusive bool          `json:"inconclusive,omitempty"`
+	Summary      string        `json:"summary"`
+	Failures     []TestFailure `json:"failures,omitempty"`
+}
+
 // Deployment is a Release at one Stage: what its driver did and how it ended.
 type Deployment struct {
 	ID        uuid.UUID
@@ -107,9 +118,11 @@ type Deployment struct {
 	DriverState json.RawMessage
 	Status      ReleaseStatus
 	// Reason says why it failed or was rolled back.
-	Reason     string
-	StartedAt  *time.Time
-	FinishedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Reason string
+	// Verification is how the stage's verification ended, once it ran (D130).
+	Verification *Verification
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }

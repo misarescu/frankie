@@ -46,9 +46,11 @@ WHERE m.merged_at <= upto.t;
 -- name: ListReleaseIssueIDs :many
 SELECT issue_id FROM release_issues WHERE release_id = @release_id ORDER BY position;
 
+-- A reason, when given, replaces the earlier one.
 -- name: TransitionRelease :one
 UPDATE releases
 SET status      = @to_status::text,
+    reason      = CASE WHEN @reason::text <> '' THEN @reason::text ELSE reason END,
     finished_at = CASE WHEN @to_status::text IN ('succeeded', 'failed', 'rolled_back') THEN coalesce(finished_at, now()) ELSE finished_at END,
     updated_at  = now()
 WHERE id = @id AND status = @from_status::text

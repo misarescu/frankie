@@ -53,7 +53,7 @@ func mustTransitionRelease(t *testing.T, s *Store, id uuid.UUID, path ...domain.
 	var rel domain.Release
 	for i := 1; i < len(path); i++ {
 		var err error
-		if rel, err = s.TransitionRelease(t.Context(), id, path[i-1], path[i]); err != nil {
+		if rel, err = s.TransitionRelease(t.Context(), id, path[i-1], path[i], ""); err != nil {
 			t.Fatalf("TransitionRelease %s -> %s: %v", path[i-1], path[i], err)
 		}
 	}
@@ -152,13 +152,13 @@ func TestTransitionReleaseReleasesItsIssues(t *testing.T) {
 	}
 
 	// Repeating the transition returns the release as it is.
-	if again, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseInProgress, domain.ReleaseSucceeded); err != nil || again.Status != domain.ReleaseSucceeded {
+	if again, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseInProgress, domain.ReleaseSucceeded, ""); err != nil || again.Status != domain.ReleaseSucceeded {
 		t.Errorf("repeat = %s, %v; want succeeded", again.Status, err)
 	}
-	if _, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseInProgress, domain.ReleaseFailed); !errors.Is(err, ErrConflict) {
+	if _, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseInProgress, domain.ReleaseFailed, ""); !errors.Is(err, ErrConflict) {
 		t.Errorf("failing a succeeded release = %v, want ErrConflict", err)
 	}
-	if _, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseSucceeded, domain.ReleaseRolledBack); !errors.Is(err, domain.ErrInvalidTransition) {
+	if _, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseSucceeded, domain.ReleaseRolledBack, ""); !errors.Is(err, domain.ErrInvalidTransition) {
 		t.Errorf("succeeded -> rolled_back = %v, want ErrInvalidTransition", err)
 	}
 
@@ -174,9 +174,14 @@ func TestFailedReleaseIssuesAreInTheNext(t *testing.T) {
 	p := mustProject(t, s)
 	a := mergedIssue(t, s, p.ID, releaseRepo, 1, "m1")
 	rel := mustRelease(t, s, p.ID, "m1")
-	got := mustTransitionRelease(t, s, rel.ID, domain.ReleasePending, domain.ReleaseInProgress, domain.ReleaseFailed, domain.ReleaseRolledBack)
-	if got.Status != domain.ReleaseRolledBack || got.FinishedAt == nil {
-		t.Errorf("release = %s finished %v, want rolled_back with a time", got.Status, got.FinishedAt)
+	mustTransitionRelease(t, s, rel.ID, domain.ReleasePending, domain.ReleaseInProgress)
+	if _, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseInProgress, domain.ReleaseFailed, "staging: e2e suite failed"); err != nil {
+		t.Fatal(err)
+	}
+	// M7, D114: a reason is kept unless a later transition gives another.
+	got, err := s.TransitionRelease(t.Context(), rel.ID, domain.ReleaseFailed, domain.ReleaseRolledBack, "")
+	if err != nil || got.Status != domain.ReleaseRolledBack || got.FinishedAt == nil || got.Reason != "staging: e2e suite failed" {
+		t.Errorf("release = %+v, %v; want rolled_back with a time and the reason", got, err)
 	}
 	if is, _ := s.GetIssue(t.Context(), a.ID); is.Status != domain.IssueMerged {
 		t.Errorf("issue = %s, want merged", is.Status)

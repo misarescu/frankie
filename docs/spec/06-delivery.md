@@ -65,6 +65,17 @@ A stage (D113) has a `name`, a `driver`, the driver's own `config` (a JSON objec
 - **FR-RL-2** **Failure handling**: if a stage's verification fails, the release is marked failed, the stage is rolled back when its driver supports rollback (Flux: revert the env-repo commit), and a **bug issue** linked to the release and its suspect issues is created automatically.
 - **FR-RL-3** Capability mismatches are rejected when stage config is saved.
 
+### The release workflow (D114)
+
+Each merge the merge queue makes asks the repo's `Release` workflow (one per repo, `release/<repo>`, signal-with-start from the merge Activity) for a release of its merge commit. One release runs at a time; requests that arrive meanwhile are batched, and the next release is of the newest commit asked for, which contains the others. A release:
+
+1. **Prepare.** Read `stages:` from `.factory/config.yaml` at the commit and snapshot them. No release stages: nothing is released. Stages that do not parse, that their drivers reject, or that need what the deployment cannot do yet (a `human` gate before M8, `verify` without a verifier) record the release as `failed` with the reason. Otherwise record the release with its issues (D110) and start it.
+2. **For each release stage, in order:** record the deployment, `Publish`, ask `Status` until the stage runs the commit (every 10 seconds, at most 15 minutes), then `verify`.
+3. **A stage that fails** (publishing, not running the commit in time, or verification) ends its deployment `failed` with the reason and stops the release. It is rolled back when the stage allows (`rollback`, or the driver can when unset); the release ends `rolled_back`, or `failed` when it was not rolled back or rolling back failed.
+4. **Every stage passed:** the release `succeeded` and its issues are `released`.
+
+A merge made by a person on the provider (D61) asks for no release; the next merge from the queue releases it with everything else.
+
 ### Where stages run (D108)
 
 For Goodreads-Clone, the M7 proving project:

@@ -202,6 +202,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 	w.RegisterWorkflow(workflow.Interpret)
 	w.RegisterWorkflow(workflow.Refine)
 	w.RegisterWorkflow(workflow.MergeQueue)
+	w.RegisterWorkflow(workflow.Release)
 	var egressSigner *egress.Signer
 	if cfg.EgressProjectAllow {
 		if egressSigner, err = egress.NewSigner(cfg.EgressKey); err != nil {

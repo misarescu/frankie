@@ -41,8 +41,9 @@ type QueueMergeResult struct {
 
 // MergeQueued merges the change request at HeadSHA, only while the base branch
 // is still at BaseSHA, so the base branch receives exactly the tree the gates
-// checked (D87), and records the merge. A change request already merged, e.g.
-// before this Activity was retried, reports that merge.
+// checked (D87), records the merge and asks for a release of its commit
+// (D114). A change request already merged, e.g. before this Activity was
+// retried, reports that merge.
 func (a *Activities) MergeQueued(ctx context.Context, req QueueMergeRequest) (QueueMergeResult, error) {
 	stepID, err1 := uuid.Parse(req.StepRunID)
 	crID, err2 := uuid.Parse(req.ChangeRequestID)
@@ -82,6 +83,11 @@ func (a *Activities) MergeQueued(ctx context.Context, req QueueMergeRequest) (Qu
 		return QueueMergeResult{}, err
 	}
 	if _, err := a.Store.SetStepRunCommit(ctx, stepID, sha); err != nil {
+		return QueueMergeResult{}, err
+	}
+	// The merge asks for a release of its commit (D114); a retry asks again,
+	// which the release workflow takes as the same request.
+	if err := a.requestRelease(ctx, repo, sha); err != nil {
 		return QueueMergeResult{}, err
 	}
 	return a.endMerge(ctx, stepID, QueueMergeResult{Outcome: QueueMerged, MergeSHA: sha})

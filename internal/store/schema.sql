@@ -242,6 +242,8 @@ CREATE TABLE releases (
   sha         text        NOT NULL,
   status      text        NOT NULL DEFAULT 'pending' CHECK (status IN (
                 'pending', 'in_progress', 'succeeded', 'failed', 'rolled_back')),
+  -- Why it failed or was rolled back (D114).
+  reason      text        NOT NULL DEFAULT '',
   finished_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),

@@ -496,3 +496,99 @@ func mergeApprovalSnapshot(t *testing.T) snapshot.Snapshot {
 	s.MergeApproval = true
 	return s
 }
+
+// releaseStub answers for the release Activities in a recording.
+type releaseStub struct {
+	failVerify bool
+	// awaitFor makes waiting for a stage take this long, so signals arrive
+	// while a release runs.
+	awaitFor time.Duration
+}
+
+func (s *releaseStub) PrepareRelease(_ context.Context, req activities.PrepareReleaseRequest) (activities.ReleasePlan, error) {
+	return activities.ReleasePlan{ReleaseID: "0198f2a4-5555-7000-8000-" + req.SHA[:12], Status: domain.ReleaseInProgress, Issues: []string{"gc-1"},
+		Stages: []activities.ReleaseStage{
+			{Name: "staging", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/staging"}`), URL: "https://goodreads-stg.example.ts.net", Verify: "e2e-suite", Rollback: true},
+			{Name: "production", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/production"}`), Rollback: true},
+		}}, nil
+}
+
+func (s *releaseStub) StartDeployment(_ context.Context, req activities.StageRequest) (string, error) {
+	return "0198f2a4-6666-7000-8000-00000000000" + map[string]string{"staging": "1", "production": "2"}[req.Stage.Name], nil
+}
+
+func (s *releaseStub) PublishStage(context.Context, activities.StageRequest) error { return nil }
+
+func (s *releaseStub) AwaitStage(context.Context, activities.StageRequest) (activities.StageStatus, error) {
+	time.Sleep(s.awaitFor)
+	return activities.StageStatus{Ready: true}, nil
+}
+
+func (s *releaseStub) VerifyStage(_ context.Context, req activities.StageRequest) (activities.Verification, error) {
+	if s.failVerify && req.Stage.Name == "staging" {
+		return activities.Verification{Summary: "1 of 12 tests failed: Books/search",
+			Failures: []activities.TestFailure{{Test: "Books/search", IssueKeys: []string{"gc-1"}, Message: "expected 200, got 500"}}}, nil
+	}
+	return activities.Verification{Passed: true, Summary: "12 tests passed"}, nil
+}
+
+func (s *releaseStub) EndDeployment(context.Context, activities.EndDeploymentRequest) error {
+	return nil
+}
+func (s *releaseStub) RollbackStage(context.Context, activities.StageRequest) error { return nil }
+func (s *releaseStub) FinishRelease(context.Context, activities.FinishReleaseRequest) error {
+	return nil
+}
+
+// TestRecordReleaseHistories records Release (D114): a release through two
+// stages; one whose staging verification fails and is rolled back; and two
+// requests arriving during a release, batched into one more.
+//
+//	FRANKIE_RECORD_TEMPORAL=localhost:7266 mise exec -- go test -tags record ./internal/workflow -run TestRecordReleaseHistories
+func TestRecordReleaseHistories(t *testing.T) {
+	addr := os.Getenv("FRANKIE_RECORD_TEMPORAL")
+	if addr == "" {
+		t.Skip("FRANKIE_RECORD_TEMPORAL is not set")
+	}
+	c, err := client.Dial(client.Options{HostPort: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	sha := func(n int) string { return fmt.Sprintf("%040d", n) }
+	for _, rec := range []struct {
+		file    string
+		stub    *releaseStub
+		signals []string
+	}{
+		{"release_succeeded.json", &releaseStub{}, nil},
+		{"release_verify_failed_rolled_back.json", &releaseStub{failVerify: true}, nil},
+		{"release_batched.json", &releaseStub{awaitFor: 2 * time.Second}, []string{sha(2), sha(3)}},
+	} {
+		queue := fmt.Sprintf("record-rel-%d", time.Now().UnixNano())
+		w := worker.New(c, queue, worker.Options{})
+		w.RegisterWorkflow(Release)
+		w.RegisterActivity(rec.stub)
+		if err := w.Start(); err != nil {
+			t.Fatal(err)
+		}
+		run, err := c.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{ID: ReleaseWorkflowID("misarescu/Goodreads-Clone") + "-" + queue, TaskQueue: queue},
+			Release, ReleaseInput{Repo: "misarescu/Goodreads-Clone", Pending: &ReleaseRequest{SHA: sha(1)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rec.signals) > 0 {
+			time.Sleep(time.Second) // the first release is waiting for staging
+		}
+		for _, s := range rec.signals {
+			if err := c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), ReleaseRequestSignal, ReleaseRequest{SHA: s}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := run.Get(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+		writeHistory(t, c, run, rec.file)
+		w.Stop()
+	}
+}

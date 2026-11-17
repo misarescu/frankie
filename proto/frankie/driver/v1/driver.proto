@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package frankie.driver.v1;
+
+// ReleaseDriverService deploys a project's commit to one stage
+// (docs/spec/06-delivery.md, D109, D112). The control plane is its only
+// client and calls it only from Temporal Activities: agents never reach a
+// driver. Built-in drivers run in-process behind the same Go interface;
+// this service is the contract an out-of-process driver serves.
+//
+// A driver keeps no state between calls. What it did is its state: opaque
+// JSON (an object) that it returns from Publish, Promote and Rollback, that
+// the control plane stores on the Deployment and hands back on every later
+// call for that deployment.
+service ReleaseDriverService {
+  // Describe names the driver and what it can do. The control plane rejects
+  // stage configuration that needs a capability the driver lacks (FR-RL-3).
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+  // ValidateConfig checks a stage's driver configuration when the project's
+  // configuration is saved, before any deployment uses it.
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  // Publish starts deploying a subject to a stage. It returns once the
+  // change is made (e.g. committed to a GitOps repository), not once it is
+  // live: Status reports that. Publishing the same subject to the same stage
+  // again must be harmless, since an Activity may be retried.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  // Status reports whether the stage runs the subject yet.
+  rpc Status(StatusRequest) returns (StatusResponse);
+  // Promote moves a deployment one rollout step on. Only with
+  // capabilities.progressive; otherwise UNIMPLEMENTED.
+  rpc Promote(PromoteRequest) returns (PromoteResponse);
+  // Rollback puts the stage back to what it ran before the deployment
+  // (FR-RL-2). Only with capabilities.rollback; otherwise UNIMPLEMENTED.
+  // Rolling back again must be harmless.
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+}
+
+// Capabilities are what a driver can do beyond Publish and Status.
+message Capabilities {
+  // Rollback undoes a deployment.
+  bool rollback = 1;
+  // Progressive deployments move through rollout steps with Promote.
+  bool progressive = 2;
+  // Health: Status reflects the running target (e.g. the version the app
+  // reports), not only that the change was made.
+  bool health = 3;
+  // Preview deploys change requests before they merge (D14), one
+  // environment each, rather than releases.
+  bool preview = 4;
+}
+
+// Stage is the stage being deployed to, from the project's configuration.
+message Stage {
+  string name = 1;
+  // config_json is the stage's driver configuration as a JSON object, as
+  // ValidateConfig accepted it.
+  bytes config_json = 2;
+}
+
+// Subject is what a deployment deploys: a release, or a change request's
+// head for a preview stage.
+message Subject {
+  // repo is the repository, e.g. "owner/name".
+  string repo = 1;
+  // sha is the full commit to deploy.
+  string sha = 2;
+  // release_id is the Release's ID; empty for a preview.
+  string release_id = 3;
+  // change_request is the change request's number for a preview; 0 for a
+  // release.
+  int64 change_request = 4;
+}
+
+// Deployment is a subject at a stage as the control plane recorded it.
+message Deployment {
+  // id is the Deployment's ID, stable across retries.
+  string id = 1;
+  // state_json is the driver's own state for it (a JSON object), "{}"
+  // before Publish returned.
+  bytes state_json = 2;
+}
+
+// RolloutStep is one step of a progressive rollout, from the stage's
+// configuration (M8).
+message RolloutStep {
+  string name = 1;
+  // percentage of traffic or users, 0 to 100, when the step has one.
+  int32 percentage = 2;
+}
+
+// Phase is how far a stage is with a deployment.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  // PHASE_PROGRESSING: the change is made, the stage does not run it yet.
+  PHASE_PROGRESSING = 1;
+  // PHASE_READY: the stage runs the subject.
+  PHASE_READY = 2;
+  // PHASE_FAILED: the stage will not run it without a new change.
+  PHASE_FAILED = 3;
+}
+
+message DescribeRequest {}
+
+message DescribeResponse {
+  // name is how stage configuration refers to the driver, e.g. "flux".
+  string name = 1;
+  Capabilities capabilities = 2;
+}
+
+message ValidateConfigRequest {
+  // config_json is a stage's driver configuration as a JSON object.
+  bytes config_json = 1;
+}
+
+// A configuration the driver rejects is an INVALID_ARGUMENT error whose
+// message says what is wrong.
+message ValidateConfigResponse {}
+
+message PublishRequest {
+  Stage stage = 1;
+  Subject subject = 2;
+  Deployment deployment = 3;
+}
+
+message PublishResponse {
+  // state_json replaces the deployment's state.
+  bytes state_json = 1;
+}
+
+message StatusRequest {
+  Stage stage = 1;
+  Subject subject = 2;
+  Deployment deployment = 3;
+}
+
+message StatusResponse {
+  Phase phase = 1;
+  // message says what the driver saw, e.g. the version the app reports.
+  string message = 2;
+}
+
+message PromoteRequest {
+  Stage stage = 1;
+  Subject subject = 2;
+  Deployment deployment = 3;
+  RolloutStep step = 4;
+}
+
+message PromoteResponse {
+  bytes state_json = 1;
+}
+
+message RollbackRequest {
+  Stage stage = 1;
+  Subject subject = 2;
+  Deployment deployment = 3;
+}
+
+message RollbackResponse {
+  bytes state_json = 1;
+}

@@ -146,3 +146,63 @@ spec:
         - port: {{ .Values.controlPlane.gitProxyPort }}
           protocol: TCP
     {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}
+---
+# Release verification pods (D116, D118) run a released commit's e2e suite
+# against a stage: a command gate's egress, plus the stage endpoints listed in
+# agents.verify.stageEgress (e.g. the Tailscale operator's egress proxies to a
+# homelab stage). Sandbox pods reach cluster names directly (NO_PROXY), so this
+# policy, not the egress proxy, decides. Nothing reaches them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verify
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      frankie.dev/role: verify
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "egress-proxy") | nindent 14 }}
+      ports:
+        - port: {{ .Values.egressProxy.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.controlPlane.gitProxyPort }}
+          protocol: TCP
+    {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}
+    {{- range .Values.agents.verify.stageEgress }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "agents.verify.stageEgress[].namespace is required" .namespace | quote }}
+      ports:
+        {{- range (required "agents.verify.stageEgress[].ports is required" .ports) }}
+        - { port: {{ . }}, protocol: TCP }
+        {{- end }}
+    {{- end }}

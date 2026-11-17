@@ -114,7 +114,7 @@ For Goodreads-Clone, the M7 proving project:
 | staging | homelab | the homelab's Flux from `misarescu/Goodreads-CD` (`flux`) | `/api/version` reports the release's commit, then the e2e suite against the stage's URL |
 | prod | homelab | the same, behind a human gate | as staging |
 
-Frankie holds no credential for the homelab: it changes a stage only by committing the stage's image tag to the GitOps repository through the `GitProvider`, rolls back by reverting that commit, and reaches the stage's URL over Tailscale (open question 20).
+Frankie holds no credential for the homelab: it changes a stage only by committing the stage's image tag to the GitOps repository through the `GitProvider`, rolls back by reverting that commit, and reaches the stage's URL over Tailscale (D118). On the tailnet `tail9cf1a9.ts.net` each stage is its own device (`goodreads-stg`, `goodreads`, tagged `tag:goodreads-stage`), which the Tailscale operator on Kapsule reaches through an egress Service per stage: `http://goodreads-stg.stages.svc.cluster.local` is staging's URL there, for the control plane (the `flux` driver's `versionURL`) and for verification pods alike.
 
 ### Release driver interface
 

@@ -21,6 +21,11 @@ import (
 // (no LLM gateway).
 const RoleGate = "gate"
 
+// RoleVerify labels release verification pods (GatePodSpec.Released, D116):
+// their NetworkPolicy is a gate's plus the stages the deployment lists (D118),
+// which no agent or command gate reaches.
+const RoleVerify = "verify"
+
 // Container names in a gate pod. Commands run as init containers in order, so
 // each one's exit code is recorded by the kubelet in the pod status and cannot
 // be forged by what the checked code prints (invariant 2).
@@ -178,13 +183,17 @@ func GatePod(s GatePodSpec) (*corev1.Pod, error) {
 		})
 	}
 
+	role := RoleGate
+	if s.Released {
+		role = RoleVerify
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        s.Name,
 			Namespace:   s.Namespace,
 			Annotations: noEvict(),
 			Labels: map[string]string{
-				RoleLabel:      RoleGate,
+				RoleLabel:      role,
 				RunIDLabel:     s.RunID,
 				StepRunIDLabel: s.StepRunID,
 				IssueKeyLabel:  s.IssueKey,

@@ -123,6 +123,12 @@ spec:
               frankie.dev/role: gate
         - namespaceSelector:
             matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchLabels:
+              frankie.dev/role: verify
+        - namespaceSelector:
+            matchLabels:
               kubernetes.io/metadata.name: {{ .Values.toolchains.build.namespace }}
           podSelector:
             matchLabels:

@@ -110,7 +110,7 @@ spec:
               kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
           podSelector:
             matchExpressions:
-              - { key: frankie.dev/role, operator: In, values: [agent, gate] }
+              - { key: frankie.dev/role, operator: In, values: [agent, gate, verify] }
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.toolchains.build.namespace }}

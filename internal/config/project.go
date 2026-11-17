@@ -1,7 +1,8 @@
 // Package config parses and validates configuration that lives in project
 // repos (docs/spec/02: `.factory/config.yaml` is authoritative for a project).
-// M2 reads the services section, M3 the workflow, M3.1 the dependencies; the
-// rest of the project config arrives with the milestones that use it.
+// M2 reads the services section, M3 the workflow, M3.1 the dependencies, M7
+// the stages; the rest of the project config arrives with the milestones that
+// use it.
 package config
 
 import (
@@ -55,6 +56,10 @@ type Project struct {
 	// (D92). Issue labels override it: LabelNeedsMergeApproval and
 	// LabelNoMergeApproval.
 	MergeApproval string `json:"mergeApproval,omitempty"`
+	// Stages are where a merged commit is released, in order, and an
+	// optional preview stage for change requests before they merge (D113).
+	// ParseProject checks them alone; ValidateStages against their drivers.
+	Stages []Stage `json:"stages,omitempty"`
 }
 
 // Merge approval labels (D92).
@@ -302,6 +307,7 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	if err := egress.ValidateProjectHosts(p.Egress.Allow); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, validateStages(p.Stages)...)
 	seen := map[string]bool{}
 	for i := range p.Services {
 		s := &p.Services[i]

@@ -233,6 +233,21 @@ func (rd *reader) roleLookup() config.RoleLookup {
 	}
 }
 
+// RoleAt finds a role as commit sha of repo has it: in its .factory/roles/,
+// else among the built-ins. The release agent's role is read this way at the
+// release commit (D129). A role the repo must fix is ErrInvalid.
+func RoleAt(ctx context.Context, r FileReader, repo, sha, name string) (config.Role, error) {
+	rd := &reader{ctx: ctx, r: r, repo: repo, sha: sha}
+	role, err := rd.roleLookup()(name)
+	switch {
+	case errors.Is(err, errRead):
+		return config.Role{}, fmt.Errorf("snapshot: %w", err)
+	case err != nil:
+		return config.Role{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+	}
+	return role, nil
+}
+
 // rolesResult tells a failed read (worth retrying) from roles the repo must fix.
 func rolesResult(rs map[string]config.Role, err error) (map[string]config.Role, error) {
 	if errors.Is(err, errRead) {

@@ -44,6 +44,8 @@ type ReleasePlan struct {
 	Failed    string               `json:",omitempty"`
 	Issues    []string             `json:",omitempty"` // keys of the issues it contains
 	Status    domain.ReleaseStatus `json:",omitempty"`
+	// Agent runs the release agent (release.agent at the commit, D129).
+	Agent bool `json:",omitempty"`
 }
 
 // PrepareRelease reads the project's stages from `.factory/config.yaml` at the
@@ -74,7 +76,7 @@ func (a *Activities) PrepareRelease(ctx context.Context, req PrepareReleaseReque
 	if !found {
 		return ReleasePlan{Skip: "no " + config.ProjectConfigPath + " at " + req.SHA}, nil
 	}
-	stages, invalid := a.releaseStages(ctx, raw)
+	stages, agent, invalid := a.releaseStages(ctx, raw)
 	if invalid == "" && len(stages) == 0 {
 		return ReleasePlan{Skip: "the project has no release stages"}, nil
 	}
@@ -107,20 +109,27 @@ func (a *Activities) PrepareRelease(ctx context.Context, req PrepareReleaseReque
 			return ReleasePlan{}, err
 		}
 	}
-	plan.Stages, plan.Status = stages, domain.ReleaseInProgress
+	plan.Stages, plan.Status, plan.Agent = stages, domain.ReleaseInProgress, agent
 	return plan, nil
 }
 
 // releaseStages parses and checks the configuration's stages and returns the
-// release stages, or why they cannot be used.
-func (a *Activities) releaseStages(ctx context.Context, raw []byte) (stages []ReleaseStage, invalid string) {
+// release stages and whether the release agent runs, or why they cannot be used.
+func (a *Activities) releaseStages(ctx context.Context, raw []byte) (stages []ReleaseStage, agent bool, invalid string) {
 	p, err := config.ParseProject(raw, math.MaxInt)
 	if err != nil {
-		return nil, err.Error()
+		return nil, false, err.Error()
 	}
 	if len(p.Stages) == 0 {
-		return nil, ""
+		return nil, false, ""
 	}
+	stages, invalid = a.checkReleaseStages(ctx, p)
+	return stages, p.Release.Agent && invalid == "", invalid
+}
+
+// checkReleaseStages checks the project's stages against their drivers and
+// what this deployment can do.
+func (a *Activities) checkReleaseStages(ctx context.Context, p config.Project) (stages []ReleaseStage, invalid string) {
 	reg := a.driverRegistry()
 	if err := config.ValidateStages(ctx, p.Stages, reg); err != nil {
 		return nil, err.Error()

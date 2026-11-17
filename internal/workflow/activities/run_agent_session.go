@@ -122,7 +122,10 @@ func (a *Activities) RunAgentSession(ctx context.Context, in IssueRunInput, run 
 			return SessionResult{}, fmt.Errorf("runner start: %w", err)
 		}
 		prompt := Prompt(in, run.Branch, start.Continuing)
-		if run.Step != nil {
+		switch {
+		case run.ReleaseID != "":
+			prompt = releasePrompt(in)
+		case run.Step != nil:
 			answers, err := a.issueAnswers(ctx, in.IssueID)
 			if err != nil {
 				return SessionResult{}, err

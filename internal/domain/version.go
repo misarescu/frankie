@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -96,3 +97,28 @@ func FallbackBump(types []IssueType) Bump {
 	}
 	return BumpPatch
 }
+
+// NewProviderRelease is the provider release a succeeded release's version
+// is published as (D129): on GitHub, a Release, which creates its tag.
+type NewProviderRelease struct {
+	Tag  string // the version, e.g. v0.2.0
+	SHA  string // the release commit
+	Name string
+	Body string // the release notes, Markdown
+}
+
+// ErrTagTaken reports a version tag that already names another commit.
+var ErrTagTaken = errors.New("the tag already names another commit")
+
+// Validate checks the release names a version and a full commit.
+func (n NewProviderRelease) Validate() error {
+	if _, err := ParseVersion(n.Tag); err != nil {
+		return err
+	}
+	if !fullSHARE.MatchString(n.SHA) {
+		return fmt.Errorf("commit %q is not a full SHA", n.SHA)
+	}
+	return nil
+}
+
+var fullSHARE = regexp.MustCompile(`^[0-9a-f]{40}$`)

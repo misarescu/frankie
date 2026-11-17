@@ -166,3 +166,20 @@ func TestReleaseBugTitleAndCells(t *testing.T) {
 		t.Errorf("long cell has %d characters, want 300", len(got))
 	}
 }
+
+// M7 (D129): the release agent's analysis becomes a section of the bug issue
+// when it meets the contract.
+func TestReleaseBugBodyAnalysis(t *testing.T) {
+	req := ReleaseFailureReport{Repo: relRepo, SHA: relSHA, Stage: "staging",
+		Analysis: `{"suspects":[{"issue":"gc-74","likelihood":"high","why":"review_count counts stars"}],"summary":"The ratings change broke the counts."}`}
+	body := releaseBugBody(req, uuid.New(), nil)
+	for _, want := range []string{"**Analysis by the release agent**\n\nThe ratings change broke the counts.", "- gc-74 (high): review_count counts stars"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %q:\n%s", want, body)
+		}
+	}
+	req.Analysis = "I think gc-74 did it."
+	if body := releaseBugBody(req, uuid.New(), nil); strings.Contains(body, "Analysis by the release agent") {
+		t.Errorf("an answer off the contract was published:\n%s", body)
+	}
+}

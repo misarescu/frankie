@@ -21,6 +21,10 @@ type ReleaseFailureReport struct {
 	URL          string `json:",omitempty"`
 	Verification Verification
 	RolledBack   bool
+	// Analysis is the release agent's answer to the failure (D129), under the
+	// release-analysis contract; the issue gets it as a section when it meets
+	// the contract.
+	Analysis string `json:",omitempty"`
 }
 
 // bugLabel types the issue for intake (D60): a bug runs the bug-fix workflow
@@ -173,6 +177,7 @@ func releaseBugBody(req ReleaseFailureReport, releaseID uuid.UUID, issues []doma
 		fmt.Fprintf(&b, "The failing tests also cover issues released earlier: %s.\n\n", strings.Join(earlier, ", "))
 	}
 
+	writeAnalysis(&b, req.Analysis)
 	b.WriteString("**Release**\n\n")
 	fmt.Fprintf(&b, "- Commit: https://github.com/%s/commit/%s\n", req.Repo, req.SHA)
 	fmt.Fprintf(&b, "- Frankie release: `%s`\n", releaseID)
@@ -203,4 +208,23 @@ func cell(s string) string {
 		s = string(r[:299]) + "…"
 	}
 	return s
+}
+
+// writeAnalysis adds the release agent's analysis of the failure (D129), when
+// it meets the release-analysis contract.
+func writeAnalysis(b *strings.Builder, raw string) {
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+	a, err := domain.ParseReleaseAnalysis([]byte(strings.TrimSpace(raw)))
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(b, "**Analysis by the release agent**\n\n%s\n\n", strings.TrimSpace(a.Summary))
+	for _, s := range a.Suspects {
+		fmt.Fprintf(b, "- %s (%s): %s\n", s.Issue, s.Likelihood, strings.TrimSpace(s.Why))
+	}
+	if len(a.Suspects) > 0 {
+		b.WriteString("\n")
+	}
 }

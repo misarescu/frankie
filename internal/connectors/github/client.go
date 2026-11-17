@@ -129,6 +129,44 @@ func (c *Client) send(ctx context.Context, method, path, accept string, body any
 	}
 }
 
+// stream GETs path and hands a 2xx response's body to read, unbuffered, for
+// a body too large to read whole, such as a job's log. GitHub answers such a
+// request with a redirect to storage; the redirect is followed without the
+// token, which is for GitHub only.
+func (c *Client) stream(ctx context.Context, path string, read func(io.Reader) error) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("github: %w", err)
+	}
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	noFollow := *c.http
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		return fmt.Errorf("github: GET %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if loc, err := resp.Location(); err == nil && resp.StatusCode/100 == 3 {
+		_ = resp.Body.Close()
+		redirected, err := http.NewRequestWithContext(ctx, http.MethodGet, loc.String(), nil)
+		if err != nil {
+			return fmt.Errorf("github: %w", err)
+		}
+		if resp, err = noFollow.Do(redirected); err != nil {
+			return fmt.Errorf("github: GET %s: %w", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+	}
+	if resp.StatusCode/100 != 2 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return &StatusError{Code: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+	}
+	return read(resp.Body)
+}
+
 // unsent reports whether a request failed before any of it reached the
 // server: its host did not resolve or the connection was refused.
 func unsent(err error) bool {

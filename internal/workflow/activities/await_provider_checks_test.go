@@ -35,6 +35,10 @@ func ciServer(t *testing.T, answers ...string) *github.Client {
 			_, _ = fmt.Fprintf(w, `{"total_count":%d,"check_runs":%s}`, len(runs), a)
 		case strings.HasSuffix(r.URL.Path, "/status"):
 			_, _ = io.WriteString(w, `{"statuses":[]}`)
+		case strings.HasSuffix(r.URL.Path, "/actions/jobs/7/logs"):
+			_, _ = io.WriteString(w, ciFailedLog)
+		case strings.HasSuffix(r.URL.Path, "/actions/jobs/8/logs"):
+			http.Error(w, "logs expired", http.StatusGone)
 		default:
 			http.NotFound(w, r)
 		}
@@ -46,7 +50,12 @@ func ciServer(t *testing.T, answers ...string) *github.Client {
 const (
 	ciRunning = `[{"name":"test","status":"in_progress"}]`
 	ciPassed  = `[{"name":"test","status":"completed","conclusion":"success"},{"name":"lint","status":"completed","conclusion":"success"}]`
-	ciFailed  = `[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://ci/1","output":{"title":"2 tests failed"}},{"name":"lint","status":"completed","conclusion":"success"}]`
+	ciFailed  = `[{"id":7,"name":"test","status":"completed","conclusion":"failure","html_url":"https://ci/1","output":{"title":"2 tests failed"}},{"id":9,"name":"lint","status":"completed","conclusion":"success"}]`
+	// ciFailedLog is the failed job's log: the coder sees why (D120).
+	ciFailedLog = "2026-11-17T10:00:00.0Z ##[group]Run make test\n2026-11-17T10:00:01.0Z --- FAIL: TestShelves\n" +
+		"2026-11-17T10:00:01.1Z     no such column: rating\n2026-11-17T10:00:02.0Z ##[error]Process completed with exit code 2.\n"
+	// ciFailedNoLog is a failed check whose log GitHub no longer serves.
+	ciFailedNoLog = `[{"id":8,"name":"test","status":"completed","conclusion":"failure","html_url":"https://ci/1"}]`
 )
 
 func (f *queueFixture) awaitChecks(t *testing.T, gh *github.Client, timeout time.Duration) (GateOutcome, string) {
@@ -108,16 +117,33 @@ func TestAwaitProviderChecks(t *testing.T) {
 	}
 }
 
-// The coder learns which check failed, why and where to read it.
+// The coder learns which check failed, why, where to read it and, M7 (D120),
+// how its log ends, which the run's gate result keeps too.
 func TestAwaitProviderChecksFeedback(t *testing.T) {
 	f := newQueueActivityFixture(t)
 	out, _ := f.awaitChecks(t, ciServer(t, ciFailed), time.Second)
-	for _, want := range []string{"- test: 2 tests failed (https://ci/1)", "Reproduce it"} {
+	log := "Run make test\n--- FAIL: TestShelves\n    no such column: rating\nError: Process completed with exit code 2."
+	for _, want := range []string{"- test: 2 tests failed (https://ci/1)", "  The end of its log:\n```\n" + log + "\n```\n", "Reproduce it"} {
 		if !strings.Contains(out.Feedback, want) {
 			t.Errorf("feedback lacks %q:\n%s", want, out.Feedback)
 		}
 	}
 	if strings.Contains(out.Feedback, "lint") {
 		t.Errorf("a passed check is in the feedback:\n%s", out.Feedback)
+	}
+	results, _ := f.a.Store.ListGateResultsForRun(t.Context(), uuid.MustParse(f.run.RunID))
+	var d domain.ProviderChecksDetails
+	if len(results) != 1 || json.Unmarshal(results[0].Details, &d) != nil || len(d.Checks) != 2 || d.Checks[0].Log != log || d.Checks[1].Log != "" {
+		t.Errorf("recorded checks = %+v", d.Checks)
+	}
+}
+
+// M7 (D120): a log that cannot be read leaves the feedback as it was, with
+// the check's URL.
+func TestAwaitProviderChecksUnreadableLog(t *testing.T) {
+	f := newQueueActivityFixture(t)
+	out, _ := f.awaitChecks(t, ciServer(t, ciFailedNoLog), time.Second)
+	if out.Passed || !strings.Contains(out.Feedback, "- test (https://ci/1)\n") || strings.Contains(out.Feedback, "The end of its log") {
+		t.Errorf("outcome = %+v", out)
 	}
 }

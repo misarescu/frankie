@@ -71,6 +71,12 @@ type Check struct {
 	URL   string     `json:"url,omitempty"`
 	// Summary is the provider's short description, e.g. a failure's title.
 	Summary string `json:"summary,omitempty"`
+	// ID is the provider's reference for the check, which the git provider
+	// reads its log by; empty when the provider keeps no log for it.
+	ID string `json:"id,omitempty"`
+	// Log is the end of a failed check's log, the part that shows why it
+	// failed (D120); empty when unread or unavailable.
+	Log string `json:"log,omitempty"`
 }
 
 // CommitStatus is a commit's provider checks and their combined state.

@@ -74,9 +74,10 @@ func (s *Store) ListChangeRequestsAwaitingMerge(ctx context.Context) ([]domain.C
 }
 
 // RecordChangeRequestMerged marks an open change request merged and moves its issue
-// from awaiting_human to merged in one transaction, each with a state_change event
-// (D61). An issue in any other status keeps it: the change request is still recorded
-// as merged. mergeSHA is the commit the merge made, or empty when unknown (a merge
+// from awaiting_human (D61) or queued (the merge queue's merge, D121) to merged in
+// one transaction, each with a state_change event, so the release the merge asks
+// for contains the issue. An issue in any other status keeps it: the change
+// request is still recorded as merged. mergeSHA is the commit the merge made, or empty when unknown (a merge
 // made by a person); with the time of the merge, it decides which releases contain
 // the issue (D110). Recording a merge again is a no-op.
 func (s *Store) RecordChangeRequestMerged(ctx context.Context, id uuid.UUID, mergeSHA string) (domain.Issue, error) {
@@ -90,16 +91,19 @@ func (s *Store) RecordChangeRequestMerged(ctx context.Context, id uuid.UUID, mer
 		if !changed {
 			return nil
 		}
-		_, err = q.TransitionIssue(ctx, db.TransitionIssueParams{ID: cr.IssueID,
-			FromStatus: string(domain.IssueAwaitingHuman), ToStatus: string(domain.IssueMerged)})
-		if errors.Is(mapErr("", err), ErrNotFound) {
-			return nil // the issue moved on (e.g. a new run); only the change request is merged
+		for _, from := range []domain.IssueStatus{domain.IssueAwaitingHuman, domain.IssueQueued} {
+			_, err = q.TransitionIssue(ctx, db.TransitionIssueParams{ID: cr.IssueID,
+				FromStatus: string(from), ToStatus: string(domain.IssueMerged)})
+			if errors.Is(mapErr("", err), ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return mapErr("transition issue", err)
+			}
+			return appendStateChange(ctx, q, nil, nil, domain.StateChange{Entity: "issue", ID: cr.IssueID,
+				From: string(from), To: string(domain.IssueMerged)})
 		}
-		if err != nil {
-			return mapErr("transition issue", err)
-		}
-		return appendStateChange(ctx, q, nil, nil, domain.StateChange{Entity: "issue", ID: cr.IssueID,
-			From: string(domain.IssueAwaitingHuman), To: string(domain.IssueMerged)})
+		return nil // the issue moved on (e.g. a new run); only the change request is merged
 	})
 	if err != nil {
 		return domain.Issue{}, err

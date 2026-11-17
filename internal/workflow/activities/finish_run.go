@@ -52,7 +52,10 @@ func (a *Activities) FinishRun(ctx context.Context, in FinishInput) error {
 	if is.Status == domain.IssueQueued || is.Status == domain.IssueAwaitingHuman {
 		from = is.Status
 	}
-	if is.Status != issueStatus { // a retry finds it there already
+	// The queue's merge already moved the issue to merged (D121), and its
+	// release may even have finished.
+	done := is.Status == issueStatus || (in.Merged && is.Status == domain.IssueReleased)
+	if !done { // a retry finds it there already
 		if _, err := a.Store.TransitionIssue(ctx, issueID, from, issueStatus); err != nil {
 			return err
 		}

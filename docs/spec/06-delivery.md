@@ -39,20 +39,27 @@ Two change requests can each pass against old `main` and still break when combin
 A **Release** is a git SHA plus the set of issues it contains. It moves through an ordered list of **stages** defined per project. Staging, prod and rollout are not built-in concepts; they are one project's configuration.
 
 ```yaml
-# web service
+# web service (.factory/config.yaml)
 stages:
-  - { name: preview, driver: flux-preview, verify: e2e-suite }
-  - { name: staging, driver: flux,         verify: e2e-suite }
-  - { name: prod,    driver: flux,         gate: human }
-  - { name: rollout, driver: flagd }       # only if feature flags are enabled
+  - { name: preview, driver: flux-preview, url: "https://pr.example.ts.net", verify: e2e-suite }
+  - name: staging
+    driver: flux
+    config: { repo: misarescu/Goodreads-CD, path: staging }   # the driver's own, checked by it
+    url: https://goodreads-stg.example.ts.net
+    verify: e2e-suite
+    rollback: true                         # requires a driver that can roll back
+  - { name: prod,    driver: flux, config: { ... }, gate: human }
+  - { name: rollout, driver: flagd }       # only if feature flags are enabled (M8)
 ```
 
 ```yaml
-# CLI tool or library
+# CLI tool or library (later drivers and verifications)
 stages:
-  - { name: beta,   driver: github-releases, channel: beta,   verify: smoke-tests }
-  - { name: stable, driver: github-releases, channel: stable, gate: human }
+  - { name: beta,   driver: github-releases, config: { channel: beta },   verify: smoke-tests }
+  - { name: stable, driver: github-releases, config: { channel: stable }, gate: human }
 ```
+
+A stage (D113) has a `name`, a `driver`, the driver's own `config` (a JSON object), the `url` it serves the project at, `verify` (`e2e-suite`, which needs the `url`, or nothing), `gate` (`human` or nothing) and `rollback` (`true` requires it, `false` never, unset when the driver can). The stage whose driver deploys previews, at most one, comes first and has no gate; a release moves through the others in order.
 
 - **FR-RL-1** On merge, a **release agent** prepares the release: semver bump, changelog, release notes, interpretation of verification results. The control plane executes `Publish`, `Promote` and `Rollback` as Temporal Activities behind gates. Agents prepare; they do not deploy.
 - **FR-RL-2** **Failure handling**: if a stage's verification fails, the release is marked failed, the stage is rolled back when its driver supports rollback (Flux: revert the env-repo commit), and a **bug issue** linked to the release and its suspect issues is created automatically.

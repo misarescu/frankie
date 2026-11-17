@@ -1020,4 +1020,22 @@ func TestInterpretBuiltInBuildE2E(t *testing.T) {
 	if len(f.enqueued) != 1 || len(f.enqueued[0].Gates) != 2 || f.enqueued[0].Gates[1].StepID != "e2e" {
 		t.Errorf("enqueued = %+v; want both command gates re-run by the queue", f.enqueued)
 	}
+	if len(f.previewOps) != 0 {
+		t.Errorf("a project without a preview stage was previewed: %v", f.previewOps)
+	}
+
+	// M7 (D126): with a preview stage, the open change request is checked in
+	// a preview before it is enqueued.
+	f = newInterpretFixture(t)
+	stage := &config.Stage{Name: "preview", Driver: "flux-preview", Config: json.RawMessage(`{}`), URL: "http://p/pr-{changeRequest}", Verify: config.VerifyE2ESuite}
+	out = f.run(t, snapshot.Snapshot{Workflow: w, Roles: rs, Source: "built-in", BaseSHA: "base", PreviewStage: stage})
+	if !out.Succeeded || !out.Merged {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); !strings.HasSuffix(got, "review/1 open-change-request/1 preview-ci/1 preview/1 merge/1") {
+		t.Errorf("steps = %s", got)
+	}
+	if len(f.previews) != 1 || f.previews[0].SHA != "merged-1" || f.previews[0].URL != "http://p/pr-9" {
+		t.Errorf("previews = %+v", f.previews)
+	}
 }

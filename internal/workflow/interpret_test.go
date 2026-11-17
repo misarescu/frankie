@@ -434,6 +434,12 @@ func TestCheckSupported(t *testing.T) {
 	if err := CheckSupported(unsupported); err == nil {
 		t.Error("an unimplemented action is supported")
 	}
+	// M7 (D126): until the interpreter runs it, a preview gate fails the run
+	// at start rather than midway.
+	preview := config.Workflow{Name: "p", Steps: []config.Step{{ID: "preview", Gate: &config.Gate{Type: domain.GatePreview}}}}
+	if err := CheckSupported(preview); err == nil || !strings.Contains(err.Error(), "the preview gate is not supported yet") {
+		t.Errorf("preview gate: %v", err)
+	}
 }
 
 // interpretHistories are recorded histories of Interpret (record_test.go), oldest

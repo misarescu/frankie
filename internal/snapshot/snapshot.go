@@ -52,6 +52,11 @@ type Snapshot struct {
 	// the merge queue takes it (D92): the project's setting, then the issue's
 	// labels as the run started.
 	MergeApproval bool `json:"mergeApproval,omitempty"`
+	// PreviewStage is the project's preview stage, which the workflow's
+	// preview gate deploys the change request's head to (D126); nil when the
+	// workflow has no preview gate or the project no preview stage, and the
+	// gate is then skipped.
+	PreviewStage *config.Stage `json:"previewStage,omitempty"`
 	// Error is set instead of the rest when the project's configuration is
 	// invalid; the run then fails with it, visibly, rather than not starting.
 	Error string `json:"error,omitempty"`
@@ -83,12 +88,14 @@ var errRead = errors.New("read")
 // over built-in ones of the same name; a project that selects no workflow runs
 // the built-in default (workflows.Default).
 func Resolve(ctx context.Context, r FileReader, repo, baseBranch string) (Snapshot, error) {
-	return ResolveFor(ctx, r, repo, baseBranch, "")
+	return ResolveFor(ctx, r, repo, baseBranch, "", nil)
 }
 
 // ResolveFor is Resolve for an issue of issueType: the project's definition
 // for that type, else its definition, else the platform's for the type (D94).
-func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType string) (Snapshot, error) {
+// ds are the deployment's release drivers, which tell the project's preview
+// stage from its release stages.
+func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType string, ds config.StageDrivers) (Snapshot, error) {
 	rd, err := open(ctx, r, repo, baseBranch)
 	if err != nil {
 		return Snapshot{}, err
@@ -139,6 +146,20 @@ func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType s
 	if _, writes := s.Roles[E2ETestWriterRole]; writes && project.E2E == nil {
 		return Snapshot{}, fmt.Errorf("snapshot: %w: workflow %q runs the %s role, which needs the project's end-to-end suite: declare e2e.command in %s",
 			ErrInvalid, s.Workflow.Name, E2ETestWriterRole, config.ProjectConfigPath)
+	}
+	// A preview gate deploys to the project's preview stage (D126), checked
+	// against its driver now, so a run never starts towards a stage it
+	// cannot use.
+	if s.Workflow.HasGate(domain.GatePreview) && len(project.Stages) > 0 {
+		if ds == nil {
+			return Snapshot{}, errors.New("snapshot: the workflow has a preview gate, but no release drivers were given to find the preview stage")
+		}
+		if err := config.ValidateStages(ctx, project.Stages, ds); err != nil {
+			return Snapshot{}, fmt.Errorf("snapshot: %w: %w", ErrInvalid, err)
+		}
+		if st, ok := config.PreviewStage(project.Stages, ds); ok {
+			s.PreviewStage = &st
+		}
 	}
 	return s, nil
 }

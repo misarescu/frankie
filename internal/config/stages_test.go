@@ -27,7 +27,7 @@ e2e: {command: mise run e2e}
 stages:
   - name: preview
     driver: flux-preview
-    url: https://preview.example.ts.net
+    url: http://goodreads-previews.stages.svc.cluster.local/pr-{changeRequest}
     verify: e2e-suite
   - name: staging
     driver: flux
@@ -60,6 +60,13 @@ func TestParseProjectStages(t *testing.T) {
 	}
 	if prod.Gate != GateHuman || prod.Verify != VerifyE2ESuite || prod.URL != "https://goodreads.example.ts.net" {
 		t.Errorf("prod = %+v", prod)
+	}
+	// M7, D126: a preview stage's url names the change request.
+	if got := preview.URLFor(152); got != "http://goodreads-previews.stages.svc.cluster.local/pr-152" {
+		t.Errorf("preview.URLFor(152) = %q", got)
+	}
+	if got := staging.URLFor(152); got != staging.URL {
+		t.Errorf("staging.URLFor(152) = %q, want its url", got)
 	}
 	if err := ValidateStages(t.Context(), p.Stages, testDrivers(t)); err != nil {
 		t.Errorf("ValidateStages = %v", err)
@@ -117,6 +124,7 @@ func TestValidateStagesRejects(t *testing.T) {
 		{"two previews", "stages: [{name: a, driver: flux-preview}, {name: b, driver: flux-preview}]", "at most one preview stage"},
 		{"preview after release", "stages: [{name: stg, driver: flux}, {name: pr, driver: flux-preview}]", "comes before the release stages"},
 		{"preview gate", "stages: [{name: pr, driver: flux-preview, gate: human}]", "a preview stage has no gate"},
+		{"change request in a release url", "stages: [{name: stg, driver: flux, url: 'https://x/pr-{changeRequest}'}]", "only a preview stage's url names {changeRequest}"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

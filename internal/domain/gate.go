@@ -21,11 +21,15 @@ const (
 	// GatePreserve keeps what an earlier step changed (D95): the lines that
 	// step added must still be there, e.g. a reproducing test (D97).
 	GatePreserve GateType = "preserve"
+	// GatePreview checks the run's change request in a preview of its head
+	// (D126): the head's provider checks, the project's preview stage running
+	// it, and the stage's verification against it.
+	GatePreview GateType = "preview"
 )
 
 // Valid reports whether t is a known gate type.
 func (t GateType) Valid() bool {
-	return t == GateCommand || t == GateAgentVerdict || t == GateHuman || t == GateProviderChecks || t == GatePreserve
+	return t == GateCommand || t == GateAgentVerdict || t == GateHuman || t == GateProviderChecks || t == GatePreserve || t == GatePreview
 }
 
 // PreserveDetails is the Details of a preserve gate result (D95): the files

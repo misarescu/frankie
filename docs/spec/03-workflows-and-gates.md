@@ -98,7 +98,7 @@ Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks a
 - Roles exist, a pinned version matches, a role's default model suits the step's harness, the harness provides every tool the role allows (pi has no `web-fetch`, D50), and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
 - Harness/model compatibility (D48): the provider of each model ref is known and serves an API the step's harness speaks (Claude Code: Anthropic; opencode and pi: Anthropic and OpenAI-compatible). When a run starts, every agent step's effective model (the step's, else the role's default, else the platform's) must also be served by one of the deployment's provider profiles (`config.CheckModels`); otherwise the run fails with the reason.
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.
-- A `preview` gate comes after a `change-request.open` action (D126).
+- A `preview` gate is a step of its own (not a parallel group's gate) after a `change-request.open` action (D126). When a run starts, the project's stages are checked against their drivers if its workflow has a preview gate, and the preview stage, if any, is snapshotted with the run; only a preview stage's `url` may name `{changeRequest}`.
 - Gate commands reference tasks that exist in the repo's `mise.toml` (warning, not error, if the repo is not yet cloned).
 
 ## Roles

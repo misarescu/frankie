@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/misarescu/frankie/internal/drivers"
@@ -18,6 +19,10 @@ const MaxStages = 10
 // Stage verifications (D113). e2e-suite runs the project's end-to-end suite
 // against the stage's URL.
 const VerifyE2ESuite = "e2e-suite"
+
+// ChangeRequestPlaceholder in a preview stage's URL is the number of the
+// change request whose preview it is (D126).
+const ChangeRequestPlaceholder = "{changeRequest}"
 
 // Stage gates. human waits for a person's approval before the stage deploys.
 const GateHuman = "human"
@@ -43,6 +48,12 @@ type Stage struct {
 	// driver must support it; false never rolls back; unset rolls back when
 	// the driver can (FR-RL-2).
 	Rollback *bool `json:"rollback,omitempty"`
+}
+
+// URLFor is the stage's URL for change request n's preview: the URL with
+// ChangeRequestPlaceholder filled in.
+func (s Stage) URLFor(n int) string {
+	return strings.ReplaceAll(s.URL, ChangeRequestPlaceholder, strconv.Itoa(n))
 }
 
 // validateStages checks what needs no driver; it normalizes an absent config
@@ -74,7 +85,7 @@ func validateStages(stages []Stage) []error {
 			errs = append(errs, fmt.Errorf("%s: config %w", at, err))
 		}
 		if s.URL != "" {
-			if err := validateStageURL(s.URL); err != nil {
+			if err := validateStageURL(s.URLFor(1)); err != nil {
 				errs = append(errs, fmt.Errorf("%s: url: %w", at, err))
 			}
 		}
@@ -155,6 +166,9 @@ func ValidateStages(ctx context.Context, stages []Stage, ds StageDrivers) error 
 			}
 		} else {
 			releaseSeen = true
+			if strings.Contains(s.URL, ChangeRequestPlaceholder) {
+				errs = append(errs, fmt.Errorf("%s: url: only a preview stage's url names %s", at, ChangeRequestPlaceholder))
+			}
 		}
 		if err := d.ValidateConfig(ctx, s.Config); err != nil {
 			errs = append(errs, fmt.Errorf("%s: config: %w", at, err))

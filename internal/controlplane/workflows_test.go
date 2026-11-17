@@ -56,7 +56,7 @@ func TestChooseWorkflow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, models, false, in)
+			wf, arg, err := chooseWorkflow(t.Context(), repoFiles{files: tt.files}, models, false, nil, in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +74,7 @@ func TestChooseWorkflow(t *testing.T) {
 	}
 
 	t.Run("a read failure is retried by the next poll", func(t *testing.T) {
-		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, models, false, in); err == nil {
+		if _, _, err := chooseWorkflow(t.Context(), repoFiles{err: errors.New("github: 502")}, models, false, nil, in); err == nil {
 			t.Fatal("no error")
 		}
 	})
@@ -87,7 +87,7 @@ func TestChooseWorkflowEgress(t *testing.T) {
 	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
 	files := repoFiles{files: map[string]string{".factory/config.yaml": "egress: {allow: [nodejs.org]}\n"}}
 
-	_, arg, err := chooseWorkflow(t.Context(), files, models, true, in)
+	_, arg, err := chooseWorkflow(t.Context(), files, models, true, nil, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestChooseWorkflowEgress(t *testing.T) {
 		t.Errorf("allowed: issue egress %v, snapshot error %q", got.Issue.EgressAllow, got.Snapshot.Error)
 	}
 
-	_, arg, err = chooseWorkflow(t.Context(), files, models, false, in)
+	_, arg, err = chooseWorkflow(t.Context(), files, models, false, nil, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestChooseWorkflowEgress(t *testing.T) {
 		t.Errorf("refused: issue egress %v, snapshot error %q", got.Issue.EgressAllow, got.Snapshot.Error)
 	}
 
-	_, arg, _ = chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, in)
+	_, arg, _ = chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, nil, in)
 	if got := arg.(workflow.InterpretInput); got.Snapshot.Error != "" || got.Issue.EgressAllow != nil {
 		t.Errorf("no hosts: %+v", got)
 	}
@@ -129,7 +129,7 @@ func TestChooseWorkflowMergeApproval(t *testing.T) {
 	}
 	for _, tt := range tests {
 		in := activities.IssueRunInput{IssueKey: "gc-1", Repo: "acme/app", BaseBranch: "main", Labels: tt.labels}
-		_, arg, err := chooseWorkflow(t.Context(), tt.files, models, false, in)
+		_, arg, err := chooseWorkflow(t.Context(), tt.files, models, false, nil, in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestChooseWorkflowForBugs(t *testing.T) {
 	models := Models{Default: "anthropic/claude-sonnet-5-5", Providers: config.Providers{{Name: "anthropic", Models: []string{"claude-sonnet-5-5"}}}}
 	for typ, want := range map[string]string{"bug": "bug-fix", "task": "default-build"} {
 		in := activities.IssueRunInput{IssueKey: "gc-79", Repo: "acme/app", BaseBranch: "main", Type: typ}
-		_, arg, err := chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, in)
+		_, arg, err := chooseWorkflow(t.Context(), repoFiles{files: map[string]string{}}, models, false, nil, in)
 		if err != nil {
 			t.Fatal(err)
 		}

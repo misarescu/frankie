@@ -359,6 +359,17 @@ func (s *Step) applyDefaults() {
 	}
 }
 
+// HasGate reports whether any step of the definition, or a parallel group's
+// gate, is a gate of type t.
+func (w Workflow) HasGate(t domain.GateType) bool {
+	for _, s := range w.Steps {
+		if s.Gate != nil && s.Gate.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks the definition's structure: step kinds, unique IDs, gate
 // fields per type, loops that go back to earlier steps with a bound, harness
 // and model compatibility, and that deterministic gates come before LLM gates.
@@ -376,16 +387,13 @@ func (w Workflow) Validate() error {
 	case len(w.Steps) > maxStepsPerDefinition:
 		v.errf("steps", "%d steps, at most %d", len(w.Steps), maxStepsPerDefinition)
 	}
-	opened := false
 	for i, s := range w.Steps {
+		openedBefore := v.opened
 		v.step(fmt.Sprintf("steps[%d]", i), s, false)
-		switch s.Action {
-		case ActionOpenChangeRequest:
-			opened = true
-		case ActionEnqueue:
+		if s.Action == ActionEnqueue {
 			// The queue merges the change request the run opened; nothing
 			// runs after the merge (D88).
-			if !opened {
+			if !openedBefore {
 				v.errf(fmt.Sprintf("steps[%d].action", i), "%s needs an earlier %s step", ActionEnqueue, ActionOpenChangeRequest)
 			}
 			if i != len(w.Steps)-1 {
@@ -405,6 +413,8 @@ type validator struct {
 	// their kinds, for goto targets.
 	seen         map[string]StepKind
 	commandGates int
+	// opened: an earlier step opens the change request.
+	opened bool
 }
 
 func (v *validator) errf(path, format string, args ...any) {
@@ -463,6 +473,9 @@ func (v *validator) step(path string, s Step, branch bool) {
 			v.errf(path+".action", "unknown action %q", s.Action)
 		case !implemented:
 			v.errf(path+".action", "%q is not available yet", s.Action)
+		}
+		if s.Action == ActionOpenChangeRequest {
+			v.opened = true
 		}
 		if s.OnFail != nil && s.Action == ActionEnqueue {
 			if s.OnFail.Action == OnFailEscalate {
@@ -604,6 +617,13 @@ func (v *validator) gate(path string, g Gate, trailing bool) {
 		}
 		if !slices.Contains([]Require{RequireAll, RequireAny, RequireMajority}, g.Require) {
 			v.errf(path+".require", "%q must be all, any or majority", g.Require)
+		}
+	case domain.GatePreview:
+		if trailing {
+			v.errf(path, "a preview gate checks the change request, not a parallel group: make it a step of its own")
+		}
+		if !v.opened {
+			v.errf(path, "a preview gate checks the run's change request: put it after a %s action", ActionOpenChangeRequest)
 		}
 	case domain.GateHuman:
 		if g.Policy == domain.GateAdvisory {

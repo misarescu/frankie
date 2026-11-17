@@ -59,6 +59,9 @@ type temporalStarter struct {
 	models Models
 	// egressAllowed says whether projects may add egress hosts (D80).
 	egressAllowed bool
+	// drivers are the release drivers, which tell a project's preview stage
+	// from its release stages (D126).
+	drivers config.StageDrivers
 }
 
 // schedulerInterval is how often the scheduler looks for issues to start.
@@ -68,7 +71,7 @@ func (t temporalStarter) StartIssueRun(ctx context.Context, in activities.IssueR
 	if n, ok := github.IssueNumber(in.SourceURL); ok && in.SourceNumber == 0 {
 		in.SourceNumber = n // the change request then closes the GitHub issue
 	}
-	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, t.egressAllowed, in)
+	wf, arg, err := chooseWorkflow(ctx, t.files, t.models, t.egressAllowed, t.drivers, in)
 	if err != nil {
 		return err
 	}
@@ -109,8 +112,8 @@ func (t temporalStarter) StartRefinement(ctx context.Context, in activities.Issu
 // shows up on the run. A failure to read the repo returns an error, and intake
 // tries again on its next poll. IssueRun is no longer started; it stays
 // registered until its runs drain.
-func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, egressAllowed bool, in activities.IssueRunInput) (any, any, error) {
-	snap, err := snapshot.ResolveFor(ctx, files, in.Repo, in.BaseBranch, in.Type)
+func chooseWorkflow(ctx context.Context, files snapshot.FileReader, models Models, egressAllowed bool, ds config.StageDrivers, in activities.IssueRunInput) (any, any, error) {
+	snap, err := snapshot.ResolveFor(ctx, files, in.Repo, in.BaseBranch, in.Type, ds)
 	switch {
 	case errors.Is(err, snapshot.ErrInvalid):
 		snap = snapshot.Snapshot{Error: err.Error()}
@@ -242,7 +245,7 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		go in.Run(ctx)
 		log.Info("intake polling", "label", cfg.IntakeLabel, "interval", in.Interval)
 	}
-	sch := &scheduler.Scheduler{Store: st, Starter: temporalStarter{c: c, files: gh, models: cfg.Models, egressAllowed: egressSigner != nil},
+	sch := &scheduler.Scheduler{Store: st, Starter: temporalStarter{c: c, files: gh, models: cfg.Models, egressAllowed: egressSigner != nil, drivers: acts.Drivers},
 		Projects: make(map[uuid.UUID]scheduler.Project, len(projects)), Limit: cfg.MaxConcurrentIssues,
 		Interval: schedulerInterval, Log: log.With("component", "scheduler")}
 	for _, p := range projects {

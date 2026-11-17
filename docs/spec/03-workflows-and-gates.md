@@ -49,7 +49,7 @@ Notes versus the earliest sketch: `implement` and `e2e-tests` are in a `parallel
 
 ### Where definitions come from (D39)
 
-The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or one per issue type with `workflows: {bug: <name>}` (D94), or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. The built-in `default-build` has no `e2e-tests` branch: a project opts into the e2e test writer with the built-in `build-e2e` (D122), which runs it next to the coder, keeps its tests (`preserve`) and runs `mise run e2e:local` as a gate. `default-build` has one Claude Code reviewer (M4); since M6 it ends with `change-request.open` and `merge-queue.enqueue` (D88). Issues of type `bug` run the built-in `bug-fix` instead unless their project names another (D96): investigate, a person's decision when no test can show the bug, a reproducing test that must fail, the fix (which must keep that test), checks, a review of the root cause and the test, and the merge queue.
+The platform ships built-in definitions, embedded from `workflows/` (`default-build` is the default). A project selects one with `workflow: <name>` in `.factory/config.yaml`, or one per issue type with `workflows: {bug: <name>}` (D94), or adds its own as `.factory/workflows/<name>.yaml`. The definition is read from the base branch head when a run starts, validated, and snapshotted into the workflow input (FR-WF-1); definitions in the repo are protected paths. The built-in `default-build` has no `e2e-tests` branch: a project opts into the e2e test writer with the built-in `build-e2e` (D122), which runs it next to the coder, keeps its tests (`preserve`) and runs `mise run e2e:local` as a gate, and, once the change request is open, checks it in a preview when the project declares a preview stage (D126). `default-build` has one Claude Code reviewer (M4); since M6 it ends with `change-request.open` and `merge-queue.enqueue` (D88). Issues of type `bug` run the built-in `bug-fix` instead unless their project names another (D96): investigate, a person's decision when no test can show the bug, a reproducing test that must fail, the fix (which must keep that test), checks, a review of the root cause and the test, and the merge queue.
 
 Parsing fills in every default, so the snapshot is explicit: `harness: claude-code`; all inputs; `policy: blocking`; `onFail: fail` for blocking gates; `run: ["mise run lint", "mise run test"]` for command gates; `require: all`; human gates `timeout: 72h, onTimeout: fail`.
 
@@ -69,7 +69,7 @@ Parsing fills in every default, so the snapshot is explicit: `harness: claude-co
 
 ### Gates
 
-One concept, four types a definition declares (the merge queue also records `provider-checks`, D90):
+One concept, five types a definition declares (the merge queue also records `provider-checks`, D90):
 
 | Type | Evaluation | Notes |
 |---|---|---|
@@ -77,6 +77,7 @@ One concept, four types a definition declares (the merge queue also records `pro
 | `agent-verdict` | A reviewer agent returns JSON validated against a schema (`verdict: pass|fail`, `findings[]` with severity, file, line, message). | `require: all|any|majority` for multiple reviewers. Only on a parallel group (its branches are the reviewers), and only after a `command` gate. |
 | `human` | UI/CLI approval via Signal. | `timeout`, `onTimeout: fail|extend` (`escalate` needs a notification channel; not yet). Always blocking; a rejection fails the run; `sendBack: {goto, maxLoops}` adds request changes, which loops back with the comment (D95). Used for protected paths and production; spec approval is part of the issue lifecycle instead (D64). |
 | `preserve` | `step: <earlier agent step>`: what that step's last execution wrote must still be there at the current head, compared on the provider (D95): each block of lines it added, in order and together; the files it added or changed may not be removed or renamed, and one with no diff (binary or too large) may not change at all (D97). | Keeps a reproducing test through the fix, while the fix may still edit other parts of the test's file. |
+| `preview` | After `change-request.open`: wait for the head's provider checks (D90), deploy the head to the project's preview stage, wait until it runs it, run the stage's `verify` against it, then remove it (D126). Pass = the suite passed. | Skipped when the project declares no preview stage. CI failures and failing tests go back as feedback; an inconclusive check (the preview never ran, the suite could not judge) escalates instead. Waits up to 30 minutes for a free preview slot. |
 
 Every gate has:
 
@@ -97,6 +98,7 @@ Structural checks are in `internal/config` (`ParseWorkflow`); the cross-checks a
 - Roles exist, a pinned version matches, a role's default model suits the step's harness, the harness provides every tool the role allows (pi has no `web-fetch`, D50), and verdict roles sit exactly in `agent-verdict` groups (`config.ResolveRoles`).
 - Harness/model compatibility (D48): the provider of each model ref is known and serves an API the step's harness speaks (Claude Code: Anthropic; opencode and pi: Anthropic and OpenAI-compatible). When a run starts, every agent step's effective model (the step's, else the role's default, else the platform's) must also be served by one of the deployment's provider profiles (`config.CheckModels`); otherwise the run fails with the reason.
 - Referenced release driver capabilities (rollback, progressive) are supported by the chosen driver.
+- A `preview` gate comes after a `change-request.open` action (D126).
 - Gate commands reference tasks that exist in the repo's `mise.toml` (warning, not error, if the repo is not yet cloned).
 
 ## Roles

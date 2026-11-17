@@ -96,6 +96,21 @@ func runRelease(ctx workflow.Context, repo string, req ReleaseRequest) {
 		log.Info("release failed before its stages", "release", plan.ReleaseID, "reason", plan.Failed)
 		return
 	}
+	// The release agent prepares the notes while the stages deploy (D129).
+	agent := plan.Agent && workflow.GetVersion(ctx, "release-agent", workflow.DefaultVersion, 1) >= 1
+	agentReq := activities.ReleaseAgentRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, BaseBranch: req.BaseBranch}
+	notes := workflow.NewWaitGroup(ctx)
+	if agent {
+		notes.Add(1)
+		workflow.Go(ctx, func(c workflow.Context) {
+			defer notes.Done()
+			r := agentReq
+			r.Step = activities.ReleaseStepNotes
+			prepareNotes(c, r)
+		})
+		defer finishReleaseRun(ctx, plan.ReleaseID)
+		defer notes.Wait(ctx)
+	}
 	for _, st := range plan.Stages {
 		status, reason, failed := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, BaseBranch: req.BaseBranch, Stage: st})
 		if status != domain.ReleaseSucceeded {
@@ -103,13 +118,27 @@ func runRelease(ctx workflow.Context, repo string, req ReleaseRequest) {
 			// A failed verification is a bug in what the release contains:
 			// open an issue for it (D115). Other failures are the stage's.
 			if failed != nil && workflow.GetVersion(ctx, "release-bug-issue", workflow.DefaultVersion, 1) >= 1 {
-				reportReleaseFailure(ctx, activities.ReleaseFailureReport{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha,
-					Stage: st.Name, URL: st.URL, Verification: *failed, RolledBack: status == domain.ReleaseRolledBack})
+				report := activities.ReleaseFailureReport{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha,
+					Stage: st.Name, URL: st.URL, Verification: *failed, RolledBack: status == domain.ReleaseRolledBack}
+				if agent {
+					// The agent reads the failure first; its analysis is a
+					// section of the issue (D129).
+					r := agentReq
+					r.Step, r.Failure = activities.ReleaseStepAnalysis, &report
+					report.Analysis, _ = releaseAgentSession(ctx, r)
+				}
+				reportReleaseFailure(ctx, report)
 			}
 			return
 		}
 	}
+	if agent {
+		notes.Wait(ctx)
+	}
 	finishRelease(ctx, plan.ReleaseID, domain.ReleaseSucceeded, "")
+	if agent {
+		publishVersion(ctx, plan.ReleaseID)
+	}
 }
 
 // deployStage deploys the release to one stage: succeeded, or failed or

@@ -583,13 +583,15 @@ func mergeApprovalSnapshot(t *testing.T) snapshot.Snapshot {
 // releaseStub answers for the release Activities in a recording.
 type releaseStub struct {
 	failVerify bool
+	// agent turns the release agent on (D129).
+	agent bool
 	// awaitFor makes waiting for a stage take this long, so signals arrive
 	// while a release runs.
 	awaitFor time.Duration
 }
 
 func (s *releaseStub) PrepareRelease(_ context.Context, req activities.PrepareReleaseRequest) (activities.ReleasePlan, error) {
-	return activities.ReleasePlan{ReleaseID: "0198f2a4-5555-7000-8000-" + req.SHA[:12], Status: domain.ReleaseInProgress, Issues: []string{"gc-1"},
+	return activities.ReleasePlan{ReleaseID: "0198f2a4-5555-7000-8000-" + req.SHA[:12], Status: domain.ReleaseInProgress, Issues: []string{"gc-1"}, Agent: s.agent,
 		Stages: []activities.ReleaseStage{
 			{Name: "staging", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/staging"}`), URL: "https://goodreads-stg.example.ts.net", Verify: "e2e-suite", Rollback: true},
 			{Name: "production", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/production"}`), Rollback: true},
@@ -627,6 +629,46 @@ func (s *releaseStub) ReportReleaseFailure(context.Context, activities.ReleaseFa
 	return "https://github.com/misarescu/Goodreads-Clone/issues/131", nil
 }
 
+// The release agent's Activities (D129).
+
+func (s *releaseStub) PrepareReleaseSession(_ context.Context, req activities.ReleaseAgentRequest) (activities.ReleaseSession, error) {
+	step := map[string]string{activities.ReleaseStepNotes: "1", activities.ReleaseStepAnalysis: "2"}[req.Step]
+	return activities.ReleaseSession{
+		Issue: activities.IssueRunInput{IssueKey: "release-0000000", Title: "Release 0000000", Spec: "Write the release notes.", Repo: "misarescu/Goodreads-Clone", BaseBranch: "main"},
+		Run: activities.StartRunResult{RunID: "0198f2a4-7777-7000-8000-000000000001", StepRunID: "0198f2a4-8888-7000-8000-00000000000" + step,
+			Branch: "agent/release-0000000/" + req.Step, ReleaseID: req.ReleaseID,
+			Step: &activities.AgentStep{StepID: req.Step, Role: "release-agent", RoleVersion: 1, Timeout: 20 * time.Minute, Inputs: []string{"spec"}, Contract: "release-notes"}},
+	}, nil
+}
+
+func (s *releaseStub) EnsureStepImage(context.Context, activities.IssueRunInput, string, string) (string, error) {
+	return "localhost:30500/toolchains/goodreads@sha256:1111111111111111111111111111111111111111111111111111111111111111", nil
+}
+
+func (s *releaseStub) LaunchAgentPod(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult) (activities.AgentPod, error) {
+	return activities.AgentPod{Name: "release-agent-" + run.Step.StepID, IP: "10.48.0.9"}, nil
+}
+
+func (s *releaseStub) RunAgentSession(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+	if run.Step.StepID == activities.ReleaseStepAnalysis {
+		return activities.SessionResult{Status: "succeeded", Result: `{"suspects":[{"issue":"gc-1","likelihood":"high","why":"search pages"}],"summary":"gc-1 changed search"}`}, nil
+	}
+	return activities.SessionResult{Status: "succeeded", Result: `{"bump":"minor","reason":"a new endpoint","notes":"- gc-1: search"}`}, nil
+}
+
+func (s *releaseStub) DeleteAgentPod(context.Context, string) error         { return nil }
+func (s *releaseStub) FinishStep(context.Context, activities.StepEnd) error { return nil }
+
+func (s *releaseStub) RecordReleaseNotes(context.Context, activities.ReleaseNotesRequest) (domain.NotesSource, error) {
+	return domain.NotesByAgent, nil
+}
+
+func (s *releaseStub) PublishVersion(context.Context, string) (activities.PublishedVersion, error) {
+	return activities.PublishedVersion{Version: "v0.1.0", URL: "https://github.com/misarescu/Goodreads-Clone/releases/tag/v0.1.0"}, nil
+}
+
+func (s *releaseStub) FinishReleaseRun(context.Context, string) error { return nil }
+
 // TestRecordReleaseHistories records Release (D114): a release through two
 // stages; one whose staging verification fails and is rolled back; two
 // requests arriving during a release, batched into one more; and (D115) a
@@ -654,6 +696,10 @@ func TestRecordReleaseHistories(t *testing.T) {
 		{"release_verify_failed_rolled_back.json", &releaseStub{failVerify: true}, nil},
 		{"release_batched.json", &releaseStub{awaitFor: 2 * time.Second}, []string{sha(2), sha(3)}},
 		{"release_bug_issue.json", &releaseStub{failVerify: true}, nil},
+		// release-agent version (D129): notes while the stages deploy, then
+		// the version; and the analysis of a failed verification.
+		{"release_agent_versioned.json", &releaseStub{agent: true}, nil},
+		{"release_agent_analysis.json", &releaseStub{agent: true, failVerify: true}, nil},
 	} {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != rec.file {
 			continue

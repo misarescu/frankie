@@ -2,8 +2,10 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +33,23 @@ type releaseFixture struct {
 	rollback func(req activities.StageRequest) error
 	// awaitDelay makes waiting for a stage take this long (test clock).
 	awaitDelay time.Duration
+
+	// The release agent (D129): agentLog records its Activities and the
+	// release's end in order (mu guards it, as the notes session runs next
+	// to the stages); agent decides each session's end, sessionDelay how
+	// long it takes; sessions and notes record the requests.
+	mu           sync.Mutex
+	agentLog     []string
+	agent        func(req activities.ReleaseAgentRequest) activities.SessionResult
+	sessionDelay time.Duration
+	sessions     []activities.ReleaseAgentRequest
+	notes        []activities.ReleaseNotesRequest
+}
+
+func (f *releaseFixture) logAgent(s string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.agentLog = append(f.agentLog, s)
 }
 
 var (
@@ -95,6 +114,56 @@ func newReleaseFixture(t *testing.T, opts ...func(*releaseFixture)) *releaseFixt
 	})
 	f.env.OnActivity(a.FinishRelease, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.FinishReleaseRequest) error {
 		f.finished = append(f.finished, req)
+		f.logAgent("finish " + string(req.Status))
+		return nil
+	})
+	f.env.OnActivity(a.PrepareReleaseSession, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseAgentRequest) (activities.ReleaseSession, error) {
+		f.mu.Lock()
+		f.sessions = append(f.sessions, req)
+		f.mu.Unlock()
+		f.logAgent("session " + req.Step)
+		id := "sr-" + req.Step
+		return activities.ReleaseSession{Issue: activities.IssueRunInput{IssueKey: "release-x", Repo: "misarescu/Goodreads-Clone"},
+			Run: activities.StartRunResult{RunID: "run-" + req.ReleaseID, StepRunID: id, ReleaseID: req.ReleaseID,
+				Step: &activities.AgentStep{StepID: req.Step, Timeout: 20 * time.Minute}}}, nil
+	})
+	f.env.OnActivity(a.EnsureStepImage, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("toolchain@sha256:1", nil)
+	f.env.OnActivity(a.LaunchAgentPod, mock.Anything, mock.Anything, mock.Anything).Return(func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult) (activities.AgentPod, error) {
+		return activities.AgentPod{Name: "pod-" + run.StepRunID, IP: "10.0.0.1"}, nil
+	})
+	f.env.OnActivity(a.RunAgentSession, mock.Anything, mock.Anything, mock.Anything, mock.Anything).After(f.sessionDelay).Return(
+		func(_ context.Context, _ activities.IssueRunInput, run activities.StartRunResult, _ activities.AgentPod) (activities.SessionResult, error) {
+			f.mu.Lock()
+			req := f.sessions[len(f.sessions)-1]
+			for _, s := range f.sessions {
+				if s.Step == run.Step.StepID {
+					req = s
+				}
+			}
+			f.mu.Unlock()
+			if f.agent != nil {
+				return f.agent(req), nil
+			}
+			return activities.SessionResult{Status: "succeeded", Result: `{"bump":"minor","reason":"r","notes":"- gc-1"}`}, nil
+		})
+	f.env.OnActivity(a.DeleteAgentPod, mock.Anything, mock.Anything).Return(nil)
+	f.env.OnActivity(a.FinishStep, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.StepEnd) error {
+		f.logAgent(fmt.Sprintf("end %s %v", in.StepRunID, in.Succeeded))
+		return nil
+	})
+	f.env.OnActivity(a.RecordReleaseNotes, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseNotesRequest) (domain.NotesSource, error) {
+		f.mu.Lock()
+		f.notes = append(f.notes, req)
+		f.mu.Unlock()
+		f.logAgent("notes")
+		return domain.NotesByAgent, nil
+	})
+	f.env.OnActivity(a.PublishVersion, mock.Anything, mock.Anything).Return(func(_ context.Context, id string) (activities.PublishedVersion, error) {
+		f.logAgent("publish " + id)
+		return activities.PublishedVersion{Version: "v0.1.0"}, nil
+	})
+	f.env.OnActivity(a.FinishReleaseRun, mock.Anything, mock.Anything).Return(func(_ context.Context, id string) error {
+		f.logAgent("finish-run " + id)
 		return nil
 	})
 	f.env.OnActivity(a.ReportReleaseFailure, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseFailureReport) (string, error) {
@@ -318,7 +387,8 @@ func TestReleaseBatchesRequests(t *testing.T) {
 func TestReleaseReplaysRecordedHistories(t *testing.T) {
 	r := worker.NewWorkflowReplayer()
 	r.RegisterWorkflow(Release)
-	for _, f := range []string{"release_succeeded.json", "release_verify_failed_rolled_back.json", "release_batched.json", "release_bug_issue.json"} {
+	for _, f := range []string{"release_succeeded.json", "release_verify_failed_rolled_back.json", "release_batched.json", "release_bug_issue.json",
+		"release_agent_versioned.json", "release_agent_analysis.json"} {
 		if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/"+f); err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}

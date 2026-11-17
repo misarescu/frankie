@@ -212,6 +212,10 @@ func TestResolveBuildE2E(t *testing.T) {
 	if !slices.Contains(gates, "mise run e2e:local") {
 		t.Errorf("command gates = %v; want the suite run locally", gates)
 	}
+	// M7 (D126): version 2 checks the change request in a preview.
+	if s.Workflow.Version != 2 || !s.Workflow.HasGate(domain.GatePreview) || s.PreviewStage != nil {
+		t.Errorf("build-e2e@%d, preview gate %v, preview stage %+v", s.Workflow.Version, s.Workflow.HasGate(domain.GatePreview), s.PreviewStage)
+	}
 }
 
 // A failed read is retried later, never reported as the repo's mistake.

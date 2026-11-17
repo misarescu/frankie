@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 
@@ -107,6 +109,17 @@ type interpretFixture struct {
 	// to merged-<n>).
 	updates []activities.BranchUpdateRequest
 	update  func(req activities.BranchUpdateRequest) activities.BranchUpdateResult
+	// ci decides the provider checks a preview gate waits for (nil passes).
+	// previewOps records the preview Activities called, as op@head;
+	// previews the details each preview gate recorded. noRoom, notReady and
+	// verifyPreview decide the preview (nil or empty: it runs and passes).
+	ci            func(req activities.ProviderChecksRequest) activities.GateOutcome
+	previewOps    []string
+	previews      []domain.PreviewDetails
+	noRoom        string
+	notReady      string
+	verifyPreview func(req activities.PreviewRequest) activities.Verification
+	removeFails   bool
 }
 
 func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpretFixture {
@@ -267,6 +280,45 @@ func newInterpretFixture(t *testing.T, opts ...func(*interpretFixture)) *interpr
 	f.env.OnActivity(a.LeaveQueue, mock.Anything, testInput.IssueID).Return(func(context.Context, string) error {
 		f.left++
 		return nil
+	})
+	f.env.OnActivity(a.AwaitProviderChecks, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ProviderChecksRequest) (activities.GateOutcome, error) {
+		f.previewOps = append(f.previewOps, "ci@"+req.HeadSHA)
+		if f.ci != nil {
+			return f.ci(req), nil
+		}
+		return activities.GateOutcome{StepRunID: req.StepRunID, Passed: true, Summary: "the repo's CI passed (2 checks)"}, nil
+	})
+	f.env.OnActivity(a.PublishPreview, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.PreviewRequest) (activities.PreviewPublished, error) {
+		f.previewOps = append(f.previewOps, "publish@"+req.HeadSHA)
+		if f.noRoom != "" {
+			return activities.PreviewPublished{ChangeRequest: 9, NoRoom: f.noRoom}, nil
+		}
+		return activities.PreviewPublished{ChangeRequest: 9, State: json.RawMessage(`{"commit":"c1"}`)}, nil
+	})
+	f.env.OnActivity(a.AwaitPreview, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.PreviewRequest) (activities.StageStatus, error) {
+		f.previewOps = append(f.previewOps, "await@"+req.HeadSHA)
+		if f.notReady != "" {
+			return activities.StageStatus{Reason: f.notReady}, nil
+		}
+		return activities.StageStatus{Ready: true}, nil
+	})
+	f.env.OnActivity(a.VerifyPreview, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.PreviewRequest) (activities.Verification, error) {
+		f.previewOps = append(f.previewOps, "verify@"+req.HeadSHA)
+		if f.verifyPreview != nil {
+			return f.verifyPreview(req), nil
+		}
+		return activities.Verification{Passed: true, Summary: "219 tests passed"}, nil
+	})
+	f.env.OnActivity(a.RemovePreview, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.PreviewRequest) error {
+		f.previewOps = append(f.previewOps, "remove@"+req.HeadSHA)
+		if f.removeFails {
+			return temporal.NewNonRetryableApplicationError("github: 502", "test", nil)
+		}
+		return nil
+	})
+	f.env.OnActivity(a.FinishPreview, mock.Anything, mock.Anything).Return(func(_ context.Context, res activities.PreviewResult) (activities.GateOutcome, error) {
+		f.previews = append(f.previews, res.Details)
+		return activities.PreviewOutcome(res.StepRunID, res.Details), nil
 	})
 	f.env.OnActivity(a.FinishRun, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.FinishInput) error {
 		f.finished = &in
@@ -434,10 +486,9 @@ func TestCheckSupported(t *testing.T) {
 	if err := CheckSupported(unsupported); err == nil {
 		t.Error("an unimplemented action is supported")
 	}
-	// M7 (D126): until the interpreter runs it, a preview gate fails the run
-	// at start rather than midway.
+	// M7 (D126): the interpreter runs preview gates.
 	preview := config.Workflow{Name: "p", Steps: []config.Step{{ID: "preview", Gate: &config.Gate{Type: domain.GatePreview}}}}
-	if err := CheckSupported(preview); err == nil || !strings.Contains(err.Error(), "the preview gate is not supported yet") {
+	if err := CheckSupported(preview); err != nil {
 		t.Errorf("preview gate: %v", err)
 	}
 }
@@ -461,6 +512,7 @@ var interpretHistories = []struct{ file, what string }{
 	{"testdata/interpret_investigate_testable.json", "M6: bug-findings version, a testable bug is investigated, reproduced and fixed"},
 	{"testdata/interpret_bug_testable.json", "M6: bug-gates version, a test that must fail, then a fix that keeps it"},
 	{"testdata/interpret_concurrent_writers.json", "M7: concurrent-writers version, two writers at once, the side branch merged, a loop back to the coder"},
+	{"testdata/interpret_preview_gate.json", "M7: preview-gate version, a head fails its suite in a preview, the next passes and merges"},
 }
 
 func TestInterpretReplaysRecordedHistories(t *testing.T) {

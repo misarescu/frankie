@@ -73,13 +73,19 @@ Frankie holds no credential for the homelab: it changes a stage only by committi
 ### Release driver interface
 
 ```go
-type ReleaseDriver interface {
-    Capabilities() Capabilities // Rollback, Progressive, Health, Preview, ...
-    Publish(ctx context.Context, r Release, s Stage) (Deployment, error)
-    Status(ctx context.Context, d Deployment) (Status, error)
-    Promote(ctx context.Context, d Deployment, step RolloutStep) error // only if Progressive
-    Rollback(ctx context.Context, d Deployment) error                  // only if supported
+// internal/drivers (D112); the gRPC service is proto/frankie/driver/v1/driver.proto.
+type Driver interface {
+    Name() string               // how stage configuration names it, e.g. "flux"
+    Capabilities() Capabilities // Rollback, Progressive, Health, Preview
+    ValidateConfig(ctx context.Context, config json.RawMessage) error // at save time
+    Publish(ctx context.Context, r Request) (State, error)  // returns once the change is made
+    Status(ctx context.Context, r Request) (Status, error)  // progressing, ready or failed
+    Promote(ctx context.Context, r Request, step RolloutStep) (State, error) // only if Progressive
+    Rollback(ctx context.Context, r Request) (State, error)                 // only if Rollback
 }
+// Request: the Stage (name, driver config), the Subject (repo, commit, and a
+// release or, for a preview, a change request) and the Deployment (ID, State).
+// State is the driver's own JSON object, stored on the Deployment and handed back.
 ```
 
 - The contract is a **gRPC service** (`proto/driver.proto`), so a driver can be an **out-of-process plugin** (hashicorp/go-plugin, like Terraform providers) and a new target never touches the control plane. M7's built-in drivers implement the same interface in-process; the plugin host comes with the first driver built outside this repository (D109). Either way drivers run only in control-plane Activities.

@@ -106,7 +106,7 @@ internal/
   config/           YAML schemas, validation
   runner/           in-pod runner: RunnerService server, event log, harness adapters (claudecode/), git workspace (workspace/)
   sandbox/          agent pod spec builder (Kata, no SA token, non-root, limits, proxy env)
-proto/              runner.proto, driver.proto
+proto/              frankie/runner/v1/runner.proto, frankie/driver/v1/driver.proto
 gen/                generated protobuf/gRPC Go code (committed; public so external drivers can import it)
 web/                React + Bun UI, its own deployment; its Bun server proxies /api to the control plane
 deploy/

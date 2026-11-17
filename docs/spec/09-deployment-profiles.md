@@ -83,7 +83,7 @@ What the sizing rests on (measured 2026-11-16, Kata 4.3.1 `qemu-runtime-rs`, Kub
 - The scheduler charges a running Kata pod its CPU request plus twice the RuntimeClass's 250m overhead; memory overhead is charged once.
 - Kata costs file I/O, not CPU: on one POP2 node a gate took 91 s without Kata and 187 s with it, CPU-bound work ran at nearly native speed, and small-file operations were 10 to 15 times slower through virtiofs. Three gates at once on one node took 418 s each.
 - Frankie's secrets come from Scaleway Secret Manager through External Secrets (D107); the only secret made by hand is the store's read-only API key.
-- Projects' previews run here; their long-lived stages do not. Goodreads-Clone's staging and production run on the homelab, which Frankie changes only through their GitOps repository and reaches over Tailscale (D108, D118); the Tailscale operator's egress proxies forward pods' traffic into the tailnet, which tailscaled's firewall drops when it comes from `100.64.0.0/10` (D119).
+- Frankie's own previews (M7.1) run here; projects' previews and long-lived stages do not. Goodreads-Clone's staging, production and previews run on the homelab (D124), which Frankie changes only through their GitOps repository and reaches over Tailscale (D108, D118); the Tailscale operator's egress proxies forward pods' traffic into the tailnet, which tailscaled's firewall drops when it comes from `100.64.0.0/10` (D119).
 - DEV1 instances were too slow for the factory (gates about 4 times the homelab's) and, on their older hosts, Kata VMs failed to boot.
 
 ## Dropped or deferred in the concrete profile

@@ -54,7 +54,14 @@ spec:
       initContainers:
         - name: collect-garbage
           image: {{ $r.image }}
-          command: [registry, garbage-collect, --delete-untagged, /etc/docker/registry/config.yml]
+          # An empty registry (a fresh volume) has nothing to collect, and
+          # garbage-collect fails on it: skip until the first push.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              [ -d /var/lib/registry/docker/registry/v2/repositories ] || { echo "registry empty: nothing to collect"; exit 0; }
+              exec registry garbage-collect --delete-untagged /etc/docker/registry/config.yml
           env:
             - { name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY, value: /var/lib/registry }
             - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true" }

@@ -63,7 +63,7 @@ func (q *Queries) GetDeploymentByStage(ctx context.Context, arg GetDeploymentByS
 }
 
 const getRelease = `-- name: GetRelease :one
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref FROM releases WHERE id = $1
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error FROM releases WHERE id = $1
 `
 
 func (q *Queries) GetRelease(ctx context.Context, id uuid.UUID) (Release, error) {
@@ -80,12 +80,18 @@ func (q *Queries) GetRelease(ctx context.Context, id uuid.UUID) (Release, error)
 		&i.UpdatedAt,
 		&i.Reason,
 		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
 	)
 	return i, err
 }
 
 const getReleaseByCommit = `-- name: GetReleaseByCommit :one
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref FROM releases WHERE project_id = $1 AND repo = $2 AND sha = $3
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error FROM releases WHERE project_id = $1 AND repo = $2 AND sha = $3
 `
 
 type GetReleaseByCommitParams struct {
@@ -108,6 +114,12 @@ func (q *Queries) GetReleaseByCommit(ctx context.Context, arg GetReleaseByCommit
 		&i.UpdatedAt,
 		&i.Reason,
 		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
 	)
 	return i, err
 }
@@ -156,7 +168,7 @@ const insertRelease = `-- name: InsertRelease :one
 INSERT INTO releases (id, project_id, repo, sha)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (project_id, repo, sha) DO NOTHING
-RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error
 `
 
 type InsertReleaseParams struct {
@@ -188,8 +200,34 @@ func (q *Queries) InsertRelease(ctx context.Context, arg InsertReleaseParams) (R
 		&i.UpdatedAt,
 		&i.Reason,
 		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
 	)
 	return i, err
+}
+
+const latestReleaseVersion = `-- name: LatestReleaseVersion :one
+SELECT version FROM releases
+WHERE project_id = $1 AND repo = $2 AND version <> ''
+ORDER BY finished_at DESC NULLS LAST, created_at DESC, id DESC
+LIMIT 1
+`
+
+type LatestReleaseVersionParams struct {
+	ProjectID uuid.UUID
+	Repo      string
+}
+
+// The newest version a release of the project's repo got (D129).
+func (q *Queries) LatestReleaseVersion(ctx context.Context, arg LatestReleaseVersionParams) (string, error) {
+	row := q.db.QueryRow(ctx, latestReleaseVersion, arg.ProjectID, arg.Repo)
+	var version string
+	err := row.Scan(&version)
+	return version, err
 }
 
 const linkReleaseIssues = `-- name: LinkReleaseIssues :exec
@@ -295,7 +333,7 @@ func (q *Queries) ListReleaseIssueIDs(ctx context.Context, releaseID uuid.UUID) 
 }
 
 const listReleasesForProject = `-- name: ListReleasesForProject :many
-SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref FROM releases WHERE project_id = $1
+SELECT id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error FROM releases WHERE project_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $2
 `
@@ -326,6 +364,12 @@ func (q *Queries) ListReleasesForProject(ctx context.Context, arg ListReleasesFo
 			&i.UpdatedAt,
 			&i.Reason,
 			&i.BugIssueRef,
+			&i.Bump,
+			&i.Notes,
+			&i.NotesSource,
+			&i.Version,
+			&i.ProviderReleaseUrl,
+			&i.PublishError,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +414,7 @@ func (q *Queries) SetDeploymentDriverState(ctx context.Context, arg SetDeploymen
 const setReleaseBugIssue = `-- name: SetReleaseBugIssue :one
 UPDATE releases SET bug_issue_ref = coalesce(bug_issue_ref, $1::text), updated_at = now()
 WHERE id = $2
-RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error
 `
 
 type SetReleaseBugIssueParams struct {
@@ -393,6 +437,101 @@ func (q *Queries) SetReleaseBugIssue(ctx context.Context, arg SetReleaseBugIssue
 		&i.UpdatedAt,
 		&i.Reason,
 		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
+	)
+	return i, err
+}
+
+const setReleaseNotes = `-- name: SetReleaseNotes :one
+UPDATE releases
+SET bump = $1::text, notes = $2::text, notes_source = $3::text, updated_at = now()
+WHERE id = $4
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error
+`
+
+type SetReleaseNotesParams struct {
+	Bump        string
+	Notes       string
+	NotesSource string
+	ID          uuid.UUID
+}
+
+// Records what the release agent, or its fallback, prepared (D129).
+func (q *Queries) SetReleaseNotes(ctx context.Context, arg SetReleaseNotesParams) (Release, error) {
+	row := q.db.QueryRow(ctx, setReleaseNotes,
+		arg.Bump,
+		arg.Notes,
+		arg.NotesSource,
+		arg.ID,
+	)
+	var i Release
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Repo,
+		&i.Sha,
+		&i.Status,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Reason,
+		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
+	)
+	return i, err
+}
+
+const setReleaseVersion = `-- name: SetReleaseVersion :one
+UPDATE releases
+SET version = $1::text, provider_release_url = $2::text, publish_error = $3::text, updated_at = now()
+WHERE id = $4 AND status = 'succeeded'
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error
+`
+
+type SetReleaseVersionParams struct {
+	Version            string
+	ProviderReleaseUrl string
+	PublishError       string
+	ID                 uuid.UUID
+}
+
+// Records the version a succeeded release got, its provider release and why
+// publishing it failed (D129).
+func (q *Queries) SetReleaseVersion(ctx context.Context, arg SetReleaseVersionParams) (Release, error) {
+	row := q.db.QueryRow(ctx, setReleaseVersion,
+		arg.Version,
+		arg.ProviderReleaseUrl,
+		arg.PublishError,
+		arg.ID,
+	)
+	var i Release
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Repo,
+		&i.Sha,
+		&i.Status,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Reason,
+		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
 	)
 	return i, err
 }
@@ -447,7 +586,7 @@ SET status      = $1::text,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'rolled_back') THEN coalesce(finished_at, now()) ELSE finished_at END,
     updated_at  = now()
 WHERE id = $3 AND status = $4::text
-RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref
+RETURNING id, project_id, repo, sha, status, finished_at, created_at, updated_at, reason, bug_issue_ref, bump, notes, notes_source, version, provider_release_url, publish_error
 `
 
 type TransitionReleaseParams struct {
@@ -477,6 +616,12 @@ func (q *Queries) TransitionRelease(ctx context.Context, arg TransitionReleasePa
 		&i.UpdatedAt,
 		&i.Reason,
 		&i.BugIssueRef,
+		&i.Bump,
+		&i.Notes,
+		&i.NotesSource,
+		&i.Version,
+		&i.ProviderReleaseUrl,
+		&i.PublishError,
 	)
 	return i, err
 }

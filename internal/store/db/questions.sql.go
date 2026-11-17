@@ -190,7 +190,7 @@ const listAnsweredQuestions = `-- name: ListAnsweredQuestions :many
 SELECT q.id, q.step_run_id, q.run_id, q.question_id, q.question, q.status, q.answer, q.answered_by, q.answered_at, q.created_at, q.updated_at
 FROM questions q
 JOIN runs r ON r.id = q.run_id
-WHERE r.issue_id = $1 AND q.status = 'answered'
+WHERE r.issue_id = $1::uuid AND q.status = 'answered'
 ORDER BY q.answered_at, q.id
 `
 

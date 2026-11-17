@@ -345,3 +345,60 @@ func TestListRunWaitsForImages(t *testing.T) {
 		t.Errorf("after the build failed and the gate ended: %v, %v", got, err)
 	}
 }
+
+// M7 (D129): a release's agent runs belong to the release, not an issue;
+// their spend adds up per release, and they stay out of issue run lists.
+func TestReleaseRuns(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	p := mustProject(t, s)
+	rel := mustRelease(t, s, p.ID, "r1")
+	other := mustRelease(t, s, p.ID, "r2")
+	newRun := func(rel domain.Release) domain.Run {
+		t.Helper()
+		r, err := s.CreateRun(ctx, NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "release-agent",
+			TemporalWorkflowID: "release/" + releaseRepo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first, second := newRun(rel), newRun(rel)
+	if first.ReleaseID != rel.ID || first.IssueID != uuid.Nil || first.TemporalRunID != "" {
+		t.Fatalf("release run = %+v", first)
+	}
+	for _, u := range []struct {
+		run  domain.Run
+		cost float64
+	}{{first, 0.2}, {second, 0.3}, {newRun(other), 5}} {
+		sr, err := s.CreateStepRun(ctx, NewStepRun{RunID: u.run.ID, StepID: "notes", Attempt: 1, Kind: domain.StepAgent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AddStepRunUsage(ctx, sr.ID, domain.Usage{CostUSD: u.cost}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if spent, err := s.ReleaseSpend(ctx, rel.ID); err != nil || spent != 0.5 {
+		t.Errorf("release spend = %v, %v; want 0.5, not the other release's", spent, err)
+	}
+	runs, err := s.ListReleaseRuns(ctx, rel.ID)
+	if err != nil || len(runs) != 2 || runs[0].ID != second.ID || runs[1].ID != first.ID {
+		t.Errorf("ListReleaseRuns = %+v, %v", runs, err)
+	}
+	recent, err := s.ListRecentRuns(ctx, 10)
+	if err != nil || len(recent) != 0 {
+		t.Errorf("recent issue runs = %+v, %v", recent, err)
+	}
+
+	is := mustIssue(t, s, p.ID, domain.IssueRunning)
+	for name, in := range map[string]NewRun{
+		"neither": {},
+		"both":    {IssueID: is.ID, ReleaseID: rel.ID},
+	} {
+		in.WorkflowSnapshot, in.WorkflowVersion, in.TemporalWorkflowID = json.RawMessage(`{}`), "1", "wf"
+		if _, err := s.CreateRun(ctx, in); err == nil {
+			t.Errorf("%s: a run of %s was created", name, name)
+		}
+	}
+}

@@ -50,8 +50,12 @@ func CanTransitionExec(from, to ExecStatus) bool {
 
 // Run is one execution of a workflow for an issue. A retry creates a new Run.
 type Run struct {
-	ID                 uuid.UUID
-	IssueID            uuid.UUID
+	ID uuid.UUID
+	// IssueID is the issue the run works on; uuid.Nil for a release's run.
+	IssueID uuid.UUID
+	// ReleaseID is the release whose agent the run runs (D129); uuid.Nil for
+	// an issue's run.
+	ReleaseID          uuid.UUID
 	WorkflowSnapshot   json.RawMessage // definition snapshotted at start (invariant 4)
 	WorkflowVersion    string
 	TemporalWorkflowID string // stable per issue, reused by reruns

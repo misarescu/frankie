@@ -143,16 +143,22 @@ type Question struct {
 }
 
 type Release struct {
-	ID          uuid.UUID
-	ProjectID   uuid.UUID
-	Repo        string
-	Sha         string
-	Status      string
-	FinishedAt  *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Reason      string
-	BugIssueRef *string
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Repo               string
+	Sha                string
+	Status             string
+	FinishedAt         *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Reason             string
+	BugIssueRef        *string
+	Bump               string
+	Notes              string
+	NotesSource        string
+	Version            string
+	ProviderReleaseUrl string
+	PublishError       string
 }
 
 type ReleaseIssue struct {
@@ -164,7 +170,7 @@ type ReleaseIssue struct {
 
 type Run struct {
 	ID                 uuid.UUID
-	IssueID            uuid.UUID
+	IssueID            *uuid.UUID
 	WorkflowSnapshot   []byte
 	WorkflowVersion    string
 	TemporalWorkflowID string
@@ -175,6 +181,7 @@ type Run struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	TemporalRunID      *string
+	ReleaseID          *uuid.UUID
 }
 
 type StepRun struct {

@@ -121,6 +121,22 @@ func deref(s *string) string {
 	return *s
 }
 
+// optionalID is nil for uuid.Nil.
+func optionalID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
+// derefID is uuid.Nil for nil.
+func derefID(id *uuid.UUID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil
+	}
+	return *id
+}
+
 func nonEmpty(s string) *string {
 	if s == "" {
 		return nil

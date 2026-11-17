@@ -160,8 +160,55 @@ func (s *Store) releaseWithIssues(ctx context.Context, q *db.Queries, r db.Relea
 	}
 	return domain.Release{
 		ID: r.ID, ProjectID: r.ProjectID, Repo: r.Repo, SHA: r.Sha, Status: domain.ReleaseStatus(r.Status),
-		IssueIDs: nonNil(ids), Reason: r.Reason, BugIssueRef: deref(r.BugIssueRef), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		IssueIDs: nonNil(ids), Reason: r.Reason, BugIssueRef: deref(r.BugIssueRef),
+		Bump: domain.Bump(r.Bump), Notes: r.Notes, NotesSource: domain.NotesSource(r.NotesSource),
+		Version: r.Version, ProviderReleaseURL: r.ProviderReleaseUrl, PublishError: r.PublishError,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
 	}, nil
+}
+
+// SetReleaseNotes records the bump and notes the release agent, or its
+// fallback, prepared (D129).
+func (s *Store) SetReleaseNotes(ctx context.Context, id uuid.UUID, bump domain.Bump, notes string, source domain.NotesSource) (domain.Release, error) {
+	switch {
+	case !bump.Valid():
+		return domain.Release{}, fmt.Errorf("store: release notes: bump %q is not major, minor or patch", bump)
+	case !source.Valid():
+		return domain.Release{}, fmt.Errorf("store: release notes: source %q is not agent or fallback", source)
+	}
+	row, err := s.q.SetReleaseNotes(ctx, db.SetReleaseNotesParams{ID: id, Bump: string(bump), Notes: notes, NotesSource: string(source)})
+	if err != nil {
+		return domain.Release{}, mapErr("set release notes", err)
+	}
+	return s.releaseWithIssues(ctx, s.q, row)
+}
+
+// SetReleaseVersion records the version a succeeded release got, its provider
+// release, and why publishing it failed, if it did (D129). A release that did
+// not succeed gets no version: ErrNotFound.
+func (s *Store) SetReleaseVersion(ctx context.Context, id uuid.UUID, version domain.Version, providerURL, publishError string) (domain.Release, error) {
+	row, err := s.q.SetReleaseVersion(ctx, db.SetReleaseVersionParams{ID: id, Version: version.String(), ProviderReleaseUrl: providerURL, PublishError: publishError})
+	if err != nil {
+		return domain.Release{}, mapErr("set release version", err)
+	}
+	return s.releaseWithIssues(ctx, s.q, row)
+}
+
+// LatestReleaseVersion is the newest version a release of the project's repo
+// got; ok is false when none has one yet.
+func (s *Store) LatestReleaseVersion(ctx context.Context, projectID uuid.UUID, repo string) (v domain.Version, ok bool, err error) {
+	raw, err := s.q.LatestReleaseVersion(ctx, db.LatestReleaseVersionParams{ProjectID: projectID, Repo: repo})
+	if err != nil {
+		if err = mapErr("latest release version", err); errors.Is(err, ErrNotFound) {
+			return domain.Version{}, false, nil
+		}
+		return domain.Version{}, false, err
+	}
+	v, err = domain.ParseVersion(raw)
+	if err != nil {
+		return domain.Version{}, false, fmt.Errorf("store: latest release version: %w", err)
+	}
+	return v, true, nil
 }
 
 // NewDeployment is the input for CreateDeployment.

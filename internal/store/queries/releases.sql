@@ -94,3 +94,26 @@ RETURNING *;
 UPDATE releases SET bug_issue_ref = coalesce(bug_issue_ref, @bug_issue_ref::text), updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- Records what the release agent, or its fallback, prepared (D129).
+-- name: SetReleaseNotes :one
+UPDATE releases
+SET bump = @bump::text, notes = @notes::text, notes_source = @notes_source::text, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- Records the version a succeeded release got, its provider release and why
+-- publishing it failed (D129).
+-- name: SetReleaseVersion :one
+UPDATE releases
+SET version = @version::text, provider_release_url = @provider_release_url::text, publish_error = @publish_error::text, updated_at = now()
+WHERE id = @id AND status = 'succeeded'
+RETURNING *;
+
+-- The newest version a release of the project's repo got (D129).
+-- name: LatestReleaseVersion :one
+SELECT version FROM releases
+WHERE project_id = @project_id AND repo = @repo AND version <> ''
+ORDER BY finished_at DESC NULLS LAST, created_at DESC, id DESC
+LIMIT 1;
+

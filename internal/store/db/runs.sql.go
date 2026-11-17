@@ -59,14 +59,15 @@ func (q *Queries) AddStepRunUsage(ctx context.Context, arg AddStepRunUsageParams
 }
 
 const createRun = `-- name: CreateRun :one
-INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
+INSERT INTO runs (id, issue_id, release_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id
 `
 
 type CreateRunParams struct {
 	ID                 uuid.UUID
-	IssueID            uuid.UUID
+	IssueID            *uuid.UUID
+	ReleaseID          *uuid.UUID
 	WorkflowSnapshot   []byte
 	WorkflowVersion    string
 	TemporalWorkflowID string
@@ -77,6 +78,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 	row := q.db.QueryRow(ctx, createRun,
 		arg.ID,
 		arg.IssueID,
+		arg.ReleaseID,
 		arg.WorkflowSnapshot,
 		arg.WorkflowVersion,
 		arg.TemporalWorkflowID,
@@ -96,6 +98,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }
@@ -144,7 +147,7 @@ func (q *Queries) CreateStepRun(ctx context.Context, arg CreateStepRunParams) (S
 }
 
 const getActiveRunForIssue = `-- name: GetActiveRunForIssue :one
-SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE issue_id = $1 AND status IN ('pending', 'running')
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id FROM runs WHERE issue_id = $1::uuid AND status IN ('pending', 'running')
 `
 
 func (q *Queries) GetActiveRunForIssue(ctx context.Context, issueID uuid.UUID) (Run, error) {
@@ -163,12 +166,13 @@ func (q *Queries) GetActiveRunForIssue(ctx context.Context, issueID uuid.UUID) (
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE id = $1
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id FROM runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
@@ -187,12 +191,13 @@ func (q *Queries) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }
 
 const getRunByTemporalRunID = `-- name: GetRunByTemporalRunID :one
-SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id FROM runs WHERE temporal_run_id = $1
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id FROM runs WHERE temporal_run_id = $1
 `
 
 func (q *Queries) GetRunByTemporalRunID(ctx context.Context, temporalRunID *string) (Run, error) {
@@ -211,6 +216,7 @@ func (q *Queries) GetRunByTemporalRunID(ctx context.Context, temporalRunID *stri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }
@@ -245,7 +251,7 @@ func (q *Queries) GetStepRun(ctx context.Context, id uuid.UUID) (StepRun, error)
 const issueSpend = `-- name: IssueSpend :one
 SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
 FROM step_runs s JOIN runs r ON r.id = s.run_id
-WHERE r.issue_id = $1
+WHERE r.issue_id = $1::uuid
 `
 
 // What all runs of an issue have spent on models so far (D53).
@@ -261,7 +267,7 @@ SELECT coalesce(sum(s.cost_usd), 0)::float8 AS cost_usd,
        coalesce(sum(s.input_tokens), 0)::bigint AS input_tokens,
        coalesce(sum(s.output_tokens), 0)::bigint AS output_tokens
 FROM step_runs s JOIN runs r ON r.id = s.run_id
-WHERE r.issue_id = $1
+WHERE r.issue_id = $1::uuid
 `
 
 type IssueUsageRow struct {
@@ -334,7 +340,7 @@ const listIssueRuns = `-- name: ListIssueRuns :many
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r
-WHERE r.issue_id = $1
+WHERE r.issue_id = $1::uuid
 ORDER BY r.created_at DESC, r.id DESC
 `
 
@@ -414,6 +420,45 @@ func (q *Queries) ListRecentRuns(ctx context.Context, maxRuns int32) ([]ListRece
 			&i.IssueKey,
 			&i.IssueTitle,
 			&i.CostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReleaseRuns = `-- name: ListReleaseRuns :many
+SELECT id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id FROM runs WHERE release_id = $1 ORDER BY created_at DESC, id DESC
+`
+
+// A release's agent runs (D129), newest first.
+func (q *Queries) ListReleaseRuns(ctx context.Context, releaseID *uuid.UUID) ([]Run, error) {
+	rows, err := q.db.Query(ctx, listReleaseRuns, releaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Run
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.WorkflowSnapshot,
+			&i.WorkflowVersion,
+			&i.TemporalWorkflowID,
+			&i.Status,
+			&i.LoopCounts,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TemporalRunID,
+			&i.ReleaseID,
 		); err != nil {
 			return nil, err
 		}
@@ -510,12 +555,26 @@ func (q *Queries) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]StepRun,
 	return items, nil
 }
 
+const releaseSpend = `-- name: ReleaseSpend :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.release_id = $1
+`
+
+// What a release's agent sessions have spent on models so far (D129).
+func (q *Queries) ReleaseSpend(ctx context.Context, releaseID *uuid.UUID) (float64, error) {
+	row := q.db.QueryRow(ctx, releaseSpend, releaseID)
+	var spent float64
+	err := row.Scan(&spent)
+	return spent, err
+}
+
 const setRunLoopCount = `-- name: SetRunLoopCount :one
 UPDATE runs
 SET loop_counts = jsonb_set(loop_counts, ARRAY[$1::text], to_jsonb($2::integer)),
     updated_at  = now()
 WHERE id = $3
-RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id
 `
 
 type SetRunLoopCountParams struct {
@@ -541,6 +600,7 @@ func (q *Queries) SetRunLoopCount(ctx context.Context, arg SetRunLoopCountParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }
@@ -616,7 +676,7 @@ SET status      = $1::text,
     finished_at = CASE WHEN $1::text IN ('succeeded', 'failed', 'canceled') THEN now() ELSE finished_at END,
     updated_at  = now()
 WHERE id = $2 AND status = $3::text
-RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id
+RETURNING id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, status, loop_counts, started_at, finished_at, created_at, updated_at, temporal_run_id, release_id
 `
 
 type TransitionRunParams struct {
@@ -642,6 +702,7 @@ func (q *Queries) TransitionRun(ctx context.Context, arg TransitionRunParams) (R
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TemporalRunID,
+		&i.ReleaseID,
 	)
 	return i, err
 }

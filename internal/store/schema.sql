@@ -83,9 +83,13 @@ CREATE INDEX issue_dependencies_depends_on_id_idx ON issue_dependencies (depends
 
 CREATE INDEX issues_project_status_idx ON issues (project_id, status);
 
+-- A Run belongs to an issue, or to a release whose agent it runs (D129);
+-- exactly one of issue_id and release_id is set (release_id's foreign key is
+-- added after releases).
 CREATE TABLE runs (
   id                   uuid        PRIMARY KEY,
-  issue_id             uuid        NOT NULL REFERENCES issues (id),
+  issue_id             uuid        REFERENCES issues (id),
+  release_id           uuid,
   workflow_snapshot    jsonb       NOT NULL,
   workflow_version     text        NOT NULL,
   -- Stable per issue (e.g. issue-gc-1) and reused by reruns; the Temporal run ID
@@ -98,7 +102,8 @@ CREATE TABLE runs (
   started_at           timestamptz,
   finished_at          timestamptz,
   created_at           timestamptz NOT NULL DEFAULT now(),
-  updated_at           timestamptz NOT NULL DEFAULT now()
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT runs_issue_or_release_check CHECK ((issue_id IS NULL) <> (release_id IS NULL))
 );
 
 -- At most one active Run per Issue; a retry creates a new Run after the old one ends.
@@ -246,6 +251,16 @@ CREATE TABLE releases (
   reason      text        NOT NULL DEFAULT '',
   -- The bug issue opened on the provider when its verification failed (D115).
   bug_issue_ref text,
+  -- What the release agent prepared (D129): the proposed bump, the notes and
+  -- whether the agent wrote them or the fallback did.
+  bump         text        NOT NULL DEFAULT '' CHECK (bump IN ('', 'major', 'minor', 'patch')),
+  notes        text        NOT NULL DEFAULT '',
+  notes_source text        NOT NULL DEFAULT '' CHECK (notes_source IN ('', 'agent', 'fallback')),
+  -- The version a succeeded release got, its provider release, and why
+  -- publishing it failed, if it did (D129).
+  version              text NOT NULL DEFAULT '',
+  provider_release_url text NOT NULL DEFAULT '',
+  publish_error        text NOT NULL DEFAULT '',
   finished_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -284,3 +299,7 @@ CREATE TABLE deployments (
   updated_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT deployments_release_stage_key UNIQUE (release_id, stage)
 );
+
+ALTER TABLE runs ADD CONSTRAINT runs_release_id_fkey FOREIGN KEY (release_id) REFERENCES releases (id);
+
+CREATE INDEX runs_release_id_idx ON runs (release_id);

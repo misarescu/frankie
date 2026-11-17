@@ -29,7 +29,9 @@ The control plane runs `command` in a sandboxed gate pod (Kata, read-only git to
 
 ### Preview environments
 
-One ephemeral namespace per change request from the start, via Flux Operator ResourceSets with a GitHub pull request input provider. (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) Limits on concurrent previews and TTL are configuration (open question); the concrete profile allows at most one at a time or none. Since M7 previews run on Frankie's Kapsule cluster, not where the project's stages run (D108).
+One ephemeral namespace per change request, via Flux Operator ResourceSets (D14). (Argo CD's ApplicationSet pull-request generator is the equivalent; Flux stays.) The concrete profile allows at most one at a time or none.
+
+Goodreads-Clone's previews run on the homelab, next to its stages (D124, superseding D108 (4)). Frankie's `flux-preview` driver adds a change request's number and head image tag to a ResourceSet's inputs in `misarescu/Goodreads-CD` by commit, and removes them when the change request merges or closes; the homelab's Flux renders a namespace `goodreads-pr-<number>` per entry and prunes it when the entry goes. A preview's namespace admits traffic only from one proxy, the tailnet entry point for all previews (`goodreads-previews`), which routes `/pr-<number>/...` to it; Frankie reaches the proxy through one egress Service on Kapsule, so a preview's URL is `http://goodreads-previews.stages.svc.cluster.local/pr-<number>`. A preview holds no secrets, has no egress but DNS and keeps its database on an `emptyDir`. At most `maxPreviews` run at once (default 2). Frankie's own previews (M7.1) run on Kapsule.
 
 ## Merge queue
 
@@ -111,7 +113,7 @@ For Goodreads-Clone, the M7 proving project:
 
 | Stage | Cluster | Deployed by | Verified by |
 |---|---|---|---|
-| preview (per change request) | Frankie's Kapsule cluster | Flux Operator ResourceSets there (`flux-preview`) | its e2e tests against the preview's URL, before merge |
+| preview (per change request) | the homelab (D124) | the homelab's Flux, from ResourceSet inputs Frankie's `flux-preview` driver commits to `misarescu/Goodreads-CD` | its e2e tests against the preview's URL, before merge |
 | staging | homelab | the homelab's Flux from `misarescu/Goodreads-CD` (`flux`) | `/api/version` reports the release's commit, then the e2e suite against the stage's URL |
 | prod | homelab | the same, behind a human gate | as staging |
 

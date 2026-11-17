@@ -201,7 +201,13 @@ func TestParseProjectMerge(t *testing.T) {
 			t.Errorf("%q: %s, %v; want %s", raw, p.MergeMethod(), err, want)
 		}
 	}
-	for _, raw := range []string{"merge: {method: fast-forward}\n", "merge: {strategy: squash}\n"} {
+	// M7 (D120): the project bounds what is read of failed CI checks' logs.
+	p, err := ParseProject([]byte("merge: {ciLogs: {checks: 1, jobs: 4, lines: 200, bytes: 12000}}\n"), 2)
+	if want := (domain.CILogLimits{Checks: 1, Jobs: 4, Lines: 200, Bytes: 12000}); err != nil || p.Merge.CILogs != want {
+		t.Errorf("ciLogs = %+v, %v; want %+v", p.Merge.CILogs, err, want)
+	}
+	for _, raw := range []string{"merge: {method: fast-forward}\n", "merge: {strategy: squash}\n",
+		"merge: {ciLogs: {lines: 5000}}\n", "merge: {ciLogs: {checks: -1}}\n", "merge: {ciLogs: {tail: 10}}\n"} {
 		if _, err := ParseProject([]byte(raw), 2); err == nil {
 			t.Errorf("%q accepted", raw)
 		}

@@ -537,6 +537,7 @@ func (it *interpreter) enqueue(ctx workflow.Context, pc int, s config.Step) (int
 		Issue: it.in.Issue, RunID: it.run.RunID, StepRunID: stepRunID, WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		StepID: s.ID, Attempt: attempt, Branch: it.session.Branch, HeadSHA: it.session.CommitSHA,
 		Gates: it.queueGates(), Method: cmp.Or(it.in.Snapshot.MergeMethod, domain.MergeSquash),
+		CILogs: it.in.Snapshot.CILogs,
 	}).Get(ctx, nil)
 	if err != nil {
 		it.finishStep(ctx, stepRunID, false)

@@ -27,6 +27,9 @@ type ProviderChecksRequest struct {
 	// registers its checks a moment after the push. Poll is the interval
 	// between reads (zero: 15 seconds).
 	Timeout, Grace, Poll time.Duration
+	// Logs bound what is read of failed checks' logs (D120); zero limits are
+	// the defaults.
+	Logs domain.CILogLimits `json:",omitzero"`
 }
 
 // AwaitProviderChecks waits until the repo's CI on HeadSHA has finished and
@@ -64,7 +67,7 @@ func (a *Activities) AwaitProviderChecks(ctx context.Context, req ProviderChecks
 		switch {
 		case !waiting:
 			if st.State == domain.CheckFailure {
-				a.readFailedLogs(ctx, req.Issue.Repo, st.Checks)
+				a.readFailedLogs(ctx, req.Issue.Repo, st.Checks, req.Logs.WithDefaults())
 			}
 			return a.finishChecks(ctx, step, domain.ProviderChecksDetails{SHA: req.HeadSHA, State: st.State, Checks: st.Checks})
 		case waited >= timeout:
@@ -80,21 +83,19 @@ func (a *Activities) AwaitProviderChecks(ctx context.Context, req ProviderChecks
 	}
 }
 
-// maxCheckLogs bounds the failed checks whose logs are read (D120).
-const maxCheckLogs = 3
-
-// readFailedLogs fills in the log of each failed check (D120), so the coder
-// sees why CI failed without access to the provider. A log that cannot be
-// read is left out: the check's URL still says where it is.
-func (a *Activities) readFailedLogs(ctx context.Context, repo string, checks []domain.Check) {
+// readFailedLogs fills in the log of each failed check, up to limits.Checks
+// of them (D120), so the coder sees why CI failed without access to the
+// provider. A log that cannot be read is left out: the check's URL still says
+// where it is.
+func (a *Activities) readFailedLogs(ctx context.Context, repo string, checks []domain.Check, limits domain.CILogLimits) {
 	read := 0
 	for i, c := range checks {
-		if c.State != domain.CheckFailure || c.ID == "" || read == maxCheckLogs {
+		if c.State != domain.CheckFailure || c.ID == "" || read == limits.Checks {
 			continue
 		}
 		read++
 		activity.RecordHeartbeat(ctx, "reading the log of "+c.Name)
-		log, err := a.GitHub.CheckLog(ctx, repo, c)
+		log, err := a.GitHub.CheckLog(ctx, repo, c, limits)
 		if err != nil {
 			activity.GetLogger(ctx).Warn("read a failed check's log", "check", c.Name, "error", err)
 			continue

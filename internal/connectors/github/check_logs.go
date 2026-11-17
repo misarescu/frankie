@@ -22,36 +22,30 @@ const (
 	workflowRunPrefix = "workflow-run/"
 )
 
-// Bounds of a failed check's log excerpt (D120): the lines and bytes kept of
-// each failed job, and the failed jobs read of one workflow run.
-const (
-	logExcerptLines = 80
-	logExcerptBytes = 6000
-	maxFailedJobs   = 2
-)
-
 // CheckLog returns the end of a failed check's log (D120): the output of the
-// job's first failed step, up to its error. For a workflow run (D86) it reads
-// the run's failed jobs, each under a heading that names the job and its failed
-// step. A check whose log GitHub does not keep (another app's check, a commit
-// status) returns "".
-func (c *Client) CheckLog(ctx context.Context, repo string, check domain.Check) (string, error) {
+// job's first failed step, up to its error, at most limits.Lines lines and
+// limits.Bytes bytes (zero limits are the defaults). For a workflow run (D86)
+// it reads up to limits.Jobs of the run's failed jobs, each under a heading
+// that names the job and its failed step. A check whose log GitHub does not
+// keep (another app's check, a commit status) returns "".
+func (c *Client) CheckLog(ctx context.Context, repo string, check domain.Check, limits domain.CILogLimits) (string, error) {
+	limits = limits.WithDefaults()
 	switch {
 	case strings.HasPrefix(check.ID, checkRunPrefix):
-		out, err := c.jobLog(ctx, repo, strings.TrimPrefix(check.ID, checkRunPrefix))
+		out, err := c.jobLog(ctx, repo, strings.TrimPrefix(check.ID, checkRunPrefix), limits)
 		var se *StatusError
 		if errors.As(err, &se) && se.Code == http.StatusNotFound {
 			return "", nil // not a GitHub Actions job
 		}
 		return out, err
 	case strings.HasPrefix(check.ID, workflowRunPrefix):
-		return c.workflowRunLog(ctx, repo, strings.TrimPrefix(check.ID, workflowRunPrefix))
+		return c.workflowRunLog(ctx, repo, strings.TrimPrefix(check.ID, workflowRunPrefix), limits)
 	}
 	return "", nil
 }
 
 // workflowRunLog reads the logs of a workflow run's failed jobs.
-func (c *Client) workflowRunLog(ctx context.Context, repo, runID string) (string, error) {
+func (c *Client) workflowRunLog(ctx context.Context, repo, runID string, limits domain.CILogLimits) (string, error) {
 	if _, err := strconv.ParseInt(runID, 10, 64); err != nil {
 		return "", fmt.Errorf("github: bad workflow run id %q", runID)
 	}
@@ -75,7 +69,7 @@ func (c *Client) workflowRunLog(ctx context.Context, repo, runID string) (string
 		if j.Conclusion != "failure" && j.Conclusion != "timed_out" {
 			continue
 		}
-		if len(parts) == maxFailedJobs {
+		if len(parts) == limits.Jobs {
 			break
 		}
 		heading := "Job " + j.Name
@@ -85,7 +79,7 @@ func (c *Client) workflowRunLog(ctx context.Context, repo, runID string) (string
 				break
 			}
 		}
-		log, err := c.jobLog(ctx, repo, strconv.FormatInt(j.ID, 10))
+		log, err := c.jobLog(ctx, repo, strconv.FormatInt(j.ID, 10), limits)
 		if err != nil {
 			return "", err
 		}
@@ -98,14 +92,14 @@ func (c *Client) workflowRunLog(ctx context.Context, repo, runID string) (string
 
 // jobLog reads a GitHub Actions job's log, which GitHub serves as a redirect
 // to plain text, and returns its excerpt.
-func (c *Client) jobLog(ctx context.Context, repo, jobID string) (string, error) {
+func (c *Client) jobLog(ctx context.Context, repo, jobID string, limits domain.CILogLimits) (string, error) {
 	if _, err := strconv.ParseInt(jobID, 10, 64); err != nil {
 		return "", fmt.Errorf("github: bad job id %q", jobID)
 	}
 	var out string
 	err := c.stream(ctx, "/repos/"+repo+"/actions/jobs/"+jobID+"/logs", func(r io.Reader) error {
 		var err error
-		out, err = logExcerpt(r, logExcerptLines, logExcerptBytes)
+		out, err = logExcerpt(r, limits.Lines, limits.Bytes)
 		return err
 	})
 	return out, err

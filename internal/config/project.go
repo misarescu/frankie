@@ -94,6 +94,9 @@ func MergeApprovalWithLabels(project bool, labels []string) bool {
 type Merge struct {
 	// Method is squash (the default, also when empty), rebase or merge.
 	Method domain.MergeMethod `json:"method,omitempty"`
+	// CILogs bounds what the merge queue reads of a failed CI check's log
+	// for the coder (D120).
+	CILogs domain.CILogLimits `json:"ciLogs,omitzero"`
 }
 
 // MergeMethod is the project's merge method, squash unless it chose another.
@@ -303,6 +306,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 		if err := m.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("merge.method: %w", err))
 		}
+	}
+	if err := p.Merge.CILogs.Validate(); err != nil {
+		errs = append(errs, fmt.Errorf("merge.ciLogs: %w", err))
 	}
 	if b := p.Budgets.IssueUSD; b < 0 || b > MaxIssueBudgetUSD {
 		errs = append(errs, fmt.Errorf("budgets.issueUSD: %v must be between 0 (the platform's default) and %d", b, MaxIssueBudgetUSD))

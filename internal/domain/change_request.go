@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 )
@@ -103,4 +104,49 @@ func CombineChecks(checks []Check) CheckState {
 		}
 	}
 	return state
+}
+
+// CILogLimits bound what is read of failed CI checks' logs (D120), set per
+// project in `.factory/config.yaml` (`merge.ciLogs`). Zero means the default.
+type CILogLimits struct {
+	// Checks is how many failed checks' logs are read (default 3).
+	Checks int `json:"checks,omitempty"`
+	// Jobs is how many failed jobs of one check are read, for a check made
+	// of several, e.g. a GitHub Actions workflow run (default 2).
+	Jobs int `json:"jobs,omitempty"`
+	// Lines and Bytes bound what is kept of each job's log: the end of its
+	// failed step (defaults 80 and 6000).
+	Lines int `json:"lines,omitempty"`
+	Bytes int `json:"bytes,omitempty"`
+}
+
+// Defaults and maximums of CILogLimits.
+var (
+	DefaultCILogLimits = CILogLimits{Checks: 3, Jobs: 2, Lines: 80, Bytes: 6000}
+	MaxCILogLimits     = CILogLimits{Checks: 10, Jobs: 10, Lines: 1000, Bytes: 65536}
+)
+
+// WithDefaults fills in the limits left at zero.
+func (l CILogLimits) WithDefaults() CILogLimits {
+	d := DefaultCILogLimits
+	return CILogLimits{
+		Checks: cmp.Or(l.Checks, d.Checks), Jobs: cmp.Or(l.Jobs, d.Jobs),
+		Lines: cmp.Or(l.Lines, d.Lines), Bytes: cmp.Or(l.Bytes, d.Bytes),
+	}
+}
+
+// Validate checks that each limit is zero (the default) or between 1 and its
+// maximum.
+func (l CILogLimits) Validate() error {
+	m := MaxCILogLimits
+	var errs []error
+	for _, f := range []struct {
+		name     string
+		got, max int
+	}{{"checks", l.Checks, m.Checks}, {"jobs", l.Jobs, m.Jobs}, {"lines", l.Lines, m.Lines}, {"bytes", l.Bytes, m.Bytes}} {
+		if f.got < 0 || f.got > f.max {
+			errs = append(errs, fmt.Errorf("%s: %d must be between 1 and %d, or 0 for the default", f.name, f.got, f.max))
+		}
+	}
+	return errors.Join(errs...)
 }

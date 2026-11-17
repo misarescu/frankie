@@ -255,6 +255,15 @@ func TestResolveMergeMethod(t *testing.T) {
 	}
 }
 
+// M7 (D120): the project's CI log limits are read at the base commit with the
+// rest, so the merge queue applies what the run started with.
+func TestResolveCILogs(t *testing.T) {
+	r := &repo{files: map[string]string{".factory/config.yaml": "merge: {ciLogs: {checks: 1, lines: 200}}\n"}}
+	if s, err := Resolve(t.Context(), r, "acme/app", "main"); err != nil || s.CILogs != (domain.CILogLimits{Checks: 1, Lines: 200}) {
+		t.Fatalf("snapshot = %+v, %v", s.CILogs, err)
+	}
+}
+
 // M5.2 (D80): the hosts a project adds to the egress list are read at the
 // base commit with the rest, so an agent cannot widen its own egress.
 func TestResolveEgressAllow(t *testing.T) {

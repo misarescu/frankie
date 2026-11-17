@@ -109,7 +109,7 @@ func TestLogExcerptBounds(t *testing.T) {
 }
 
 // M7 (D120): a check run's log is its job's; a workflow run's are its failed
-// jobs', each under the job and its failed step. GitHub redirects to the log,
+// jobs', each under the job and its failed step, within the project's limits. GitHub redirects to the log,
 // and the redirect to another host does not carry the token.
 func TestCheckLog(t *testing.T) {
 	blob := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,18 +143,23 @@ func TestCheckLog(t *testing.T) {
 	tests := []struct {
 		name    string
 		id      string
+		limits  domain.CILogLimits
 		want    []string
 		notWant []string
 	}{
-		{"check run", "check-run/11", []string{"Run mise run e2e\n", "Error: Process completed"}, []string{"Job "}},
-		{"workflow run", "workflow-run/7", []string{"Job Tests, step Run Bruno E2E tests:\nRun mise run e2e\n", "\n\nJob Build:\nRun mise run e2e"},
+		{"check run", "check-run/11", domain.CILogLimits{}, []string{"Run mise run e2e\n", "Error: Process completed"}, []string{"Job "}},
+		{"workflow run", "workflow-run/7", domain.CILogLimits{},
+			[]string{"Job Tests, step Run Bruno E2E tests:\nRun mise run e2e\n", "\n\nJob Build:\nRun mise run e2e"},
 			[]string{"Job Lint", "Job Docs"}},
-		{"another app's check", "check-run/99", nil, nil},
-		{"a commit status", "", nil, nil},
+		{"the project's limits", "workflow-run/7", domain.CILogLimits{Jobs: 1, Lines: 2},
+			[]string{"Job Tests, step Run Bruno E2E tests:\nRun mise run e2e\n... (5 lines left out)\n[e2e] ERROR task failed\nError: Process completed"},
+			[]string{"Job Build", "expected 500"}},
+		{"another app's check", "check-run/99", domain.CILogLimits{}, nil, nil},
+		{"a commit status", "", domain.CILogLimits{}, nil, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := c.CheckLog(t.Context(), "o/r", domain.Check{Name: "ci", ID: tt.id})
+			got, err := c.CheckLog(t.Context(), "o/r", domain.Check{Name: "ci", ID: tt.id}, tt.limits)
 			if err != nil {
 				t.Fatal(err)
 			}

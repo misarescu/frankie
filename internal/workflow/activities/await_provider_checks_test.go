@@ -54,16 +54,23 @@ const (
 	// ciFailedLog is the failed job's log: the coder sees why (D120).
 	ciFailedLog = "2026-11-17T10:00:00.0Z ##[group]Run make test\n2026-11-17T10:00:01.0Z --- FAIL: TestShelves\n" +
 		"2026-11-17T10:00:01.1Z     no such column: rating\n2026-11-17T10:00:02.0Z ##[error]Process completed with exit code 2.\n"
+	// ciTwoFailed has two failed checks with logs.
+	ciTwoFailed = `[{"id":7,"name":"test","status":"completed","conclusion":"failure"},{"id":7,"name":"e2e","status":"completed","conclusion":"failure"}]`
 	// ciFailedNoLog is a failed check whose log GitHub no longer serves.
 	ciFailedNoLog = `[{"id":8,"name":"test","status":"completed","conclusion":"failure","html_url":"https://ci/1"}]`
 )
 
 func (f *queueFixture) awaitChecks(t *testing.T, gh *github.Client, timeout time.Duration) (GateOutcome, string) {
 	t.Helper()
+	return f.awaitChecksWith(t, gh, timeout, domain.CILogLimits{})
+}
+
+func (f *queueFixture) awaitChecksWith(t *testing.T, gh *github.Client, timeout time.Duration, logs domain.CILogLimits) (GateOutcome, string) {
+	t.Helper()
 	f.a.GitHub = gh
 	id := f.step(t, "merge-ci", domain.StepGate)
 	v, err := activityEnv(f.a).ExecuteActivity(f.a.AwaitProviderChecks, ProviderChecksRequest{Issue: f.in, StepRunID: id, HeadSHA: queuedHead,
-		Timeout: timeout, Grace: 30 * time.Millisecond, Poll: 5 * time.Millisecond})
+		Timeout: timeout, Grace: 30 * time.Millisecond, Poll: 5 * time.Millisecond, Logs: logs})
 	if err != nil {
 		t.Fatalf("AwaitProviderChecks: %v", err)
 	}
@@ -145,5 +152,16 @@ func TestAwaitProviderChecksUnreadableLog(t *testing.T) {
 	out, _ := f.awaitChecks(t, ciServer(t, ciFailedNoLog), time.Second)
 	if out.Passed || !strings.Contains(out.Feedback, "- test (https://ci/1)\n") || strings.Contains(out.Feedback, "The end of its log") {
 		t.Errorf("outcome = %+v", out)
+	}
+}
+
+// M7 (D120): the project's limits bound the checks whose logs are read, and
+// what is kept of each.
+func TestAwaitProviderChecksLogLimits(t *testing.T) {
+	f := newQueueActivityFixture(t)
+	out, _ := f.awaitChecksWith(t, ciServer(t, ciTwoFailed), time.Second, domain.CILogLimits{Checks: 1, Lines: 1})
+	if !strings.Contains(out.Feedback, "```\nRun make test\n... (2 lines left out)\nError: Process completed with exit code 2.\n```") ||
+		strings.Count(out.Feedback, "The end of its log") != 1 {
+		t.Errorf("feedback:\n%s", out.Feedback)
 	}
 }

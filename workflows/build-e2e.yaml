@@ -1,0 +1,49 @@
+# The platform's workflow with an end-to-end test writer (M7, D122), which a
+# project selects with `workflow: build-e2e`; it needs the project's `e2e`.
+# The coder and the e2e test writer run at the same time; the writer works on
+# its own branch from the base branch and never sees the code, so its tests
+# check the spec (FR-TA-1). Its branch is merged into the issue's, the coder
+# must keep its tests, and the suite runs against the change before review.
+name: build-e2e
+version: 1
+steps:
+  - id: build
+    parallel:
+      - id: implement
+        agent: { role: coder }
+      - id: e2e-tests
+        agent: { role: e2e-test-writer }
+        # Deliberately not the coder's diff (FR-TA-1).
+        inputs: [spec, acceptance_criteria, feedback]
+  # The coder must leave the writer's tests as they are (D97).
+  - id: keeps-tests
+    gate:
+      type: preserve
+      step: e2e-tests
+      onFail: { goto: implement, maxLoops: 2 }
+  - id: checks
+    gate:
+      type: command
+      run: ["mise run lint", "mise run test"]
+      onFail: { goto: implement, maxLoops: 3 }
+  # The project's task starts the application from the commit inside the gate
+  # pod and runs the end-to-end suite against it.
+  - id: e2e
+    gate:
+      type: command
+      run: ["mise run e2e:local"]
+      onFail: { goto: implement, maxLoops: 3 }
+  - id: review
+    parallel:
+      - agent: { role: code-reviewer }
+    gate:
+      type: agent-verdict
+      require: all
+      onFail: { goto: implement, maxLoops: 2 }
+  - id: open-change-request
+    action: change-request.open
+  - id: merge
+    action: merge-queue.enqueue
+    # A conflict or a failed check after updating with main goes back to the
+    # coder; the change is then checked and reviewed again (D89).
+    onFail: { goto: implement, maxLoops: 2 }

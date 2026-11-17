@@ -172,6 +172,8 @@ func TestResolveInvalid(t *testing.T) {
 		{"bad protected paths", map[string]string{".factory/protected-paths.yaml": "paths: [/etc]\n"}, "relative to the repo root"},
 		{"role named differently", map[string]string{".factory/config.yaml": "workflow: fast\n", ".factory/workflows/fast.yaml": loopWorkflow,
 			".factory/roles/coder.yaml": "name: hacker\nversion: 1\nsystem_prompt_file: coder.md\n", ".factory/roles/coder.md": "x"}, `is named "hacker"`},
+		// M7 (D122): the e2e test writer needs the project's suite.
+		{"build-e2e without an e2e suite", map[string]string{".factory/config.yaml": "workflow: build-e2e\n"}, "declare e2e.command"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,6 +182,33 @@ func TestResolveInvalid(t *testing.T) {
 				t.Fatalf("err = %v, want ErrInvalid containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// M7 (D122): a project with an e2e suite runs the built-in build-e2e: the
+// coder and the e2e test writer in one group, then the suite as a gate.
+func TestResolveBuildE2E(t *testing.T) {
+	r := &repo{files: map[string]string{".factory/config.yaml": "workflow: build-e2e\ne2e: {command: mise run e2e}\n"}}
+	s, err := Resolve(t.Context(), r, "acme/app", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Source != "built-in" || s.Workflow.Name != "build-e2e" || s.Roles[E2ETestWriterRole].SystemPrompt == "" {
+		t.Fatalf("snapshot = %s from %s with roles %v", s.Workflow.Name, s.Source, s.Roles)
+	}
+	build := s.Workflow.Steps[0]
+	if build.ID != "build" || len(build.Parallel) != 2 || build.Parallel[1].Agent.RoleName() != E2ETestWriterRole ||
+		slices.Contains(build.Parallel[1].Inputs, "diff") {
+		t.Errorf("first step = %+v; want the coder and the e2e test writer, without the diff", build)
+	}
+	var gates []string
+	for _, st := range s.Workflow.Steps {
+		if st.Gate != nil && st.Gate.Type == "command" {
+			gates = append(gates, strings.Join(st.Gate.Run, "; "))
+		}
+	}
+	if !slices.Contains(gates, "mise run e2e:local") {
+		t.Errorf("command gates = %v; want the suite run locally", gates)
 	}
 }
 

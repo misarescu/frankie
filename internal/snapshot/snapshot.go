@@ -134,8 +134,17 @@ func ResolveFor(ctx context.Context, r FileReader, repo, baseBranch, issueType s
 	if s.Roles, err = rolesResult(config.ResolveRoles(s.Workflow, rd.roleLookup())); err != nil {
 		return Snapshot{}, err
 	}
+	// The e2e test writer writes the project's end-to-end suite (D122), so
+	// the project must say which suite that is.
+	if _, writes := s.Roles[E2ETestWriterRole]; writes && project.E2E == nil {
+		return Snapshot{}, fmt.Errorf("snapshot: %w: workflow %q runs the %s role, which needs the project's end-to-end suite: declare e2e.command in %s",
+			ErrInvalid, s.Workflow.Name, E2ETestWriterRole, config.ProjectConfigPath)
+	}
 	return s, nil
 }
+
+// E2ETestWriterRole is the role that writes a project's end-to-end tests (D122).
+const E2ETestWriterRole = "e2e-test-writer"
 
 // reader reads a repo's files at the commit its base branch pointed to when the
 // snapshot was taken, so everything in one snapshot comes from one commit.

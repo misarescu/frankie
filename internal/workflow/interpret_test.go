@@ -920,3 +920,39 @@ func TestInterpretBuiltInBugFix(t *testing.T) {
 		t.Errorf("gates %+v, enqueued %+v", f.gates, f.enqueued)
 	}
 }
+
+// M7 (D122): the built-in build-e2e runs the coder and the e2e test writer at
+// once, merges the writer's branch, keeps its tests, runs the suite locally as
+// a gate before review, and the merge queue re-runs both command gates.
+func TestInterpretBuiltInBuildE2E(t *testing.T) {
+	w, err := workflows.Get("build-e2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := config.ResolveRoles(w, roles.Get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newInterpretFixture(t)
+	out := f.run(t, snapshot.Snapshot{Workflow: w, Roles: rs, Source: "built-in", BaseSHA: "base"})
+	if !out.Succeeded || !out.Merged {
+		t.Fatalf("result = %+v", out)
+	}
+	got := f.stepIDs()
+	writers := strings.Fields(got)[:2]
+	slices.Sort(writers)
+	if want := "build-merge/1 keeps-tests/1 checks/1 e2e/1 code-reviewer/1 review/1 open-change-request/1 merge/1"; !strings.HasSuffix(got, want) ||
+		strings.Join(writers, " ") != "e2e-tests/1 implement/1" {
+		t.Errorf("steps = %s", got)
+	}
+	writer := f.session(t, "sr-e2e-tests-1")
+	if writer.Step.Role != "e2e-test-writer" || writer.Branch != testRun.Branch+"--e2e-tests" || slices.Contains(writer.Step.Inputs, "diff") {
+		t.Errorf("writer session = %+v, step %+v", writer, writer.Step)
+	}
+	if len(f.gates) != 2 || f.gates[1].StepID != "e2e" || strings.Join(f.gates[1].Commands, ";") != "mise run e2e:local" || f.gates[1].CommitSHA != "merged-1" {
+		t.Errorf("gates = %+v", f.gates)
+	}
+	if len(f.enqueued) != 1 || len(f.enqueued[0].Gates) != 2 || f.enqueued[0].Gates[1].StepID != "e2e" {
+		t.Errorf("enqueued = %+v; want both command gates re-run by the queue", f.enqueued)
+	}
+}

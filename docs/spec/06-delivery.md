@@ -13,6 +13,7 @@ Each stage after the build loop is the same interpreter workflow with a differen
 - **FR-TA-3** Every test is **tagged with its issue ID**. A staging failure points back to the issue and spec that introduced the behavior; the auto-created bug ticket links both.
 - **FR-TA-4** When feature flags are enabled for the project, it writes tests for **both flag states**. Staging runs regression with flags off and new behavior with flags on.
 - E2E tests run in the per-PR preview environment before merge (D14). The build loop's deterministic gate additionally verifies the tests compile and lint.
+- Implementation (D122): the `e2e-test-writer` role, in the built-in `build-e2e` workflow a project selects with `workflow: build-e2e`. It runs at the same time as the coder on its own branch from the base commit, so it never sees the coder's work; its branch is merged into the issue's once both succeed. A `preserve` gate keeps its tests' lines through the coder's later changes, and a command gate runs `mise run e2e:local`, the project's task that starts the app from the commit in the gate pod and runs the suite against it, before review.
 
 ### Running the suite (D116)
 

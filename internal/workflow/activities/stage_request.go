@@ -15,9 +15,11 @@ import (
 // StageRequest names one release at one stage, for the Activities that deploy
 // it (D114). DeploymentID is set once StartDeployment recorded it.
 type StageRequest struct {
-	ReleaseID    string
-	Repo         string
-	SHA          string
+	ReleaseID string
+	Repo      string
+	SHA       string
+	// BaseBranch is the branch the commit is on (D116).
+	BaseBranch   string `json:",omitempty"`
 	Stage        ReleaseStage
 	DeploymentID string `json:",omitempty"`
 }

@@ -71,13 +71,14 @@ func Release(ctx workflow.Context, in ReleaseInput) error {
 		}
 		req := *pending
 		pending = nil
-		runRelease(ctx, in.Repo, req.SHA)
+		runRelease(ctx, in.Repo, req)
 	}
 }
 
 // runRelease prepares and runs the release of one commit. Its outcome is in the
 // store; the workflow goes on to the next request whatever happened.
-func runRelease(ctx workflow.Context, repo, sha string) {
+func runRelease(ctx workflow.Context, repo string, req ReleaseRequest) {
+	sha := req.SHA
 	var a *activities.Activities
 	log := workflow.GetLogger(ctx)
 	short := workflow.WithActivityOptions(ctx, shortOptions)
@@ -96,7 +97,7 @@ func runRelease(ctx workflow.Context, repo, sha string) {
 		return
 	}
 	for _, st := range plan.Stages {
-		status, reason, failed := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, Stage: st})
+		status, reason, failed := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, BaseBranch: req.BaseBranch, Stage: st})
 		if status != domain.ReleaseSucceeded {
 			finishRelease(ctx, plan.ReleaseID, status, reason)
 			// A failed verification is a bug in what the release contains:
@@ -134,6 +135,9 @@ func deployStage(ctx workflow.Context, req activities.StageRequest) (status doma
 		var v activities.Verification
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, verifyOptions), a.VerifyStage, req).Get(ctx, &v); err != nil {
 			reason = "verification could not run: " + err.Error()
+		} else if !v.Passed && v.Inconclusive {
+			// Not a judgement of the release: the stage failed, no bug (D116).
+			reason = "verification could not judge the release: " + v.Summary
 		} else if !v.Passed {
 			reason, failed = "verification failed: "+v.Summary, &v
 		}

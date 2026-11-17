@@ -198,6 +198,16 @@ func TestReleaseFailures(t *testing.T) {
 			wantStatus: domain.ReleaseRolledBack, wantReason: "staging: publishing failed",
 		},
 		{
+			name: "verification inconclusive",
+			opt: func(f *releaseFixture) {
+				f.verify = func(activities.StageRequest) activities.Verification {
+					return activities.Verification{Inconclusive: true, Summary: "1 of 1 tests could not run (e.g. Users > request: ECONNREFUSED)"}
+				}
+			},
+			wantCalls:  []string{"start staging", "publish staging", "await staging", "verify staging", "rollback staging"},
+			wantStatus: domain.ReleaseRolledBack, wantReason: "staging: verification could not judge the release: 1 of 1 tests could not run",
+		},
+		{
 			name: "rolling back fails",
 			opt: func(f *releaseFixture) {
 				f.await = func(activities.StageRequest) activities.StageStatus {

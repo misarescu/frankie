@@ -15,20 +15,26 @@ type Verifier interface {
 
 // VerifyRequest is what a verifier checks.
 type VerifyRequest struct {
-	ReleaseID string
-	Repo      string
-	SHA       string
-	Stage     string
-	Kind      string // the stage's verify, e.g. e2e-suite
-	URL       string
+	ReleaseID    string
+	DeploymentID string
+	Repo         string
+	BaseBranch   string // the branch SHA is on; main when empty
+	SHA          string
+	Stage        string
+	Kind         string // the stage's verify, e.g. e2e-suite
+	URL          string
 }
 
 // Verification is a verifier's result. Failures name the failed tests and the
-// issues they are tagged with (FR-TA-3), the release's suspects.
+// issues they are tagged with (FR-TA-3), the release's suspects. Inconclusive:
+// the verification could not judge the release (the suite did not run, or
+// every failing test errored, e.g. could not reach the stage), so its failure
+// is the stage's, not a bug in the release (D116).
 type Verification struct {
-	Passed   bool
-	Summary  string
-	Failures []TestFailure `json:",omitempty"`
+	Passed       bool
+	Inconclusive bool `json:",omitempty"`
+	Summary      string
+	Failures     []TestFailure `json:",omitempty"`
 }
 
 // TestFailure is one failed test.
@@ -47,8 +53,8 @@ func (a *Activities) VerifyStage(ctx context.Context, req StageRequest) (Verific
 	if a.Verifier == nil {
 		return Verification{}, temporal.NewNonRetryableApplicationError("no verifier for "+req.Stage.Verify, "config", nil)
 	}
-	v, err := a.Verifier.Verify(ctx, VerifyRequest{ReleaseID: req.ReleaseID, Repo: req.Repo, SHA: req.SHA,
-		Stage: req.Stage.Name, Kind: req.Stage.Verify, URL: req.Stage.URL})
+	v, err := a.Verifier.Verify(ctx, VerifyRequest{ReleaseID: req.ReleaseID, DeploymentID: req.DeploymentID, Repo: req.Repo,
+		BaseBranch: req.BaseBranch, SHA: req.SHA, Stage: req.Stage.Name, Kind: req.Stage.Verify, URL: req.Stage.URL})
 	if err != nil {
 		return Verification{}, fmt.Errorf("verify %s: %w", req.Stage.Name, err)
 	}

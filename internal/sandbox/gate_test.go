@@ -96,6 +96,9 @@ func TestGatePodRejects(t *testing.T) {
 	}{
 		{"short sha", func(s *GatePodSpec) { s.CommitSHA = "abc123" }, "full SHA"},
 		{"non-agent branch", func(s *GatePodSpec) { s.Branch = "main" }, "agent branch"},
+		{"released, bad branch", func(s *GatePodSpec) { s.Released, s.Branch = true, "-x" }, "not a branch name"},
+		{"released, dots", func(s *GatePodSpec) { s.Released, s.Branch = true, "a..b" }, "not a branch name"},
+		{"released, spaces", func(s *GatePodSpec) { s.Released, s.Branch = true, "main; rm" }, "not a branch name"},
 		{"no commands", func(s *GatePodSpec) { s.Commands = nil }, "at least one command"},
 		{"blank command", func(s *GatePodSpec) { s.Commands = []string{" "} }, "command 0 is empty"},
 		{"credentials in url", func(s *GatePodSpec) { s.CloneURL = "http://u:p@host/git/o/r.git" }, "without credentials"},
@@ -205,5 +208,26 @@ func TestGatePodGuestMemory(t *testing.T) {
 	}
 	if got := pod.Spec.Resources.Requests.Memory(); got.Cmp(resource.MustParse("3584Mi")) != 0 {
 		t.Errorf("pod memory = %s, want 3584Mi", got)
+	}
+}
+
+// M7, D116: a released commit is checked out from the base branch.
+func TestGatePodReleased(t *testing.T) {
+	s := gateSpec()
+	s.Released, s.Branch = true, "main"
+	pod, err := GatePod(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == GateCloneContainer && envValue(c.Env, "GATE_BRANCH") != "main" {
+			t.Errorf("clone branch = %q, want main", envValue(c.Env, "GATE_BRANCH"))
+		}
+	}
+	for _, b := range []string{"release/2026.11", "m", "feature_x-1"} {
+		s.Branch = b
+		if _, err := GatePod(s); err != nil {
+			t.Errorf("branch %q: %v", b, err)
+		}
 	}
 }

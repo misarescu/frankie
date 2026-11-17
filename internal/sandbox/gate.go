@@ -55,7 +55,12 @@ git checkout -q --detach "$GATE_SHA"
 test "$(git rev-parse HEAD)" = "$GATE_SHA"
 `
 
-var shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var (
+	shaRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	// branchRE is a plain branch name: no leading dash or slash, nothing a
+	// shell or git would read as more than a name.
+	branchRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/-]*[A-Za-z0-9_]$|^[A-Za-z0-9_]$`)
+)
 
 // GatePodSpec describes one command gate pod (FR-SB-1, docs/spec/03).
 type GatePodSpec struct {
@@ -76,12 +81,16 @@ type GatePodSpec struct {
 	CloneURL           string // git proxy URL of the repo
 	Token              string // read-only git proxy token (D33)
 	Branch             string // agent branch holding the commit
-	CommitSHA          string // the commit under test
-	Commands           []string
-	Services           []Service           // sidecars; their limits come out of Limits
-	Env                map[string]string   // extra environment for every container, e.g. GOPROXY
-	NodeSelector       map[string]string   // nodes it may run on (D100); empty means any
-	Tolerations        []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
+	// Released: the commit is a release on the repo's base branch, so Branch
+	// is that branch rather than an agent branch (release verification, D116).
+	// The token stays read-only.
+	Released     bool
+	CommitSHA    string // the commit under test
+	Commands     []string
+	Services     []Service           // sidecars; their limits come out of Limits
+	Env          map[string]string   // extra environment for every container, e.g. GOPROXY
+	NodeSelector map[string]string   // nodes it may run on (D100); empty means any
+	Tolerations  []corev1.Toleration // taints it tolerates, e.g. the agent pool's (D101)
 	// GuestMemoryHeadroom is VM memory beyond the containers' limits (D103).
 	GuestMemoryHeadroom resource.Quantity
 }
@@ -100,7 +109,10 @@ func (s GatePodSpec) validate() error {
 	if s.Token == "" {
 		errs = append(errs, errors.New("token is required"))
 	}
-	if !strings.HasPrefix(s.Branch, "agent/") {
+	switch {
+	case s.Released && !branchRE.MatchString(s.Branch) || strings.Contains(s.Branch, ".."):
+		errs = append(errs, fmt.Errorf("branch %q is not a branch name", s.Branch))
+	case !s.Released && !strings.HasPrefix(s.Branch, "agent/"):
 		errs = append(errs, fmt.Errorf("branch %q is not an agent branch", s.Branch))
 	}
 	if !shaRE.MatchString(s.CommitSHA) {

@@ -17,6 +17,8 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/connectors/github"
+	"github.com/misarescu/frankie/internal/drivers"
+	"github.com/misarescu/frankie/internal/drivers/flux"
 	"github.com/misarescu/frankie/internal/egress"
 	"github.com/misarescu/frankie/internal/gateway"
 	"github.com/misarescu/frankie/internal/gitproxy"
@@ -213,6 +215,11 @@ func startWorkflows(ctx context.Context, cfg Config, st *store.Store, signer *gi
 		Egress: egressSigner, Queue: c, TaskQueue: workflow.TaskQueue, IntakeLabel: cfg.IntakeLabel, Log: log.With("component", "activities")}
 	// Stages that verify with e2e-suite run the project's suite in a gate pod (D116).
 	acts.Verifier = activities.SuiteVerifier{A: acts}
+	// Release drivers run in-process (D109): flux commits to a stage's GitOps
+	// repository with the provider credential (D117).
+	if acts.Drivers, err = drivers.NewRegistry(flux.New(gh, nil)); err != nil {
+		return nil, nil, fmt.Errorf("controlplane: release drivers: %w", err)
+	}
 	w.RegisterActivity(acts)
 	if err := w.Start(); err != nil {
 		c.Close()

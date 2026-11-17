@@ -13,9 +13,11 @@ import (
 	"github.com/misarescu/frankie/internal/store/db"
 )
 
-// NewRun is the input for CreateRun.
+// NewRun is the input for CreateRun. A Run belongs to an issue or, when it
+// runs a release's agent, to the release (D129): exactly one is set.
 type NewRun struct {
 	IssueID            uuid.UUID
+	ReleaseID          uuid.UUID
 	WorkflowSnapshot   json.RawMessage
 	WorkflowVersion    string
 	TemporalWorkflowID string
@@ -26,6 +28,8 @@ type NewRun struct {
 // active (pending or running) Run, or if the Temporal run ID is taken.
 func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
 	switch {
+	case (in.IssueID == uuid.Nil) == (in.ReleaseID == uuid.Nil):
+		return domain.Run{}, errors.New("store: create run: a run belongs to exactly one issue or release")
 	case !json.Valid(in.WorkflowSnapshot):
 		return domain.Run{}, errors.New("store: create run: workflow snapshot is not valid JSON")
 	case in.WorkflowVersion == "":
@@ -35,7 +39,8 @@ func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
 	}
 	row, err := s.q.CreateRun(ctx, db.CreateRunParams{
 		ID:                 domain.NewID(),
-		IssueID:            in.IssueID,
+		IssueID:            optionalID(in.IssueID),
+		ReleaseID:          optionalID(in.ReleaseID),
 		WorkflowSnapshot:   in.WorkflowSnapshot,
 		WorkflowVersion:    in.WorkflowVersion,
 		TemporalWorkflowID: in.TemporalWorkflowID,
@@ -259,6 +264,33 @@ func (s *Store) AddStepRunUsage(ctx context.Context, id uuid.UUID, u domain.Usag
 	return stepRunFromRow(row), nil
 }
 
+// ListReleaseRuns returns the runs of a release's agent (D129), newest first.
+func (s *Store) ListReleaseRuns(ctx context.Context, releaseID uuid.UUID) ([]domain.Run, error) {
+	rows, err := s.q.ListReleaseRuns(ctx, &releaseID)
+	if err != nil {
+		return nil, mapErr("list release runs", err)
+	}
+	runs := make([]domain.Run, 0, len(rows))
+	for _, row := range rows {
+		r, err := runFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, nil
+}
+
+// ReleaseSpend is what a release's agent sessions have spent on models so
+// far (D129).
+func (s *Store) ReleaseSpend(ctx context.Context, releaseID uuid.UUID) (float64, error) {
+	spent, err := s.q.ReleaseSpend(ctx, &releaseID)
+	if err != nil {
+		return 0, mapErr("release spend", err)
+	}
+	return spent, nil
+}
+
 // IssueSpend is what all runs of an issue have spent on models so far.
 func (s *Store) IssueSpend(ctx context.Context, issueID uuid.UUID) (float64, error) {
 	spent, err := s.q.IssueSpend(ctx, issueID)
@@ -275,7 +307,8 @@ func runFromRow(r db.Run) (domain.Run, error) {
 	}
 	return domain.Run{
 		ID:                 r.ID,
-		IssueID:            r.IssueID,
+		IssueID:            derefID(r.IssueID),
+		ReleaseID:          derefID(r.ReleaseID),
 		WorkflowSnapshot:   r.WorkflowSnapshot,
 		WorkflowVersion:    r.WorkflowVersion,
 		TemporalWorkflowID: r.TemporalWorkflowID,

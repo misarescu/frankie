@@ -1,7 +1,17 @@
 -- name: CreateRun :one
-INSERT INTO runs (id, issue_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
-VALUES (@id, @issue_id, @workflow_snapshot, @workflow_version, @temporal_workflow_id, sqlc.narg('temporal_run_id'))
+INSERT INTO runs (id, issue_id, release_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id)
+VALUES (@id, sqlc.narg('issue_id'), sqlc.narg('release_id'), @workflow_snapshot, @workflow_version, @temporal_workflow_id, sqlc.narg('temporal_run_id'))
 RETURNING *;
+
+-- A release's agent runs (D129), newest first.
+-- name: ListReleaseRuns :many
+SELECT * FROM runs WHERE release_id = @release_id ORDER BY created_at DESC, id DESC;
+
+-- What a release's agent sessions have spent on models so far (D129).
+-- name: ReleaseSpend :one
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
+FROM step_runs s JOIN runs r ON r.id = s.run_id
+WHERE r.release_id = @release_id;
 
 -- name: GetRunByTemporalRunID :one
 SELECT * FROM runs WHERE temporal_run_id = @temporal_run_id;
@@ -10,7 +20,7 @@ SELECT * FROM runs WHERE temporal_run_id = @temporal_run_id;
 SELECT * FROM runs WHERE id = @id;
 
 -- name: GetActiveRunForIssue :one
-SELECT * FROM runs WHERE issue_id = @issue_id AND status IN ('pending', 'running');
+SELECT * FROM runs WHERE issue_id = @issue_id::uuid AND status IN ('pending', 'running');
 
 -- Compare-and-set; stamps started_at on first entry to running and finished_at on a terminal status.
 -- name: TransitionRun :one
@@ -62,7 +72,7 @@ RETURNING *;
 -- name: IssueSpend :one
 SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
 FROM step_runs s JOIN runs r ON r.id = s.run_id
-WHERE r.issue_id = @issue_id;
+WHERE r.issue_id = @issue_id::uuid;
 
 -- name: ListRecentRuns :many
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title,
@@ -99,7 +109,7 @@ ORDER BY r.created_at, r.id;
 SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, r.workflow_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
 FROM runs r
-WHERE r.issue_id = @issue_id
+WHERE r.issue_id = @issue_id::uuid
 ORDER BY r.created_at DESC, r.id DESC;
 
 -- What all runs of an issue used: cost and tokens (D53).
@@ -108,7 +118,7 @@ SELECT coalesce(sum(s.cost_usd), 0)::float8 AS cost_usd,
        coalesce(sum(s.input_tokens), 0)::bigint AS input_tokens,
        coalesce(sum(s.output_tokens), 0)::bigint AS output_tokens
 FROM step_runs s JOIN runs r ON r.id = s.run_id
-WHERE r.issue_id = @issue_id;
+WHERE r.issue_id = @issue_id::uuid;
 
 -- What a run's steps wait for from a person (M5.1): a pending human gate
 -- decision ('approval') or a pending ask-human answer ('answer').

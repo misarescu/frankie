@@ -55,5 +55,5 @@ WHERE q.id = @id AND q.status = 'pending' AND s.status = 'running';
 SELECT q.*
 FROM questions q
 JOIN runs r ON r.id = q.run_id
-WHERE r.issue_id = @issue_id AND q.status = 'answered'
+WHERE r.issue_id = @issue_id::uuid AND q.status = 'answered'
 ORDER BY q.answered_at, q.id;

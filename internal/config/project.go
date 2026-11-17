@@ -63,6 +63,16 @@ type Project struct {
 	// E2E runs the project's end-to-end suite for stages that verify with
 	// e2e-suite (D116).
 	E2E *E2E `json:"e2e,omitempty"`
+	// Release configures how a release is prepared (D129).
+	Release ReleaseSettings `json:"release,omitempty"`
+}
+
+// ReleaseSettings configures the project's releases (D129).
+type ReleaseSettings struct {
+	// Agent runs the release agent: it proposes each release's version bump
+	// and writes its notes, and analyses a failed verification. A release
+	// that passes every stage is then published as vMAJOR.MINOR.PATCH.
+	Agent bool `json:"agent,omitempty"`
 }
 
 // Merge approval labels (D92).
@@ -319,6 +329,9 @@ func ParseProject(raw []byte, maxServices int) (Project, error) {
 	errs = append(errs, validateStages(p.Stages)...)
 	if p.E2E != nil {
 		errs = append(errs, p.E2E.validate()...)
+	}
+	if p.Release.Agent && len(p.Stages) == 0 {
+		errs = append(errs, errors.New("release.agent: the release agent needs stages to release to"))
 	}
 	for _, s := range p.Stages {
 		if s.Verify == VerifyE2ESuite && p.E2E == nil {

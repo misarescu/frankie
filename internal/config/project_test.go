@@ -254,3 +254,26 @@ func TestParseProjectMergeApproval(t *testing.T) {
 		t.Error("labels do not override the project")
 	}
 }
+
+// M7 (D129): a project turns the release agent on; it needs stages.
+func TestParseProjectRelease(t *testing.T) {
+	const stages = `
+stages:
+  - {name: staging, driver: flux, url: "http://stg"}
+`
+	p, err := ParseProject([]byte("release: {agent: true}"+stages), 3)
+	if err != nil || !p.Release.Agent {
+		t.Fatalf("release = %+v, err %v", p.Release, err)
+	}
+	if p, err := ParseProject([]byte(stages), 3); err != nil || p.Release.Agent {
+		t.Errorf("default release = %+v, err %v", p.Release, err)
+	}
+	for _, tt := range []struct{ raw, want string }{
+		{"release: {agent: true}", "the release agent needs stages"},
+		{"release: {agent: true, notes: always}" + stages, "unknown field"},
+	} {
+		if _, err := ParseProject([]byte(tt.raw), 3); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%q: err = %v, want %q", tt.raw, err, tt.want)
+		}
+	}
+}

@@ -309,3 +309,46 @@ func TestSetReleaseBugIssue(t *testing.T) {
 		t.Errorf("unknown release = %v, want ErrNotFound", err)
 	}
 }
+
+// M7 (D129): a release records what its agent prepared, and the version it
+// got once it succeeded; the newest version is the next one's base.
+func TestReleaseNotesAndVersion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	p := mustProject(t, s)
+	if _, ok, err := s.LatestReleaseVersion(ctx, p.ID, releaseRepo); err != nil || ok {
+		t.Fatalf("latest version of a new repo = %v, %v", ok, err)
+	}
+	rel := mustRelease(t, s, p.ID, "v1")
+	got, err := s.SetReleaseNotes(ctx, rel.ID, domain.BumpMinor, "- gc-77: similar books", domain.NotesByAgent)
+	if err != nil || got.Bump != domain.BumpMinor || got.Notes != "- gc-77: similar books" || got.NotesSource != domain.NotesByAgent {
+		t.Fatalf("SetReleaseNotes = %+v, %v", got, err)
+	}
+	if _, err := s.SetReleaseNotes(ctx, rel.ID, "huge", "", domain.NotesByAgent); err == nil {
+		t.Error("an unknown bump was accepted")
+	}
+	if _, err := s.SetReleaseNotes(ctx, rel.ID, domain.BumpPatch, "", "someone"); err == nil {
+		t.Error("an unknown notes source was accepted")
+	}
+	// Only a succeeded release gets a version.
+	if _, err := s.SetReleaseVersion(ctx, rel.ID, domain.FirstVersion, "", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("version of a pending release: %v, want ErrNotFound", err)
+	}
+	mustTransitionRelease(t, s, rel.ID, domain.ReleasePending, domain.ReleaseInProgress, domain.ReleaseSucceeded)
+	got, err = s.SetReleaseVersion(ctx, rel.ID, domain.FirstVersion, "https://github.com/o/r/releases/tag/v0.1.0", "")
+	if err != nil || got.Version != "v0.1.0" || got.ProviderReleaseURL == "" || got.PublishError != "" {
+		t.Fatalf("SetReleaseVersion = %+v, %v", got, err)
+	}
+
+	next := mustRelease(t, s, p.ID, "v2")
+	mustTransitionRelease(t, s, next.ID, domain.ReleasePending, domain.ReleaseInProgress, domain.ReleaseSucceeded)
+	if got, err := s.SetReleaseVersion(ctx, next.ID, domain.Version{Minor: 2}, "", "tag v0.2.0 names another commit"); err != nil || got.PublishError == "" {
+		t.Fatalf("SetReleaseVersion with an error = %+v, %v", got, err)
+	}
+	if v, ok, err := s.LatestReleaseVersion(ctx, p.ID, releaseRepo); err != nil || !ok || v != (domain.Version{Minor: 2}) {
+		t.Errorf("latest version = %v, %v, %v; want v0.2.0", v, ok, err)
+	}
+	if _, ok, err := s.LatestReleaseVersion(ctx, p.ID, "misarescu/other"); err != nil || ok {
+		t.Errorf("another repo's latest version = %v, %v", ok, err)
+	}
+}

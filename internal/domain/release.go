@@ -79,9 +79,20 @@ type Release struct {
 	// BugIssueRef is the bug issue opened on the provider when its
 	// verification failed (D115), e.g. a GitHub issue URL.
 	BugIssueRef string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	FinishedAt  *time.Time
+	// Bump, Notes and NotesSource are what the release agent, or its
+	// fallback, prepared (D129).
+	Bump        Bump
+	Notes       string
+	NotesSource NotesSource
+	// Version is the version a succeeded release got, e.g. v0.3.0;
+	// ProviderReleaseURL its provider release; PublishError why publishing it
+	// failed (D129).
+	Version            string
+	ProviderReleaseURL string
+	PublishError       string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	FinishedAt         *time.Time
 }
 
 // Deployment is a Release at one Stage: what its driver did and how it ended.

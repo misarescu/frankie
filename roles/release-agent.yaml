@@ -1,0 +1,4 @@
+name: release-agent
+version: 1
+system_prompt_file: prompts/release-agent.md
+allowed_tools: [read, grep, glob, bash:readonly]

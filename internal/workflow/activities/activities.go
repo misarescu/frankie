@@ -89,6 +89,10 @@ type StartRunResult struct {
 	// Findings is what the run's investigation found, rendered; the change
 	// request's description carries it (D94).
 	Findings string `json:",omitempty"`
+	// ReleaseID is set when the run is a release's (D129): the session runs
+	// the release agent, spends from the release's budget and gets the task
+	// PrepareReleaseSession wrote.
+	ReleaseID string `json:",omitempty"`
 }
 
 // AgentStep is one execution of a definition's agent step, resolved by the
@@ -362,6 +366,9 @@ type ReleaseConfig struct {
 	// head; default 10m. RoomTimeout bounds waiting for room for a preview;
 	// default 30m (D126).
 	PreviewTimeout, RoomTimeout time.Duration
+	// AgentBudgetUSD caps what a release's agent sessions spend together;
+	// default 1 (D129).
+	AgentBudgetUSD float64
 }
 
 func (c ReleaseConfig) previewTimeout() time.Duration {

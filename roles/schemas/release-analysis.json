@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frankie.dev/schemas/release-analysis.json",
+  "title": "Release analysis",
+  "description": "The release agent's reading of a failed verification: which of the release's issues most likely broke it, and why.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["suspects", "summary"],
+  "properties": {
+    "suspects": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "Most likely first; empty when no issue explains the failure.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue", "likelihood", "why"],
+        "properties": {
+          "issue": { "type": "string", "minLength": 1, "description": "The issue's key, e.g. gc-74." },
+          "likelihood": { "enum": ["high", "medium", "low"] },
+          "why": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "The evidence in the code or the tests." }
+        }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "What fails, the likely cause, and what to look at first." }
+  }
+}

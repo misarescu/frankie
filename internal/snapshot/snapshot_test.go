@@ -397,3 +397,29 @@ func TestResolvePreviewStage(t *testing.T) {
 		t.Errorf("no preview gate: %+v, %v", s.PreviewStage, err)
 	}
 }
+
+// M7 (D129): the release agent's role is read at the release commit: the
+// repo's own, else the built-in; a broken one is the repo's to fix.
+func TestRoleAt(t *testing.T) {
+	const sha = "cccccccccccccccccccccccccccccccccccccccc"
+	builtin, err := RoleAt(t.Context(), &repo{files: map[string]string{}}, "acme/app", sha, "release-agent")
+	if err != nil || builtin.Name != "release-agent" || !strings.Contains(builtin.SystemPrompt, "release agent") {
+		t.Fatalf("built-in = %+v, %v", builtin, err)
+	}
+	r := &repo{files: map[string]string{
+		".factory/roles/release-agent.yaml": "name: release-agent\nversion: 3\nsystem_prompt_file: notes.md\n",
+		".factory/roles/notes.md":           "Notes for librarians.\n",
+	}}
+	own, err := RoleAt(t.Context(), r, "acme/app", sha, "release-agent")
+	if err != nil || own.Version != 3 || own.SystemPrompt != "Notes for librarians.\n" || !slices.Contains(r.reads, sha) {
+		t.Errorf("repo's role = %+v, %v, reads %v", own, err, r.reads)
+	}
+	r.files[".factory/roles/release-agent.yaml"] = "name: notes\nversion: 1\nsystem_prompt_file: notes.md\n"
+	if _, err := RoleAt(t.Context(), r, "acme/app", sha, "release-agent"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("misnamed role: err = %v, want ErrInvalid", err)
+	}
+	broken := &repo{files: map[string]string{}, broken: map[string]bool{".factory/roles/release-agent.yaml": true}}
+	if _, err := RoleAt(t.Context(), broken, "acme/app", sha, "release-agent"); err == nil || errors.Is(err, ErrInvalid) {
+		t.Errorf("failed read: err = %v, want a retryable error", err)
+	}
+}

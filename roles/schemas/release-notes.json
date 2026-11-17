@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frankie.dev/schemas/release-notes.json",
+  "title": "Release notes",
+  "description": "What the release agent prepares for a release: the version bump it proposes and why, and the notes for the project's users.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bump", "reason", "notes"],
+  "properties": {
+    "bump": { "enum": ["major", "minor", "patch"], "description": "major: existing users must change something; minor: something new they can ignore; patch: fixes and internal changes only." },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Why this bump, naming the changes that decide it." },
+    "notes": { "type": "string", "minLength": 1, "maxLength": 60000, "description": "Markdown for the project's users, one entry per issue key." },
+    "breaking": {
+      "type": "array",
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "A breaking change and what a user must do." }
+    }
+  }
+}

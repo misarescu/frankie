@@ -24,9 +24,11 @@ var ErrNotFound = errors.New("no built-in role with that name")
 
 // contractSchemas maps each output contract to its JSON Schema file.
 var contractSchemas = map[string]string{
-	config.ContractReviewVerdict: "schemas/review-verdict.json",
-	config.ContractRefinedSpec:   "schemas/refined-spec.json",
-	config.ContractBugFindings:   "schemas/bug-findings.json",
+	config.ContractReviewVerdict:   "schemas/review-verdict.json",
+	config.ContractRefinedSpec:     "schemas/refined-spec.json",
+	config.ContractBugFindings:     "schemas/bug-findings.json",
+	config.ContractReleaseNotes:    "schemas/release-notes.json",
+	config.ContractReleaseAnalysis: "schemas/release-analysis.json",
 }
 
 // Names lists the built-in roles, sorted.
@@ -67,14 +69,22 @@ func Parse(raw []byte, readFile func(name string) ([]byte, error)) (config.Role,
 	if err != nil || r.OutputContract == "" {
 		return r, err
 	}
-	schema, err := ContractSchema(r.OutputContract)
-	if err != nil {
+	if r.SystemPrompt, err = WithContract(r.SystemPrompt, r.OutputContract); err != nil {
 		return config.Role{}, err
 	}
-	r.SystemPrompt = strings.TrimRight(r.SystemPrompt, "\n") + "\n\n" +
-		"Your final message must be only your result: one JSON object, with no other text and no code fence, matching this JSON Schema:\n\n" +
-		string(schema)
 	return r, nil
+}
+
+// WithContract appends the platform's instructions for an output contract to
+// a system prompt. The release agent's sessions use it per step (D129).
+func WithContract(prompt, contract string) (string, error) {
+	schema, err := ContractSchema(contract)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(prompt, "\n") + "\n\n" +
+		"Your final message must be only your result: one JSON object, with no other text and no code fence, matching this JSON Schema:\n\n" +
+		string(schema), nil
 }
 
 // ContractSchema returns the JSON Schema of an output contract.

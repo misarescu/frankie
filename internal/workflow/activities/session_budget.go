@@ -26,6 +26,9 @@ const spendSettleChecks = 5
 // key's cap zero, when the issue's budget is used up: the session must not
 // start.
 func (a *Activities) sessionBudget(ctx context.Context, in IssueRunInput, run StartRunResult, set sessionSettings) (budget float64, exhausted string, err error) {
+	if run.ReleaseID != "" {
+		return a.releaseSessionBudget(ctx, run, set)
+	}
 	issueBudget := a.Agent.IssueBudgetUSD
 	if run.Step != nil {
 		issueBudget = cmp.Or(run.Step.IssueBudgetUSD, issueBudget)
@@ -44,6 +47,25 @@ func (a *Activities) sessionBudget(ctx context.Context, in IssueRunInput, run St
 	left := issueBudget - spent
 	if left <= 0.005 { // a cent's fraction is not a session
 		return 0, fmt.Sprintf("the issue's model budget of $%.2f is used up ($%.2f spent)", issueBudget, spent), nil
+	}
+	return min(set.budget, left), "", nil
+}
+
+// releaseSessionBudget caps a release agent session at what is left of the
+// release's budget (D129).
+func (a *Activities) releaseSessionBudget(ctx context.Context, run StartRunResult, set sessionSettings) (float64, string, error) {
+	relID, err := uuid.Parse(run.ReleaseID)
+	if err != nil {
+		return 0, "", fmt.Errorf("release id %q: %w", run.ReleaseID, err)
+	}
+	spent, err := a.Store.ReleaseSpend(ctx, relID)
+	if err != nil {
+		return 0, "", err
+	}
+	total := a.Release.agentBudget()
+	left := total - spent
+	if left <= 0.005 {
+		return 0, fmt.Sprintf("the release's model budget of $%.2f is used up ($%.2f spent)", total, spent), nil
 	}
 	return min(set.budget, left), "", nil
 }

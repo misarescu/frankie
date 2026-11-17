@@ -245,3 +245,48 @@ func TestBugFindingsSchemaMatchesParser(t *testing.T) {
 		t.Errorf("the parser accepts more evidence than the schema's maxItems (%d)", s.Properties.Evidence.MaxItems)
 	}
 }
+
+// M7 (D129): the release agent reads and never writes; each of its sessions
+// gets the contract of its step appended, and the schemas agree with the
+// parsers.
+func TestReleaseAgent(t *testing.T) {
+	r, err := Get("release-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.OutputContract != "" || slices.ContainsFunc(r.AllowedTools, func(t string) bool { return t == "edit" || t == "write" || t == "bash" }) {
+		t.Errorf("release agent = %+v", r)
+	}
+	for contract, valid := range map[string]string{
+		config.ContractReleaseNotes:    `{"bump":"minor","reason":"r","notes":"- gc-1: x","breaking":[]}`,
+		config.ContractReleaseAnalysis: `{"suspects":[{"issue":"gc-1","likelihood":"high","why":"w"}],"summary":"s"}`,
+	} {
+		schema, err := ContractSchema(contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := WithContract(r.SystemPrompt, contract)
+		if err != nil || !strings.HasPrefix(p, strings.TrimRight(r.SystemPrompt, "\n")) || !strings.HasSuffix(p, string(schema)) {
+			t.Errorf("%s: prompt does not end with the schema (%v)", contract, err)
+		}
+		var s struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(schema, &s); err != nil {
+			t.Fatal(err)
+		}
+		var obj map[string]any
+		_ = json.Unmarshal([]byte(valid), &obj)
+		for _, k := range s.Required {
+			if _, ok := obj[k]; !ok {
+				t.Errorf("%s: the schema requires %q, which a valid answer lacks", contract, k)
+			}
+		}
+	}
+	if _, err := domain.ParseReleaseNotes([]byte(`{"bump":"minor","reason":"r","notes":"- gc-1: x","breaking":[]}`)); err != nil {
+		t.Errorf("parser rejects the example: %v", err)
+	}
+	if _, err := WithContract("p", "release-poem"); err == nil {
+		t.Error("an unknown contract was accepted")
+	}
+}

@@ -63,6 +63,14 @@ var outputContracts = []string{ContractReviewVerdict, ContractRefinedSpec, Contr
 // step reads the code without changing it, and later steps can depend on it.
 const ContractBugFindings = "bug-findings"
 
+// The release agent's output contracts (D129): a release's notes and the
+// analysis of a failed verification. Its sessions pick one per step; a role
+// file does not declare them, since no workflow step runs the release agent.
+const (
+	ContractReleaseNotes    = "release-notes"
+	ContractReleaseAnalysis = "release-analysis"
+)
+
 // contractFields are the result fields of an output contract a step can be
 // conditional on (`when`), with their kinds.
 var contractFields = map[string]map[string]string{ContractBugFindings: domain.BugFindingsFields}

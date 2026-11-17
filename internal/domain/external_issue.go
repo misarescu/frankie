@@ -28,6 +28,22 @@ type ExternalIssue struct {
 	OpenBlockers int
 }
 
+// NewExternalIssue is an issue the factory opens on its source, e.g. the bug a
+// release that failed verification reports (D115).
+type NewExternalIssue struct {
+	Title  string
+	Body   string
+	Labels []string
+}
+
+// Validate checks the issue has a title.
+func (n NewExternalIssue) Validate() error {
+	if strings.TrimSpace(n.Title) == "" {
+		return errors.New("a new issue needs a title")
+	}
+	return nil
+}
+
 // SourceIssueType reads an issue's type from its source (D60): a label or source
 // type named epic, story, task or bug (any case) decides; ok is false when none does.
 func SourceIssueType(e ExternalIssue) (t IssueType, ok bool) {

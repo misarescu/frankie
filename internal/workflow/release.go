@@ -96,9 +96,15 @@ func runRelease(ctx workflow.Context, repo, sha string) {
 		return
 	}
 	for _, st := range plan.Stages {
-		status, reason := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, Stage: st})
+		status, reason, failed := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, Stage: st})
 		if status != domain.ReleaseSucceeded {
 			finishRelease(ctx, plan.ReleaseID, status, reason)
+			// A failed verification is a bug in what the release contains:
+			// open an issue for it (D115). Other failures are the stage's.
+			if failed != nil && workflow.GetVersion(ctx, "release-bug-issue", workflow.DefaultVersion, 1) >= 1 {
+				reportReleaseFailure(ctx, activities.ReleaseFailureReport{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha,
+					Stage: st.Name, URL: st.URL, Verification: *failed, RolledBack: status == domain.ReleaseRolledBack})
+			}
 			return
 		}
 	}
@@ -106,14 +112,13 @@ func runRelease(ctx workflow.Context, repo, sha string) {
 }
 
 // deployStage deploys the release to one stage: succeeded, or failed or
-// rolled back with the reason.
-func deployStage(ctx workflow.Context, req activities.StageRequest) (domain.ReleaseStatus, string) {
+// rolled back with the reason. failed is the verification when it failed.
+func deployStage(ctx workflow.Context, req activities.StageRequest) (status domain.ReleaseStatus, reason string, failed *activities.Verification) {
 	var a *activities.Activities
 	short := workflow.WithActivityOptions(ctx, shortOptions)
 	if err := workflow.ExecuteActivity(short, a.StartDeployment, req).Get(ctx, &req.DeploymentID); err != nil {
-		return domain.ReleaseFailed, fmt.Sprintf("%s: recording the deployment failed: %v", req.Stage.Name, err)
+		return domain.ReleaseFailed, fmt.Sprintf("%s: recording the deployment failed: %v", req.Stage.Name, err), nil
 	}
-	reason := ""
 	if err := workflow.ExecuteActivity(short, a.PublishStage, req).Get(ctx, nil); err != nil {
 		reason = "publishing failed: " + err.Error()
 	}
@@ -130,25 +135,38 @@ func deployStage(ctx workflow.Context, req activities.StageRequest) (domain.Rele
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, verifyOptions), a.VerifyStage, req).Get(ctx, &v); err != nil {
 			reason = "verification could not run: " + err.Error()
 		} else if !v.Passed {
-			reason = "verification failed: " + v.Summary
+			reason, failed = "verification failed: "+v.Summary, &v
 		}
 	}
 	if reason == "" {
 		if err := workflow.ExecuteActivity(short, a.EndDeployment, activities.EndDeploymentRequest{DeploymentID: req.DeploymentID, Succeeded: true}).Get(ctx, nil); err != nil {
-			return domain.ReleaseFailed, fmt.Sprintf("%s: recording the deployment failed: %v", req.Stage.Name, err)
+			return domain.ReleaseFailed, fmt.Sprintf("%s: recording the deployment failed: %v", req.Stage.Name, err), nil
 		}
-		return domain.ReleaseSucceeded, ""
+		return domain.ReleaseSucceeded, "", nil
 	}
 
 	reason = req.Stage.Name + ": " + reason
 	_ = workflow.ExecuteActivity(short, a.EndDeployment, activities.EndDeploymentRequest{DeploymentID: req.DeploymentID, Reason: reason}).Get(ctx, nil)
 	if !req.Stage.Rollback {
-		return domain.ReleaseFailed, reason
+		return domain.ReleaseFailed, reason, failed
 	}
 	if err := workflow.ExecuteActivity(short, a.RollbackStage, req).Get(ctx, nil); err != nil {
-		return domain.ReleaseFailed, reason + "; rolling back failed: " + err.Error()
+		return domain.ReleaseFailed, reason + "; rolling back failed: " + err.Error(), failed
 	}
-	return domain.ReleaseRolledBack, reason
+	return domain.ReleaseRolledBack, reason, failed
+}
+
+// reportReleaseFailure opens the bug issue of a failed verification; a failure
+// to open it is logged, the release's outcome is already recorded.
+func reportReleaseFailure(ctx workflow.Context, report activities.ReleaseFailureReport) {
+	var a *activities.Activities
+	short := workflow.WithActivityOptions(ctx, shortOptions)
+	var ref string
+	if err := workflow.ExecuteActivity(short, a.ReportReleaseFailure, report).Get(ctx, &ref); err != nil {
+		workflow.GetLogger(ctx).Error("opening the release's bug issue failed", "release", report.ReleaseID, "error", err)
+		return
+	}
+	workflow.GetLogger(ctx).Info("opened the release's bug issue", "release", report.ReleaseID, "issue", ref)
 }
 
 // finishRelease records the release's outcome, even while canceling.

@@ -1,4 +1,4 @@
-h1:9MTt9lmCVs0V744d53PsNKBarQcEZbWYAVUMDucbY2U=
+h1:dbfOeCzIV3hFpiLoxHQ1lGeKj8LemjzyV1bP0sxckRc=
 20261112230042_init.sql h1:QPoV/BFu5WFa3vaf5OQz+7PkqH+0MpI/WMYrgk/wUhY=
 20261112235922_issue_keys.sql h1:eAjhCXQOlan3CYFzqCSx35H/EoLrC2dKG7wOtwpfsqU=
 20261113034833_change_requests.sql h1:NrYUEeW+O8KSociPamITEpJYEyF+ec93tmGhmSxW/WU=
@@ -21,3 +21,4 @@ h1:9MTt9lmCVs0V744d53PsNKBarQcEZbWYAVUMDucbY2U=
 20261116235845_releases.sql h1:mng7kxeu6hMJo6q3hiafBSeV6731LXarivg7hJZK4/g=
 20261117090000_release_merged_issues.sql h1:X7+oOFWwMDgRzDAld5UJ+hadVk5VzBEaCN/vuhH5hgw=
 20261117090100_release_reason.sql h1:RME0wiT/uYUKrVN8FSFfzeoXL13EC47MPPAUnsbVaRg=
+20261117090200_release_bug_issue.sql h1:7xij/51vQG2CNzsdyfdZSZ8vvEYSFZd/6Brve9R1HVo=

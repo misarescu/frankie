@@ -170,6 +170,24 @@ func (c *Client) UpdateStatus(ctx context.Context, ref string, status domain.Iss
 	return c.do(ctx, http.MethodPatch, path, map[string]string{"state": "closed", "state_reason": reason}, nil)
 }
 
+// CreateIssue opens an issue in repo ("owner/name") with labels, which GitHub
+// creates when they do not exist yet (D115).
+func (c *Client) CreateIssue(ctx context.Context, repo string, in domain.NewExternalIssue) (domain.ExternalIssue, error) {
+	if err := in.Validate(); err != nil {
+		return domain.ExternalIssue{}, fmt.Errorf("github: %w", err)
+	}
+	labels := in.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	var raw rawIssue
+	err := c.do(ctx, http.MethodPost, "/repos/"+repo+"/issues", map[string]any{"title": in.Title, "body": in.Body, "labels": labels}, &raw)
+	if err != nil {
+		return domain.ExternalIssue{}, err
+	}
+	return raw.external(), nil
+}
+
 // Comment adds a comment to the issue (IssueSource.Comment).
 func (c *Client) Comment(ctx context.Context, ref, body string) error {
 	path, err := issuePath(ref)

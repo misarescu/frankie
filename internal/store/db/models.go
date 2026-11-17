@@ -143,15 +143,16 @@ type Question struct {
 }
 
 type Release struct {
-	ID         uuid.UUID
-	ProjectID  uuid.UUID
-	Repo       string
-	Sha        string
-	Status     string
-	FinishedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	Reason     string
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	Repo        string
+	Sha         string
+	Status      string
+	FinishedAt  *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Reason      string
+	BugIssueRef *string
 }
 
 type ReleaseIssue struct {

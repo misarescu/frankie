@@ -82,7 +82,7 @@ Every status change (Issue, Run, StepRun) is a compare-and-set on the expected c
 `id, change_request_id, position, state (waiting|rebasing|testing|merging|returned|merged), reason?`.
 
 ### Release / Stage / Deployment
-- `Release`: `id, project_id, repo, sha, issue_ids[], created_at, finished_at, status (pending|in_progress|succeeded|failed|rolled_back), reason`. One per project, repo and commit (D110); `reason` says why it failed or was rolled back (D114).
+- `Release`: `id, project_id, repo, sha, issue_ids[], created_at, finished_at, status (pending|in_progress|succeeded|failed|rolled_back), reason, bug_issue_ref?`. One per project, repo and commit (D110); `reason` says why it failed or was rolled back (D114); `bug_issue_ref` is the bug issue a failed verification opened (D115).
 - `Stage`: `name, order, driver, driver_config, url?, verify?, gate?, rollback?` (stages are project configuration: `stages:` in `.factory/config.yaml`, D113).
 - `Deployment`: `id, release_id, stage, driver, driver_state jsonb, status, reason, started_at, finished_at`. One per release and stage, with the release's statuses.
 
@@ -121,6 +121,8 @@ type IssueSource interface {
 Intake (D27): the control plane polls `List` (with `since`) and, once webhooks are reachable, also accepts `Webhook` deliveries; both go through one idempotent intake keyed by `source_ref`, so a delivery and a poll that see the same issue create it once.
 
 Issues carry a start request (`start_requested_at`, `start_requested_by`, D62), which the scheduler reads; intake never starts issues. `file_hints[]` come from the paths the issue's text names in backticks while the text follows the source, and `changed_paths[]` are the files its latest change touched (D63). Since D60 intake syncs trees: the labeled issues with their open sub-issues and their open same-repo blockers, with parents and dependencies, applied atomically per project. The source is authoritative for the links of the issues it reports and for a draft's text; refined or started issues keep the factory's copy. Intake uses the narrower provider-neutral `IssueSource` methods `ListLabeledIssues`, `SubIssues` and `BlockedBy` (`domain.ExternalIssue`) so far. The first write-back (D71) uses `Get`, `UpdateStatus` and `Comment`: when a person completes or cancels an issue (D70), the control plane comments on its provider issue naming who closed it and why, and closes it as completed or not planned.
+
+A release whose verification failed opens its bug issue with the GitHub connector's `CreateIssue` and the provider-neutral `domain.NewExternalIssue` (D115), the first issue the factory creates on a source.
 
 The merge queue's provider calls (D85) are implemented by the GitHub connector as `MergeChangeRequest`, `CloseChangeRequest` and `CommitStatus`, with the provider-neutral `domain.MergeRequest` and `domain.CommitStatus`.
 

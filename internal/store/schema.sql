@@ -244,6 +244,8 @@ CREATE TABLE releases (
                 'pending', 'in_progress', 'succeeded', 'failed', 'rolled_back')),
   -- Why it failed or was rolled back (D114).
   reason      text        NOT NULL DEFAULT '',
+  -- The bug issue opened on the provider when its verification failed (D115).
+  bug_issue_ref text,
   finished_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),

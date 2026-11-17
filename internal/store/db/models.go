@@ -44,17 +44,18 @@ type ChangeRequest struct {
 }
 
 type Deployment struct {
-	ID          uuid.UUID
-	ReleaseID   uuid.UUID
-	Stage       string
-	Driver      string
-	DriverState []byte
-	Status      string
-	Reason      string
-	StartedAt   *time.Time
-	FinishedAt  *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           uuid.UUID
+	ReleaseID    uuid.UUID
+	Stage        string
+	Driver       string
+	DriverState  []byte
+	Status       string
+	Reason       string
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Verification []byte
 }
 
 type Event struct {

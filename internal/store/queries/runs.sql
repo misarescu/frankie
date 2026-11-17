@@ -74,10 +74,15 @@ SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
 FROM step_runs s JOIN runs r ON r.id = s.run_id
 WHERE r.issue_id = @issue_id::uuid;
 
+-- Issue runs and release runs (D129); a release run has no issue.
 -- name: ListRecentRuns :many
-SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at, i.key AS issue_key, i.title AS issue_title,
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+       coalesce(i.key, '')::text AS issue_key, coalesce(i.title, '')::text AS issue_title,
+       r.release_id, coalesce(rel.sha, '')::text AS release_sha, coalesce(rel.version, '')::text AS release_version,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
-FROM runs r JOIN issues i ON i.id = r.issue_id
+FROM runs r
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
 ORDER BY r.created_at DESC
 LIMIT @max_runs;
 

@@ -51,5 +51,6 @@ All interventions are recorded as events with the acting user.
 - Approvals inbox: pending human gates (spec approval, protected-path changes, prod promotion, flag rollout steps). M5 (D64, D66): agents' questions, then human gates, then refined specs waiting for approval with the refiner's summary, the original text and a link to the refinement's transcript (`GET /api/specs`, decided with `POST /api/issues/{key}/spec`).
 - Merge queue view per repo.
 - Release view: stage progression, verification results, rollback, linked auto-bugs.
+  - M7 API (D130): `GET /api/releases?project=<name>` (each release's version, status, issues and stages) and `GET /api/releases/{id}` (notes, the provider release, the bug issue, issues, deployments with their verification, the release agent's runs and cost). Each deployment records how its verification ended; `GET /api/runs` lists release runs too.
 - Workflow and role editors with save-time validation feedback.
 - Settings: connectors, provider profiles, budgets, protected paths, deployment profile.

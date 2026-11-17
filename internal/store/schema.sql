@@ -293,6 +293,8 @@ CREATE TABLE deployments (
   status       text        NOT NULL DEFAULT 'pending' CHECK (status IN (
                  'pending', 'in_progress', 'succeeded', 'failed', 'rolled_back')),
   reason       text        NOT NULL DEFAULT '',
+  -- How the stage's verification ended, once it ran (D130).
+  verification jsonb,
   started_at   timestamptz,
   finished_at  timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),

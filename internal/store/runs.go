@@ -346,9 +346,14 @@ type RunSummary struct {
 	Status     domain.ExecStatus
 	IssueKey   string
 	IssueTitle string
-	CreatedAt  time.Time
-	StartedAt  *time.Time
-	FinishedAt *time.Time
+	// ReleaseID is set for a release run (D129), which has no issue;
+	// ReleaseSHA and ReleaseVersion name its release.
+	ReleaseID      *uuid.UUID `json:",omitempty"`
+	ReleaseSHA     string     `json:",omitempty"`
+	ReleaseVersion string     `json:",omitempty"`
+	CreatedAt      time.Time
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
 	// CostUSD is what the run's sessions spent on models (D53).
 	CostUSD float64
 }
@@ -362,7 +367,7 @@ func (s *Store) ListRecentRuns(ctx context.Context, limit int) ([]RunSummary, er
 	out := make([]RunSummary, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, RunSummary{ID: r.ID, Status: domain.ExecStatus(r.Status), IssueKey: r.IssueKey, IssueTitle: r.IssueTitle,
-			CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd})
+			ReleaseID: r.ReleaseID, ReleaseSHA: r.ReleaseSha, ReleaseVersion: r.ReleaseVersion, CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd})
 	}
 	return out, nil
 }

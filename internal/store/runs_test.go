@@ -197,8 +197,21 @@ func TestListRecentRuns(t *testing.T) {
 	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
 	r := mustRun(t, s, is.ID)
 	runs, err := s.ListRecentRuns(t.Context(), 10)
-	if err != nil || len(runs) != 1 || runs[0].ID != r.ID || runs[0].IssueKey != is.Key || runs[0].IssueTitle != is.Title {
+	if err != nil || len(runs) != 1 || runs[0].ID != r.ID || runs[0].IssueKey != is.Key || runs[0].IssueTitle != is.Title || runs[0].ReleaseID != nil {
 		t.Fatalf("runs = %+v, %v", runs, err)
+	}
+
+	// D129, D130: a release run is listed with its release, without an issue.
+	rel := mustRelease(t, s, is.ProjectID, "m1")
+	rr, err := s.CreateRun(t.Context(), NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "release-agent",
+		TemporalWorkflowID: "release/" + releaseRepo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err = s.ListRecentRuns(t.Context(), 10)
+	if err != nil || len(runs) != 2 || runs[0].ID != rr.ID || runs[0].IssueKey != "" || runs[0].ReleaseID == nil ||
+		*runs[0].ReleaseID != rel.ID || runs[0].ReleaseSHA != "m1" || runs[0].ReleaseVersion != "" {
+		t.Fatalf("runs = %+v, %v; want the release run first", runs, err)
 	}
 }
 
@@ -386,9 +399,10 @@ func TestReleaseRuns(t *testing.T) {
 	if err != nil || len(runs) != 2 || runs[0].ID != second.ID || runs[1].ID != first.ID {
 		t.Errorf("ListReleaseRuns = %+v, %v", runs, err)
 	}
+	// D130: the run list shows release runs with their release.
 	recent, err := s.ListRecentRuns(ctx, 10)
-	if err != nil || len(recent) != 0 {
-		t.Errorf("recent issue runs = %+v, %v", recent, err)
+	if err != nil || len(recent) != 3 || recent[0].ReleaseID == nil || recent[0].IssueKey != "" {
+		t.Errorf("recent runs = %+v, %v; want the three release runs", recent, err)
 	}
 
 	is := mustIssue(t, s, p.ID, domain.IssueRunning)

@@ -187,6 +187,9 @@ func TestParseWorkflowRejects(t *testing.T) {
 		{"preserve without a step", head + "  - id: g\n    gate: {type: preserve}\n", `"" is not an earlier agent step`},
 		{"preserve a later step", head + "  - id: g\n    gate: {type: preserve, step: implement}\n" + impl, `"implement" is not an earlier agent step`},
 		{"step on a command gate", head + impl + "  - id: g\n    gate: {type: command, step: implement}\n", "step: applies to preserve gates only"},
+		{"preview before the change request", head + impl + "  - id: p\n    gate: {type: preview}\n  - id: o\n    action: change-request.open\n", "put it after a change-request.open action"},
+		{"preview on a group", head + impl + checks + "  - id: o\n    action: change-request.open\n  - id: r\n    parallel: [{agent: {role: code-reviewer}}]\n    gate: {type: preview}\n", "make it a step of its own"},
+		{"run on a preview gate", head + impl + "  - id: o\n    action: change-request.open\n  - id: p\n    gate: {type: preview, run: [make]}\n", "run: applies to command gates only"},
 		{"sendBack on a command gate", head + impl + "  - id: g\n    gate: {type: command, sendBack: {goto: implement, maxLoops: 1}}\n", "sendBack: applies to human gates only"},
 		{"sendBack that fails", head + impl + "  - id: g\n    gate: {type: human, sendBack: fail}\n", "sendBack: must be {goto, maxLoops}"},
 		{"sendBack without a bound", head + impl + "  - id: g\n    gate: {type: human, sendBack: {goto: implement}}\n", "sendBack.maxLoops"},
@@ -299,5 +302,32 @@ steps:
 	}
 	if g := w.Steps[4].Gate; g.SendBack == nil || g.SendBack.Goto != "reproduce" || g.SendBack.MaxLoops != 1 {
 		t.Errorf("decide = %+v", g)
+	}
+}
+
+// M7 (D126): a preview gate checks the change request the run opened, before
+// it is enqueued, and loops back like any gate.
+func TestParseWorkflowPreviewGate(t *testing.T) {
+	w, err := ParseWorkflow([]byte(`
+name: w
+version: 1
+steps:
+  - id: implement
+    agent: {role: coder}
+  - id: open
+    action: change-request.open
+  - id: preview
+    gate: {type: preview, onFail: {goto: implement, maxLoops: 2}}
+  - id: merge
+    action: merge-queue.enqueue
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := w.Steps[2].Gate; g.Type != domain.GatePreview || g.Policy != domain.GateBlocking || g.OnFail.Goto != "implement" {
+		t.Errorf("preview gate = %+v", g)
+	}
+	if !w.HasGate(domain.GatePreview) || w.HasGate(domain.GateHuman) {
+		t.Errorf("HasGate(preview) = %v, HasGate(human) = %v", w.HasGate(domain.GatePreview), w.HasGate(domain.GateHuman))
 	}
 }

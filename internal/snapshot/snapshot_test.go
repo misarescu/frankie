@@ -13,6 +13,8 @@ import (
 
 	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
+	"github.com/misarescu/frankie/internal/drivers"
+	"github.com/misarescu/frankie/internal/drivers/driverstest"
 )
 
 const baseSHA = "1111111111111111111111111111111111111111"
@@ -140,18 +142,18 @@ func TestResolveForIssueType(t *testing.T) {
 		".factory/workflows/careful.yaml": strings.Replace(loopWorkflow, "name: fast", "name: careful", 1),
 	}
 	for typ, want := range map[string]string{"bug": "careful", "task": "fast", "": "fast"} {
-		s, err := ResolveFor(t.Context(), &repo{files: files}, "acme/app", "main", typ)
+		s, err := ResolveFor(t.Context(), &repo{files: files}, "acme/app", "main", typ, nil)
 		if err != nil || s.Workflow.Name != want {
 			t.Errorf("%q: workflow %q, %v; want %q", typ, s.Workflow.Name, err, want)
 		}
 	}
 	// D96: without a project setting, a bug runs the built-in bug-fix with
 	// its built-in roles, and a task the default.
-	s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "bug")
+	s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "bug", nil)
 	if err != nil || s.Workflow.Name != "bug-fix" || s.Roles["bug-investigator"].OutputContract != config.ContractBugFindings {
 		t.Errorf("a bug without a project setting: %q, %v", s.Workflow.Name, err)
 	}
-	if s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "task"); err != nil || s.Workflow.Name != "default-build" {
+	if s, err := ResolveFor(t.Context(), &repo{files: map[string]string{}}, "acme/app", "main", "task", nil); err != nil || s.Workflow.Name != "default-build" {
 		t.Errorf("a task without a project setting: %q, %v", s.Workflow.Name, err)
 	}
 }
@@ -312,5 +314,82 @@ func TestResolveEgressAllow(t *testing.T) {
 	bad := &repo{files: map[string]string{".factory/config.yaml": "egress: {allow: ['*.npmjs.org']}\n"}}
 	if _, err := Resolve(t.Context(), bad, "acme/app", "main"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a wildcard: err = %v, want ErrInvalid", err)
+	}
+}
+
+const previewWorkflow = `
+name: checked
+version: 1
+steps:
+  - id: implement
+    agent: {role: coder}
+  - id: open
+    action: change-request.open
+  - id: preview
+    gate: {type: preview, onFail: {goto: implement, maxLoops: 2}}
+`
+
+const previewStages = `
+e2e: {command: mise run e2e}
+stages:
+  - name: preview
+    driver: flux-preview
+    url: http://previews.example/pr-{changeRequest}
+    verify: e2e-suite
+  - name: staging
+    driver: flux
+    url: http://staging.example
+`
+
+func previewDrivers(t *testing.T) *drivers.Registry {
+	t.Helper()
+	r, err := drivers.NewRegistry(
+		&driverstest.Fake{DriverName: "flux", Caps: drivers.Capabilities{Rollback: true, Health: true}},
+		&driverstest.Fake{DriverName: "flux-preview", Caps: drivers.Capabilities{Rollback: true, Health: true, Preview: true}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// M7 (D126): a workflow with a preview gate snapshots the project's preview
+// stage, checked against its driver; without a preview stage the gate has none.
+func TestResolvePreviewStage(t *testing.T) {
+	files := func(config string) map[string]string {
+		return map[string]string{".factory/config.yaml": "workflow: checked\n" + config, ".factory/workflows/checked.yaml": previewWorkflow}
+	}
+	ds := previewDrivers(t)
+	s, err := ResolveFor(t.Context(), &repo{files: files(previewStages)}, "acme/app", "main", "task", ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := s.PreviewStage; p == nil || p.Name != "preview" || p.URLFor(7) != "http://previews.example/pr-7" || p.Verify != config.VerifyE2ESuite {
+		t.Errorf("preview stage = %+v", p)
+	}
+	// The JSON form, which workflow histories record, carries it.
+	raw, _ := json.Marshal(s)
+	var back Snapshot
+	if err := json.Unmarshal(raw, &back); err != nil || back.PreviewStage == nil || back.PreviewStage.URL != s.PreviewStage.URL {
+		t.Errorf("round trip = %+v, %v", back.PreviewStage, err)
+	}
+
+	if s, err := ResolveFor(t.Context(), &repo{files: files("stages: [{name: staging, driver: flux}]\n")}, "acme/app", "main", "task", ds); err != nil || s.PreviewStage != nil {
+		t.Errorf("no preview stage: %+v, %v", s.PreviewStage, err)
+	}
+	if s, err := ResolveFor(t.Context(), &repo{files: files("")}, "acme/app", "main", "task", ds); err != nil || s.PreviewStage != nil {
+		t.Errorf("no stages: %+v, %v", s.PreviewStage, err)
+	}
+	bad := files("stages: [{name: preview, driver: flux-preview, gate: human}]\n")
+	if _, err := ResolveFor(t.Context(), &repo{files: bad}, "acme/app", "main", "task", ds); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "a preview stage has no gate") {
+		t.Errorf("invalid preview stage: err = %v, want ErrInvalid", err)
+	}
+	if _, err := ResolveFor(t.Context(), &repo{files: files(previewStages)}, "acme/app", "main", "task", nil); err == nil || errors.Is(err, ErrInvalid) {
+		t.Errorf("no drivers: err = %v, want an error that is not the project's", err)
+	}
+	// A workflow without a preview gate leaves the stages to releases.
+	plain := map[string]string{".factory/config.yaml": "stages: [{name: preview, driver: flux-preview, gate: human}]\n"}
+	if s, err := ResolveFor(t.Context(), &repo{files: plain}, "acme/app", "main", "task", ds); err != nil || s.PreviewStage != nil {
+		t.Errorf("no preview gate: %+v, %v", s.PreviewStage, err)
 	}
 }

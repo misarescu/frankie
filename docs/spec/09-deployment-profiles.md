@@ -101,7 +101,7 @@ What differs per preview comes from the GitOps repository's ResourceSet:
 - the provider, which is the production gateway (`llmGateway.providers[].apiBase`, with `llmGateway.egressTo` to reach it);
 - the secrets.
 
-The production factory admits the previews' gateways with `llmGateway.ingressFrom` (D133). `deploy/helm/chart_test.go` renders a preview beside production and checks that the two share no object or NodePort, and that the preview creates nothing cluster-scoped but its own namespaces.
+The production factory admits the previews' gateways with `llmGateway.ingressFrom` (D133), and its verification pods reach the previews' APIs through an `agents.verify.stageEgress` entry with `namespaceLabels` (D136). `deploy/helm/chart_test.go` renders a preview beside production and checks that the two share no object or NodePort, and that the preview creates nothing cluster-scoped but its own namespaces.
 
 ## Dropped or deferred in the concrete profile
 

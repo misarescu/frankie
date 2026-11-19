@@ -3,12 +3,14 @@
 #   docker build -f deploy/images/controlplane/Dockerfile .
 FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie AS build
 ARG TARGETOS TARGETARCH
+# The commit it is built from, for GET /api/version (D131); CI passes it.
+ARG COMMIT=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/controlplane ./cmd/controlplane
+    go build -trimpath -ldflags="-s -w -X github.com/misarescu/frankie/internal/buildinfo.commit=${COMMIT}" -o /out/controlplane ./cmd/controlplane
 
 FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/controlplane /controlplane

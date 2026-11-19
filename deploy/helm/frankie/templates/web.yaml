@@ -1,5 +1,6 @@
 # Web UI (React + Bun, docs/spec/01): serves the app and proxies /api to the
 # control plane. Reach it with: kubectl -n frankie port-forward svc/frankie-web 3000
+{{- if .Values.web.enabled }}
 {{- $name := printf "%s-web" (include "frankie.fullname" .) }}
 apiVersion: apps/v1
 kind: Deployment
@@ -90,3 +91,4 @@ spec:
               {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
       ports:
         - { port: {{ .Values.controlPlane.apiPort }}, protocol: TCP }
+{{- end }}

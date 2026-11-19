@@ -186,6 +186,9 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
+        {{- with .Values.llmGateway.ingressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       ports:
         - port: {{ .Values.llmGateway.port }}
           protocol: TCP
@@ -212,3 +215,6 @@ spec:
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 127.0.0.0/8]
       ports:
         - { port: 443, protocol: TCP }
+    {{- with .Values.llmGateway.egressTo }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}

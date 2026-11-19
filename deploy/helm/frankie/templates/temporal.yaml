@@ -52,6 +52,12 @@ spec:
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: data, mountPath: /data }
+      {{- if .Values.persistence.ephemeral }}
+      volumes:
+        - name: data
+          emptyDir: { sizeLimit: {{ .Values.temporal.storage }} }
+      {{- end }}
+  {{- if not .Values.persistence.ephemeral }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -61,6 +67,7 @@ spec:
         resources:
           requests:
             storage: {{ .Values.temporal.storage }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

@@ -86,6 +86,23 @@ What the sizing rests on (measured 2026-11-16, Kata 4.3.1 `qemu-runtime-rs`, Kub
 - Frankie's own previews (M7.1) run here; projects' previews and long-lived stages do not. Goodreads-Clone's staging, production and previews run on the homelab (D124), which Frankie changes only through their GitOps repository and reaches over Tailscale (D108, D118); the Tailscale operator's egress proxies forward pods' traffic into the tailnet, which tailscaled's firewall drops when it comes from `100.64.0.0/10` (D119).
 - DEV1 instances were too slow for the factory (gates about 4 times the homelab's) and, on their older hosts, Kata VMs failed to boot.
 
+## Previews of the factory (M7.1, D131)
+
+`values-preview.yaml` is an overlay for a preview of the factory, applied over the profile of the cluster it runs on (`values-concrete.yaml` on Kapsule). A preview is a whole factory that lives for one check:
+- **Storage:** `persistence.ephemeral` gives Postgres, Temporal, the registry and the Go module proxy an `emptyDir` each, sized like their claims, instead of claims.
+- **No web UI:** `web.enabled: false`.
+- **Small and serial:** one issue at a time, and agent and gate pods limited to 2Gi each (`docs/notes/m7.1-sizing.md`).
+
+What differs per preview comes from the GitOps repository's ResourceSet:
+- the agents' and builds' namespaces;
+- the registry's NodePort;
+- the repo and intake label (D132);
+- scheduling on the agent pool;
+- the provider, which is the production gateway (`llmGateway.providers[].apiBase`, with `llmGateway.egressTo` to reach it);
+- the secrets.
+
+The production factory admits the previews' gateways with `llmGateway.ingressFrom` (D133). `deploy/helm/chart_test.go` renders a preview beside production and checks that the two share no object or NodePort, and that the preview creates nothing cluster-scoped but its own namespaces.
+
 ## Dropped or deferred in the concrete profile
 
 | Dropped or deferred | In the concrete profile instead |

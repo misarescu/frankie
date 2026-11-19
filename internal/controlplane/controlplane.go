@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/misarescu/frankie/internal/api"
+	"github.com/misarescu/frankie/internal/buildinfo"
 	"github.com/misarescu/frankie/internal/connectors/github"
 	"github.com/misarescu/frankie/internal/gitproxy"
 	"github.com/misarescu/frankie/internal/store"
@@ -119,7 +120,7 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	go hub.Run(ctx)
 	mux := http.NewServeMux()
 	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Token: cfg.APIToken,
-		MaxConcurrentIssues: cfg.MaxConcurrentIssues}).Register(mux)
+		Version: buildinfo.Commit(), MaxConcurrentIssues: cfg.MaxConcurrentIssues}).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {

@@ -3,6 +3,7 @@
 # the internet. Athens fetches from the upstream proxy and keeps modules on disk.
 {{- $name := printf "%s-athens" (include "frankie.fullname" .) }}
 {{- $g := .Values.goModuleProxy }}
+{{- if not .Values.persistence.ephemeral }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -16,6 +17,7 @@ spec:
     requests:
       storage: {{ $g.storage }}
 ---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,8 +75,12 @@ spec:
             - { name: tmp, mountPath: /tmp }
       volumes:
         - name: data
+          {{- if .Values.persistence.ephemeral }}
+          emptyDir: { sizeLimit: {{ $g.storage }} }
+          {{- else }}
           persistentVolumeClaim:
             claimName: {{ $name }}
+          {{- end }}
         - name: tmp
           emptyDir: { sizeLimit: 2Gi }
 ---

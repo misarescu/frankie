@@ -105,6 +105,11 @@ spec:
             defaultMode: 0555
         - name: run
           emptyDir: {}
+        {{- if .Values.persistence.ephemeral }}
+        - name: data
+          emptyDir: { sizeLimit: {{ .Values.postgres.storage }} }
+        {{- end }}
+  {{- if not .Values.persistence.ephemeral }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -114,6 +119,7 @@ spec:
         resources:
           requests:
             storage: {{ .Values.postgres.storage }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

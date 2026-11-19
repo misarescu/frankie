@@ -40,8 +40,12 @@ platform:
 # Storage class for every volume claim (Postgres, Temporal, registry, Go module
 # proxy). Empty: the cluster's default class. Use one that keeps the volume when
 # its claim is deleted, so an uninstall cannot drop Postgres (D99).
+# ephemeral: no claims at all; each of those components keeps its data on an
+# emptyDir sized like its claim, gone with the pod. For previews of the factory,
+# which live for one check (D131); never for a factory whose state matters.
 persistence:
   storageClassName: ""
+  ephemeral: false
 
 # Platform images (D23). Set images.tag per deployment, e.g. sha-87f0290.
 images:
@@ -197,6 +201,13 @@ llmGateway:
     - name: anthropic
       secret: frankie-anthropic
       models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]
+  # Extra peers the gateway admits besides its own agents and control plane
+  # (NetworkPolicy "from" entries), and extra egress rules ("to" and "ports").
+  # A factory whose previews chain their gateways to this one admits their
+  # gateway pods (D131, D133); a preview's gateway may reach the gateway it uses
+  # as its provider, which the public-HTTPS rule's private ranges exclude.
+  ingressFrom: []
+  egressTo: []
   # How often LiteLLM writes spend to its database; the control plane reads
   # each session's spend from there when the session ends (D53).
   spendWriteSeconds: 2
@@ -250,6 +261,8 @@ temporal:
 
 # Web UI (React + Bun).
 web:
+  # The UI; a preview of the factory runs without it (D131).
+  enabled: true
   resources:
     requests: { cpu: 20m, memory: 64Mi }
     limits: { cpu: 250m, memory: 256Mi }

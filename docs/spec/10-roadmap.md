@@ -123,15 +123,22 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
 
 - **Done (2026-11-17):** gc-74 became the first release verified on staging (`910ce65`, 177 tests), and every queue merge since has been released and verified there. Two deliberately broken releases were rolled back with a bug issue each: `b6f703d` named gc-74 by its failing tests; `dc515ab` contained no merged issue, and the release agent's analysis still named gc-78 with the exact change. gc-77's change request passed 280 tests in its own preview on the homelab before the queue merged it, after a first run whose wrong e2e test led to D128. gc-78 then ran `build-e2e` with a dispute resolved by the test writer and was released as `v0.1.0`, the first version, with the agent's notes, published as a GitHub Release. The runs led to D120, D121, D123 and D128. Notes: `docs/notes/m7-acceptance.md`.
 
-## M7.1 - The factory's own canary
+## M7.1 - The factory's preview and e2e run
 
-- A preview of Frankie itself per change request on Kapsule: a complete factory (Temporal dev server, Postgres, LLM gateway, runner) in the change request's namespace, which runs a canary issue end to end against a toy repo with a cheap model and a fixed spec (`08-self-hosting.md`).
+- A preview of Frankie itself per change request on Kapsule: a complete factory in its own namespaces, deployed by Flux from `misarescu/frankie-cd` (D131), which builds a todo service from scratch in `misarescu/frankie-dummy` on its own base branch (D132, `08-self-hosting.md`).
 - Split from M7 because a Frankie preview is a whole factory, with its own sandboxes, egress, budgets and git credential, far larger than a Goodreads-Clone preview, and the release path for projects does not depend on it.
-- **Done when:** the factory's own canary e2e runs in the preview environment and its result gates the change request's merge.
+- Done before the design: `misarescu/frankie-dummy` and its seed, and a sizing run on the production factory (`dum-1`, `docs/notes/m7.1-sizing.md`).
+- Plan, one PR each:
+  1. A spike: Claude Code through a preview's LiteLLM chained to the production gateway (open question 22).
+  2. The chart and API for previews: `GET /api/version`, `persistence.ephemeral`, an optional web UI, a render test that the preview values create nothing cluster-scoped but Namespaces, and the production gateway admitting preview gateways. CI pushes images for change request heads.
+  3. The driver and the gate: `flux-preview` slots, a preview stage's `readyTimeout`, and the `preview` gate in `default-build`.
+  4. The judge, `mise run e2e:factory`, as a protected path, then Frankie's preview stage and `e2e` command in `.factory/config.yaml`, merged after the GitOps side is live.
+  5. `misarescu/frankie-cd`: the `frankie-previews` ResourceSet with the setup Job, NetworkPolicies, quota and ExternalSecrets, and the cleanup CronJob. Secrets in Scaleway Secret Manager: the dummy-only GitHub token and the previews' virtual key.
+- **Done when:** a Frankie issue's change request is checked in its preview, whose factory builds the todo service end to end, and the check gates its merge; a deliberately broken change request fails the check and names the step that broke.
 
 ## M8 - Production and flag rollout
 
-- `prod` stage with human gate; `flagd` driver and OpenFeature in the spec template; rollout steps with gates; automatic flag-cleanup issues.
+- `prod` stage with human gate; canary deployments to production with Flux (D132 (8)); `flagd` driver and OpenFeature in the spec template; rollout steps with gates; automatic flag-cleanup issues.
 - Optional `factory-driver` MCP server with scoped tools.
 - Further drivers as needed (GitHub Releases first).
 - **Done when:** a flagged feature rolls internal > test pool > percentage > 100% through gates and generates a cleanup issue after N days at 100%.

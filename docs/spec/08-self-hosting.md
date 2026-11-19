@@ -20,7 +20,19 @@ If the factory ships a bad change to its own control plane, it can no longer run
 
 - **Temporal replay tests** (most important). A change to workflow code that breaks determinism breaks in-flight workflows on deploy. A `command` gate replays recorded workflow histories against the new code with Temporal's replayer. The repo's agent docs state that workflow changes must use Temporal versioning (`GetVersion` or worker versioning); agents will not know this unaided and reviewers can miss it.
 - **Guardrails are protected paths.** An agent working on the factory edits its own security boundaries. NetworkPolicies, RBAC, the Kata runtime class, the runner, gate definitions, gateway budgets and the protected-paths list always require a human gate.
-- **The factory's e2e test is "can it build something?"** (M7.1) The preview environment deploys a complete factory (Temporal dev server, Postgres, runner) into the PR namespace, then runs a **canary issue** end to end against a toy repo with a cheap model and a fixed spec, checking that a PR comes out green. Unit tests cannot show the factory still works; building something does.
+- **The factory's e2e test is "can it build something?"** (M7.1) Each change request's preview deploys a complete factory, built from the change request, which builds a small service from scratch end to end. Unit tests cannot show the factory still works; building something does. See below.
+
+## The factory's e2e run (M7.1)
+
+Before a Frankie change request is enqueued, the `preview` gate (D126) checks it in a preview that is itself a factory (D131, D132):
+
+1. CI publishes the head's images. The `flux-preview` driver adds the change request to the inputs of the `frankie-previews` ResourceSet in `misarescu/frankie-cd`, and Kapsule's Flux deploys the chart at the head's commit as release `frankie-pr-<n>`. That release has its own namespaces, control plane, Temporal, Postgres, LiteLLM, registry and sandboxes, sized for one issue, with ephemeral storage.
+2. The preview holds two credentials: a GitHub token for `misarescu/frankie-dummy` alone, and a budget-capped virtual key of the production gateway, which its own gateway uses as its provider. It holds no real provider key and nothing for Frankie's own repositories.
+3. A setup Job from the GitOps repository resets the preview's base branch `e2e/pr-<n>` in frankie-dummy to the `seed` tag. It opens the fixed issue, "Build the todo service", with the label `e2e-pr-<n>`, and starts it. The preview's keys are `pr<n>dum-<m>`, so parallel previews share no branch, issue or merge queue.
+4. Once the preview reports the head (`/api/version`), the verification pod runs Frankie's `mise run e2e:factory` against it. That command waits for the issue to merge into `e2e/pr-<n>`, through the preview's gates and merge queue, and reports each step as a test.
+5. The preview is removed after the check, pass or fail. A failure goes back to the coder with the failing step; a preview that never ran escalates. An hourly CronJob removes what closed change requests left in frankie-dummy.
+
+The preview is a second instance and never production (FR-SH-1). Frankie's only stage is this preview, so its releases deploy nothing, and production still moves only when a person merges a bump in `misarescu/frankie-cd` (FR-SH-2).
 
 ## What it gives back
 

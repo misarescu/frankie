@@ -67,8 +67,10 @@ controlPlane:
   # One sidecar per pod: a 3Gi agent or gate pod keeps 2.5Gi for its own work.
   services:
     maxPerPod: 1
-  # The toy repo of the M1 acceptance run, and Frankie itself (M3: self-hosting
-  # begins, docs/spec/08); credentials in Secret frankie-github (D26).
+  # The toy repo of the M1 acceptance run, Frankie itself (M3: self-hosting
+  # begins, docs/spec/08), and frankie-dummy, the fixed project Frankie builds
+  # from scratch to check itself end to end (M7.1): its main holds a seed (tag
+  # seed) that is reset after each run. Credentials in Secret frankie-github (D26).
   repos:
     - name: misarescu/Goodreads-Clone
       upstream: https://github.com/misarescu/Goodreads-Clone.git
@@ -77,4 +79,8 @@ controlPlane:
     - name: misarescu/frankie
       upstream: https://github.com/misarescu/frankie.git
       keyPrefix: frk
+      baseBranch: main
+    - name: misarescu/frankie-dummy
+      upstream: https://github.com/misarescu/frankie-dummy.git
+      keyPrefix: dum
       baseBranch: main

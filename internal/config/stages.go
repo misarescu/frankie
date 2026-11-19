@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/misarescu/frankie/internal/drivers"
 )
@@ -26,6 +27,13 @@ const ChangeRequestPlaceholder = "{changeRequest}"
 
 // Stage gates. human waits for a person's approval before the stage deploys.
 const GateHuman = "human"
+
+// A stage's readyTimeout is between these (D131): the wait for a stage to run
+// a deployment is an Activity that Temporal stops after 30 minutes.
+const (
+	MinReadyTimeout = time.Minute
+	MaxReadyTimeout = 25 * time.Minute
+)
 
 // Stage is one stage a release (or, with a preview driver, a change request)
 // moves through (docs/spec/06-delivery.md, D113). Stages are the project's
@@ -48,6 +56,20 @@ type Stage struct {
 	// driver must support it; false never rolls back; unset rolls back when
 	// the driver can (FR-RL-2).
 	Rollback *bool `json:"rollback,omitempty"`
+	// ReadyTimeout bounds waiting for the stage to run a deployment, as a Go
+	// duration ("20m"), from MinReadyTimeout to MaxReadyTimeout; empty: the
+	// platform's default (D131). A preview of the factory needs longer than an
+	// app's, since it may wait for a node.
+	ReadyTimeout string `json:"readyTimeout,omitempty"`
+}
+
+// ReadyWithin is the stage's readyTimeout, zero when it sets none.
+func (s Stage) ReadyWithin() time.Duration {
+	d, err := time.ParseDuration(s.ReadyTimeout)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // URLFor is the stage's URL for change request n's preview: the URL with
@@ -100,6 +122,11 @@ func validateStages(stages []Stage) []error {
 		}
 		if s.Gate != "" && s.Gate != GateHuman {
 			errs = append(errs, fmt.Errorf("%s: gate %q must be %q or empty", at, s.Gate, GateHuman))
+		}
+		if s.ReadyTimeout != "" {
+			if d, err := time.ParseDuration(s.ReadyTimeout); err != nil || d < MinReadyTimeout || d > MaxReadyTimeout {
+				errs = append(errs, fmt.Errorf("%s: readyTimeout %q must be a duration from %s to %s", at, s.ReadyTimeout, MinReadyTimeout, MaxReadyTimeout))
+			}
 		}
 	}
 	return errs

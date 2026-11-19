@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misarescu/frankie/internal/drivers"
 	"github.com/misarescu/frankie/internal/drivers/driverstest"
@@ -103,6 +104,9 @@ func TestParseProjectRejectsStages(t *testing.T) {
 		{"url credentials", "stages: [{name: stg, driver: flux, url: 'https://u:p@x'}]", "credentials"},
 		{"url query", "stages: [{name: stg, driver: flux, url: 'https://x/?a=1'}]", "query"},
 		{"too many", "stages: [" + strings.Repeat("{name: s, driver: flux},", MaxStages) + "{name: last, driver: flux}]", "at most 10"},
+		{"readyTimeout not a duration", "stages: [{name: pr, driver: flux-preview, readyTimeout: soon}]", `readyTimeout "soon"`},
+		{"readyTimeout too short", "stages: [{name: pr, driver: flux-preview, readyTimeout: 30s}]", "from 1m0s to 25m0s"},
+		{"readyTimeout too long", "stages: [{name: pr, driver: flux-preview, readyTimeout: 30m}]", "from 1m0s to 25m0s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -148,6 +152,21 @@ func TestValidateStagesRollbackOptional(t *testing.T) {
 	}
 	if err := ValidateStages(t.Context(), p.Stages, testDrivers(t)); err != nil {
 		t.Errorf("ValidateStages = %v", err)
+	}
+}
+
+// M7.1, D131: a stage may wait longer than the platform's default for its
+// deployment to run; without readyTimeout it sets nothing.
+func TestStageReadyTimeout(t *testing.T) {
+	p, err := ParseProject([]byte("stages: [{name: pr, driver: flux-preview, readyTimeout: 20m}, {name: stg, driver: flux}]"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Stages[0].ReadyWithin(); got != 20*time.Minute {
+		t.Errorf("ReadyWithin = %s, want 20m", got)
+	}
+	if got := p.Stages[1].ReadyWithin(); got != 0 {
+		t.Errorf("ReadyWithin without readyTimeout = %s, want 0", got)
 	}
 }
 

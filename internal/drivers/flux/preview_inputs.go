@@ -20,6 +20,11 @@ type previewEntry struct {
 	ChangeRequest string `json:"changeRequest"`
 	Tag           string `json:"tag"`
 	SHA           string `json:"sha"`
+	// Slot is the preview's number among those running, 0 to maxPreviews - 1,
+	// unique among the entries: a template derives what must differ between
+	// previews but cannot be named after the change request, such as a
+	// cluster-wide NodePort (D131). Entries written before slots have none.
+	Slot string `json:"slot,omitempty"`
 }
 
 // number is the entry's change request number.
@@ -28,7 +33,10 @@ func (e previewEntry) number() int {
 	return n
 }
 
-var shaRE = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+var (
+	shaRE  = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+	slotRE = regexp.MustCompile(`^[0-9]$`) // maxPreviews is at most 10
+)
 
 // check rejects an entry the driver would not have written: its values end up
 // in the manifests the ResourceSet renders.
@@ -41,8 +49,22 @@ func (e previewEntry) check() error {
 		return fmt.Errorf("entry %s: tag %q is not an image tag", e.ChangeRequest, e.Tag)
 	case !shaRE.MatchString(e.SHA):
 		return fmt.Errorf("entry %s: sha %q is not a commit", e.ChangeRequest, e.SHA)
+	case e.Slot != "" && !slotRE.MatchString(e.Slot):
+		return fmt.Errorf("entry %s: slot %q is not a slot", e.ChangeRequest, e.Slot)
 	}
 	return nil
+}
+
+// freeSlot is the lowest slot below limit that none of entries holds; there is
+// one whenever fewer than limit entries hold slots.
+func freeSlot(entries []previewEntry, limit int) string {
+	for s := range limit {
+		slot := strconv.Itoa(s)
+		if !slices.ContainsFunc(entries, func(e previewEntry) bool { return e.Slot == slot }) {
+			return slot
+		}
+	}
+	return ""
 }
 
 // inputsFile is the file the flux-preview driver writes: a ResourceSet
@@ -85,7 +107,7 @@ func parseInputs(content []byte) (inputsFile, error) {
 	if err := dec.Decode(&f.entries); err != nil {
 		return inputsFile{}, fmt.Errorf("flux-preview: inputs: %w", err)
 	}
-	seen := map[int]bool{}
+	seen, slots := map[int]bool{}, map[string]bool{}
 	for _, e := range f.entries {
 		if err := e.check(); err != nil {
 			return inputsFile{}, fmt.Errorf("flux-preview: inputs: %w", err)
@@ -94,6 +116,10 @@ func parseInputs(content []byte) (inputsFile, error) {
 			return inputsFile{}, fmt.Errorf("flux-preview: inputs: two entries for change request %s", e.ChangeRequest)
 		}
 		seen[e.number()] = true
+		if e.Slot != "" && slots[e.Slot] {
+			return inputsFile{}, fmt.Errorf("flux-preview: inputs: two entries in slot %s", e.Slot)
+		}
+		slots[e.Slot] = true
 	}
 	return f, nil
 }

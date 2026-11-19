@@ -30,6 +30,7 @@ stages:
     verify: e2e-suite
   - name: production
     driver: plain
+    readyTimeout: 20m
 `
 )
 
@@ -141,14 +142,14 @@ func TestPrepareRelease(t *testing.T) {
 	}
 	want := []ReleaseStage{
 		{Name: "staging", Driver: "flux", Config: json.RawMessage(`{"path":"apps/goodreads/staging"}`), URL: "https://goodreads-stg.example.ts.net", Verify: "e2e-suite", Rollback: true},
-		{Name: "production", Driver: "plain", Config: json.RawMessage(`{}`)},
+		{Name: "production", Driver: "plain", Config: json.RawMessage(`{}`), ReadyTimeout: 20 * time.Minute},
 	}
 	if len(plan.Stages) != 2 {
 		t.Fatalf("stages = %+v", plan.Stages)
 	}
 	for i, s := range plan.Stages {
 		w := want[i]
-		if s.Name != w.Name || s.Driver != w.Driver || string(s.Config) != string(w.Config) || s.URL != w.URL || s.Verify != w.Verify || s.Rollback != w.Rollback {
+		if s.Name != w.Name || s.Driver != w.Driver || string(s.Config) != string(w.Config) || s.URL != w.URL || s.Verify != w.Verify || s.Rollback != w.Rollback || s.ReadyTimeout != w.ReadyTimeout {
 			t.Errorf("stage %d = %+v (config %s), want %+v", i, s, s.Config, w)
 		}
 	}

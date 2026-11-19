@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/roles"
 )
 
@@ -38,19 +39,24 @@ func TestDefaultBuildShape(t *testing.T) {
 	for _, s := range w.Steps {
 		kinds = append(kinds, s.Kind())
 	}
-	want := []config.StepKind{config.StepAgent, config.StepGate, config.StepParallel, config.StepAction, config.StepAction}
+	want := []config.StepKind{config.StepAgent, config.StepGate, config.StepParallel, config.StepAction, config.StepGate, config.StepAction}
 	if !slices.Equal(kinds, want) {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}
 	// M6 (D88): the change request is opened, then merged by the queue.
-	if w.Steps[3].Action != config.ActionOpenChangeRequest || w.Steps[4].Action != config.ActionEnqueue {
-		t.Errorf("actions = %q, %q", w.Steps[3].Action, w.Steps[4].Action)
+	if w.Steps[3].Action != config.ActionOpenChangeRequest || w.Steps[5].Action != config.ActionEnqueue {
+		t.Errorf("actions = %q, %q", w.Steps[3].Action, w.Steps[5].Action)
+	}
+	// M7.1 (D131, D132): in between, a project with a preview stage checks the
+	// change request in a preview; Frankie's issues run default-build.
+	if w.Steps[4].ID != "preview" || w.Steps[4].Gate.Type != domain.GatePreview || w.Version != 2 {
+		t.Errorf("steps[4] = %+v, version %d; want the preview gate in version 2", w.Steps[4], w.Version)
 	}
 	// D89: what the queue sends back goes to the coder.
-	if o := w.Steps[4].OnFail; o == nil || o.Action != config.OnFailGoto || o.Goto != "implement" || o.MaxLoops != 2 {
+	if o := w.Steps[5].OnFail; o == nil || o.Action != config.OnFailGoto || o.Goto != "implement" || o.MaxLoops != 2 {
 		t.Errorf("merge onFail = %+v", o)
 	}
-	for _, i := range []int{1, 2} {
+	for _, i := range []int{1, 2, 4} {
 		if o := w.Steps[i].Gate.OnFail; o.Action != config.OnFailGoto || o.Goto != "implement" {
 			t.Errorf("steps[%d] onFail = %+v, want goto implement", i, o)
 		}

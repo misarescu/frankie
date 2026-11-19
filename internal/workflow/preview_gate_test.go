@@ -77,6 +77,32 @@ func TestInterpretPreviewGateWithoutAStage(t *testing.T) {
 	}
 }
 
+// M7.1 (D131, D132): default-build checks the change request in a preview
+// when the project has a preview stage, as Frankie's will, and runs as before
+// without one.
+func TestInterpretDefaultBuildPreviewGate(t *testing.T) {
+	f := newInterpretFixture(t)
+	snap := defaultBuildSnapshot(t)
+	snap.PreviewStage = previewSnapshot(t).PreviewStage
+	if out := f.run(t, snap); !out.Succeeded || !out.Merged {
+		t.Fatalf("result = %+v", out)
+	}
+	if got := f.stepIDs(); !strings.HasSuffix(got, "open-change-request/1 preview-ci/1 preview/1 merge/1") {
+		t.Errorf("steps = %s", got)
+	}
+	if want := []string{"ci@sha1", "publish@sha1", "await@sha1", "verify@sha1", "remove@sha1"}; !slices.Equal(f.previewOps, want) {
+		t.Errorf("preview ops = %v, want %v", f.previewOps, want)
+	}
+
+	f = newInterpretFixture(t)
+	if out := f.run(t, defaultBuildSnapshot(t)); !out.Succeeded || !out.Merged {
+		t.Fatalf("without a preview stage: result = %+v", out)
+	}
+	if got := f.stepIDs(); !strings.HasSuffix(got, "open-change-request/1 merge/1") || len(f.previewOps) != 0 {
+		t.Errorf("without a preview stage: steps = %s, preview ops %v", got, f.previewOps)
+	}
+}
+
 // Failing tests in the preview and a red CI go back to the coder with what
 // failed; the next head gets its own preview.
 func TestInterpretPreviewGateLoopsBack(t *testing.T) {

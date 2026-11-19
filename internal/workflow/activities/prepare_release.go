@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 
@@ -32,6 +33,9 @@ type ReleaseStage struct {
 	// Rollback: roll a failed deployment back (the stage's rollback setting,
 	// or whether its driver can when the stage does not say).
 	Rollback bool `json:",omitempty"`
+	// ReadyTimeout bounds waiting for the stage to run the release: the
+	// stage's readyTimeout, zero when it sets none (D131).
+	ReadyTimeout time.Duration `json:",omitempty"`
 }
 
 // ReleasePlan is a prepared release: its ID and the stages it moves through,
@@ -150,7 +154,8 @@ func (a *Activities) checkReleaseStages(ctx context.Context, p config.Project) (
 		if s.Rollback != nil {
 			rollback = *s.Rollback
 		}
-		stages = append(stages, ReleaseStage{Name: s.Name, Driver: s.Driver, Config: s.Config, URL: s.URL, Verify: s.Verify, Rollback: rollback})
+		stages = append(stages, ReleaseStage{Name: s.Name, Driver: s.Driver, Config: s.Config, URL: s.URL, Verify: s.Verify, Rollback: rollback,
+			ReadyTimeout: s.ReadyWithin()})
 	}
 	if len(unsupported) > 0 {
 		return nil, config.ProjectConfigPath + ": " + strings.Join(unsupported, "; ")

@@ -2,9 +2,11 @@
 # Differences from the spec's full example until later milestones:
 # - no e2e-test-writer branch next to implement (the role arrives in M7);
 # - one reviewer, on Claude Code (opencode and pi arrive in M4);
-# - opens the change request, then the repo's merge queue merges it (M6, D88).
+# - opens the change request, then the repo's merge queue merges it (M6, D88);
+# - in between, a project with a preview stage checks the change request in a
+#   preview of its head (D126); Frankie's previews are whole factories (D131).
 name: default-build
-version: 1
+version: 2
 steps:
   - id: implement
     agent: { role: coder }
@@ -22,6 +24,14 @@ steps:
       onFail: { goto: implement, maxLoops: 2 }
   - id: open-change-request
     action: change-request.open
+  # The head's CI, then the head deployed to the project's preview stage and
+  # the stage's verification run there; the preview is removed after. Skipped
+  # without a preview stage. A check that cannot judge the head (no room, the
+  # preview never ran) escalates to a person instead (D127).
+  - id: preview
+    gate:
+      type: preview
+      onFail: { goto: implement, maxLoops: 2 }
   - id: merge
     action: merge-queue.enqueue
     # A conflict or a failed check after updating with main goes back to the

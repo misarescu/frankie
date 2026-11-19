@@ -174,9 +174,16 @@ func TestPreviewEdges(t *testing.T) {
 	req := f.request(t)
 	req.ChangeRequest = 152
 	f.driver.SetPhase(drivers.PhaseProgressing, "the version URL answered 502")
-	if st, err := execute[StageStatus](t, f.a, f.a.AwaitPreview, req); err != nil || st.Ready || !strings.Contains(st.Reason, "answered 502") {
+	if st, err := execute[StageStatus](t, f.a, f.a.AwaitPreview, req); err != nil || st.Ready || !strings.Contains(st.Reason, "answered 502") ||
+		!strings.Contains(st.Reason, "within 50ms") {
 		t.Errorf("AwaitPreview = %+v, %v", st, err)
 	}
+	// M7.1, D131: the preview stage's readyTimeout replaces the platform's.
+	req.Stage.ReadyTimeout = "80ms"
+	if st, err := execute[StageStatus](t, f.a, f.a.AwaitPreview, req); err != nil || st.Ready || !strings.Contains(st.Reason, "within 80ms") {
+		t.Errorf("AwaitPreview with readyTimeout = %+v, %v", st, err)
+	}
+	req.Stage.ReadyTimeout = ""
 	req.Stage.Verify = ""
 	if v, err := execute[Verification](t, f.a, f.a.VerifyPreview, req); err != nil || !v.Passed || len(f.verified) != 0 {
 		t.Errorf("unverified stage = %+v, %v", v, err)

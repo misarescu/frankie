@@ -106,6 +106,12 @@ func entryFor(n int, sha string) previewEntry {
 	return previewEntry{ChangeRequest: fmt.Sprint(n), Tag: "sha-" + sha[:7], SHA: sha}
 }
 
+// inSlot is e in slot s (D131).
+func inSlot(e previewEntry, s string) previewEntry {
+	e.Slot = s
+	return e
+}
+
 func previewRequest(n int, sha, config string) drivers.Request {
 	return drivers.Request{
 		Stage:      drivers.Stage{Name: "preview", Config: json.RawMessage(config)},
@@ -137,7 +143,7 @@ func TestPreviewPublishAndRollback(t *testing.T) {
 	if st := decodePreview(t, s); st.Commit != "c1" || st.Tag != "sha-abcdef1" || st.Previous != nil || len(st.Removed) != 0 {
 		t.Errorf("state = %+v", st)
 	}
-	if got := g.entries(t); !slices.Equal(got, []previewEntry{entryFor(152, headSHA)}) {
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(152, headSHA), "0")}) {
 		t.Errorf("entries = %+v", got)
 	}
 	for _, want := range []string{"Preview misarescu/Goodreads-Clone#152 at abcdef1", "runs change request #152 as sha-abcdef1.", "Frankie-Deployment: " + r.Deployment.ID.String()} {
@@ -203,7 +209,7 @@ func TestPreviewRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st := decodePreview(t, s); !slices.Equal(st.Removed, []int{149, 150}) ||
-		!slices.Equal(g.entries(t), []previewEntry{open, entryFor(152, headSHA)}) ||
+		!slices.Equal(g.entries(t), []previewEntry{open, inSlot(entryFor(152, headSHA), "0")}) ||
 		!strings.Contains(g.head().Message, "Removes the previews of #149, #150, no longer open.") {
 		t.Errorf("state = %+v, entries %+v, message %q", st, g.entries(t), g.head().Message)
 	}
@@ -215,7 +221,7 @@ func TestPreviewRoom(t *testing.T) {
 	// Once one closes, there is room.
 	g.status[151] = domain.ChangeRequestClosed
 	if _, err := d.Publish(t.Context(), previewRequest(153, headSHA, goodPreviewConfig)); err != nil ||
-		!slices.Equal(g.entries(t), []previewEntry{entryFor(152, headSHA), entryFor(153, headSHA)}) {
+		!slices.Equal(g.entries(t), []previewEntry{inSlot(entryFor(152, headSHA), "0"), inSlot(entryFor(153, headSHA), "1")}) {
 		t.Errorf("after #151 closed = %v, entries %+v", err, g.entries(t))
 	}
 	// A change request whose status cannot be read is not dropped: nothing is written.
@@ -277,7 +283,7 @@ func TestPreviewRollbackWhenMovedOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Deployment.State = s
-	if _, err := d.Rollback(t.Context(), first); !errors.Is(err, ErrMovedOn) || !slices.Equal(g.entries(t), []previewEntry{entryFor(152, headSHA)}) {
+	if _, err := d.Rollback(t.Context(), first); !errors.Is(err, ErrMovedOn) || !slices.Equal(g.entries(t), []previewEntry{inSlot(entryFor(152, headSHA), "0")}) {
 		t.Errorf("rollback = %v, entries %+v; want ErrMovedOn and the later head kept", err, g.entries(t))
 	}
 }
@@ -309,6 +315,53 @@ func TestPreviewErrors(t *testing.T) {
 	}
 	if _, err := NewPreview(g, nil).Promote(t.Context(), r, drivers.RolloutStep{Name: "x"}); !errors.Is(err, drivers.ErrUnsupported) {
 		t.Errorf("Promote = %v, want ErrUnsupported", err)
+	}
+}
+
+// M7.1, D131: each preview holds a slot below maxPreviews, the lowest free
+// when it starts, kept across new heads and given back when it goes; entries
+// from before slots hold none and keep none until their head changes.
+func TestPreviewSlots(t *testing.T) {
+	legacy := entryFor(150, releaseSHA)
+	g := newPreviewRepo(t, legacy)
+	d := drivers.Checked(NewPreview(g, nil))
+	three := strings.Replace(goodPreviewConfig, `"repo"`, `"maxPreviews":3,"repo"`, 1)
+	publish := func(n int, sha string) drivers.State {
+		t.Helper()
+		s, err := d.Publish(t.Context(), previewRequest(n, sha, three))
+		if err != nil {
+			t.Fatalf("publish #%d: %v", n, err)
+		}
+		return s
+	}
+	publish(152, headSHA)
+	publish(153, headSHA)
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{legacy, inSlot(entryFor(152, headSHA), "0"), inSlot(entryFor(153, headSHA), "1")}) {
+		t.Fatalf("entries = %+v", got)
+	}
+
+	// #152 closes: its slot goes to the next preview, once #152's entry is dropped.
+	g.status[152], g.status[150] = domain.ChangeRequestClosed, domain.ChangeRequestMerged
+	publish(154, headSHA)
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
+		t.Fatalf("after #152 closed, entries = %+v", got)
+	}
+
+	// A new head keeps its slot, and rolling it back puts the earlier head back in it.
+	r := previewRequest(153, releaseSHA, three)
+	s, err := d.Publish(t.Context(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, releaseSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
+		t.Fatalf("new head, entries = %+v", got)
+	}
+	r.Deployment.State = s
+	if _, err := d.Rollback(t.Context(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
+		t.Errorf("rolled back, entries = %+v", got)
 	}
 }
 

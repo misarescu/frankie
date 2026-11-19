@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,15 +19,16 @@ type StageStatus struct {
 }
 
 // AwaitStage asks the stage's driver, every Release.PollInterval, whether the
-// stage runs the release, until it does, the driver reports it failed, or
-// Release.StageTimeout passes (D114). A driver error is retried at the next
+// stage runs the release, until it does, the driver reports it failed, or the
+// stage's readyTimeout passes (Release.StageTimeout when it sets none; D114,
+// D131). A driver error is retried at the next
 // poll until the timeout, where the last one is the reason.
 func (a *Activities) AwaitStage(ctx context.Context, req StageRequest) (StageStatus, error) {
 	c, err := a.resolve(ctx, req)
 	if err != nil {
 		return StageStatus{}, err
 	}
-	return a.awaitDriver(ctx, c.driver, c.request, req.Stage.Name, req.SHA, a.Release.stageTimeout())
+	return a.awaitDriver(ctx, c.driver, c.request, req.Stage.Name, req.SHA, cmp.Or(req.Stage.ReadyTimeout, a.Release.stageTimeout()))
 }
 
 // awaitDriver asks d, every Release.PollInterval, whether stage runs r's

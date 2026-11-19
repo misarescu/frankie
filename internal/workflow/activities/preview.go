@@ -1,6 +1,7 @@
 package activities
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -136,13 +137,14 @@ func (a *Activities) PublishPreview(ctx context.Context, req PreviewRequest) (Pr
 }
 
 // AwaitPreview waits until the preview runs the head, its driver reports it
-// failed, or Release.PreviewTimeout passes.
+// failed, or the stage's readyTimeout passes (Release.PreviewTimeout when it
+// sets none, D131).
 func (a *Activities) AwaitPreview(ctx context.Context, req PreviewRequest) (StageStatus, error) {
 	d, r, err := a.previewCall(req)
 	if err != nil {
 		return StageStatus{}, err
 	}
-	return a.awaitDriver(ctx, d, r, req.Stage.Name, req.HeadSHA, a.Release.previewTimeout())
+	return a.awaitDriver(ctx, d, r, req.Stage.Name, req.HeadSHA, cmp.Or(req.Stage.ReadyWithin(), a.Release.previewTimeout()))
 }
 
 // VerifyPreview runs the preview stage's verification against the preview: the

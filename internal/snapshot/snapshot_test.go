@@ -60,7 +60,7 @@ func TestResolveBuiltIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Source != "built-in" || s.Workflow.Name != "default-build" || s.BaseSHA != baseSHA || s.Version() != "default-build@1" {
+	if s.Source != "built-in" || s.Workflow.Name != "default-build" || s.BaseSHA != baseSHA || s.Version() != "default-build@2" {
 		t.Errorf("snapshot = %+v", s)
 	}
 	if s.Roles["coder"].SystemPrompt == "" || s.Roles["code-reviewer"].OutputContract == "" || len(s.Roles) != 2 {
@@ -392,7 +392,7 @@ func TestResolvePreviewStage(t *testing.T) {
 		t.Errorf("no drivers: err = %v, want an error that is not the project's", err)
 	}
 	// A workflow without a preview gate leaves the stages to releases.
-	plain := map[string]string{".factory/config.yaml": "stages: [{name: preview, driver: flux-preview, gate: human}]\n"}
+	plain := map[string]string{".factory/config.yaml": "workflow: bug-fix\nstages: [{name: preview, driver: flux-preview, gate: human}]\n"}
 	if s, err := ResolveFor(t.Context(), &repo{files: plain}, "acme/app", "main", "task", ds); err != nil || s.PreviewStage != nil {
 		t.Errorf("no preview gate: %+v, %v", s.PreviewStage, err)
 	}

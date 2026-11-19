@@ -69,6 +69,9 @@ func TestParseInputsRejects(t *testing.T) {
 		"sha":            {entry(`{changeRequest: "1", tag: sha-a, sha: "<< inputs.x >>"}`), "not a commit"},
 		"unknown key":    {entry(`{changeRequest: "1", tag: sha-a, sha: aaaaaaa, image: evil}`), "unknown field"},
 		"two for one CR": {strings.Replace(entry(`{changeRequest: "1", tag: sha-a, sha: aaaaaaa}`), "    - ", "    - {changeRequest: \"1\", tag: sha-b, sha: bbbbbbb}\n    - ", 1), "two entries"},
+		"slot":           {entry(`{changeRequest: "1", tag: sha-a, sha: aaaaaaa, slot: "10"}`), "not a slot"},
+		"slot number":    {entry(`{changeRequest: "1", tag: sha-a, sha: aaaaaaa, slot: 1}`), "cannot unmarshal"},
+		"two in a slot":  {strings.Replace(entry(`{changeRequest: "1", tag: sha-a, sha: aaaaaaa, slot: "0"}`), "    - ", "    - {changeRequest: \"2\", tag: sha-b, sha: bbbbbbb, slot: \"0\"}\n    - ", 1), "two entries in slot 0"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

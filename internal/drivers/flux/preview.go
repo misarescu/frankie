@@ -80,9 +80,10 @@ func (d *PreviewDriver) ValidateConfig(_ context.Context, config json.RawMessage
 }
 
 // Publish implements drivers.Driver: it sets the change request's entry to
-// its head unless the entry already has it. A commit also drops the entries
-// of change requests that are no longer open, and is refused with
-// drivers.ErrNoRoom when MaxPreviews open ones would remain besides this one. A retry finds the
+// its head unless the entry already has it. The entry keeps its slot, or gets
+// the lowest one free (D131). A commit also drops the entries of change
+// requests that are no longer open, and is refused with drivers.ErrNoRoom when
+// MaxPreviews open ones would remain besides this one. A retry finds the
 // commit an earlier attempt made by the deployment's marker.
 func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers.State, error) {
 	cfg, st, err := d.load(r)
@@ -99,6 +100,7 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 		return nil, err
 	}
 	current, had := f.entry(n)
+	want.Slot = current.Slot
 	if had && current == want {
 		if st.Commit == "" {
 			// Ours from an earlier attempt, or the preview already ran it.
@@ -128,6 +130,9 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 	}
 	if len(keep) >= cfg.MaxPreviews {
 		return nil, fmt.Errorf("flux-preview: %w: %d previews run, for change requests %s, at most %d", drivers.ErrNoRoom, len(keep), numbers(keep), cfg.MaxPreviews)
+	}
+	if want.Slot == "" || slices.ContainsFunc(keep, func(e previewEntry) bool { return e.Slot == want.Slot }) {
+		want.Slot = freeSlot(keep, cfg.MaxPreviews)
 	}
 	content, err := f.render(append(keep, want))
 	if err != nil {

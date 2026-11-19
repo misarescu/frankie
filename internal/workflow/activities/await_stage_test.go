@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misarescu/frankie/internal/drivers"
 	"github.com/misarescu/frankie/internal/drivers/driverstest"
@@ -42,6 +43,13 @@ func TestAwaitStage(t *testing.T) {
 	if n := len(deployCalls(f.flux)); n < 4 {
 		t.Errorf("driver asked %d times, want it polled", n)
 	}
+
+	// M7.1, D131: the stage's readyTimeout replaces the platform's.
+	req.Stage.ReadyTimeout = 40 * time.Millisecond
+	if st := f.await(t, req); st.Ready || !strings.Contains(st.Reason, "within 40ms") {
+		t.Errorf("progressing driver with readyTimeout = %+v, want a timeout after 40ms", st)
+	}
+	req.Stage.ReadyTimeout = 0
 
 	f.flux.Errs = map[string]error{driverstest.OpStatus: errors.New("connection refused")}
 	if st := f.await(t, req); st.Ready || !strings.Contains(st.Reason, "connection refused") {

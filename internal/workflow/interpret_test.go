@@ -681,7 +681,8 @@ func TestInterpretEnqueue(t *testing.T) {
 			return QueueOutcome{Kind: QueueOutcomeConflict, Reason: "agent/gc-1/add-search conflicts with main", Conflicts: []string{"a.go"}}
 		}
 		snap := defaultBuildSnapshot(t)
-		snap.Workflow.Steps[4].OnFail = &config.OnFail{Action: config.OnFailFail}
+		merge := slices.IndexFunc(snap.Workflow.Steps, func(s config.Step) bool { return s.ID == "merge" })
+		snap.Workflow.Steps[merge].OnFail = &config.OnFail{Action: config.OnFailFail}
 		out := f.run(t, snap)
 		if out.Succeeded || out.Merged || out.Reason != "step merge: merge queue: conflict: agent/gc-1/add-search conflicts with main" {
 			t.Fatalf("result = %+v", out)

@@ -1,5 +1,6 @@
 # Protected path: changes require a human gate (docs/spec/05-sandbox-and-toolchains.md).
-# Platform images (D23): built on every PR, pushed to GHCR on merges to main.
+# Platform images (D23): built on every PR, pushed to GHCR on merges to main and,
+# for previews of the factory (D131), on the heads of PRs from this repository.
 name: images
 
 on:
@@ -17,15 +18,26 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Pushed: merges to main (D23), and the heads of change requests from this
+      # repository's own branches, which their previews run (D131). Change
+      # requests from forks are built but never pushed.
+      PUSH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # A change request is built from its head, not GitHub's merge commit: the
+      # preview's chart comes from the head and its tag names the head.
+      COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      DOCKER_METADATA_PR_HEAD_SHA: "true"
     strategy:
       fail-fast: false
       matrix:
         image: [runner, egress-proxy, controlplane, web]
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.COMMIT }}
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
-        if: github.event_name != 'pull_request'
+        if: env.PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -44,7 +56,9 @@ jobs:
           context: .
           file: deploy/images/${{ matrix.image }}/Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
+          # The control plane reports it at GET /api/version (D131).
+          build-args: COMMIT=${{ env.COMMIT }}
+          push: ${{ env.PUSH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}

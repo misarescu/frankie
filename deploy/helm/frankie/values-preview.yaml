@@ -1,0 +1,40 @@
+# A preview of the factory (D131): a whole factory per change request, built
+# from the change request's head, for one issue at a time, and gone after its
+# check. Applied over the profile the preview runs on (values-concrete.yaml on
+# Kapsule). What differs per preview and per cluster comes from the GitOps
+# repository's ResourceSet: the agents' and builds' namespaces, the registry's
+# NodePort, the repo and intake label (D132), where pods run, the provider (the
+# production gateway, D133), and the secrets.
+
+# Nothing outlives the check: no volume claims, nothing to clean up after.
+persistence:
+  ephemeral: true
+
+# A check needs the API, not the UI.
+web:
+  enabled: false
+
+# One issue per preview (D132).
+scheduler:
+  maxConcurrentIssues: 1
+
+# The todo service's coder peaked at 654Mi (docs/notes/m7.1-sizing.md).
+podResources:
+  coder:
+    limits: { cpu: "2", memory: 2Gi }
+  commandGate:
+    requests: { cpu: 500m }
+    limits: { cpu: "2", memory: 2Gi }
+
+postgres:
+  storage: 2Gi
+temporal:
+  storage: 1Gi
+goModuleProxy:
+  storage: 2Gi
+toolchains:
+  registry:
+    storage: 5Gi
+    # A preview lives for minutes: nothing to collect.
+    collect:
+      interval: ""

@@ -4,6 +4,7 @@
 {{- $name := printf "%s-registry" $full }}
 {{- $b := .Values.toolchains.build }}
 {{- $r := .Values.toolchains.registry }}
+{{- if not .Values.persistence.ephemeral }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -17,6 +18,7 @@ spec:
     requests:
       storage: {{ $r.storage }}
 ---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -94,8 +96,12 @@ spec:
             - { name: data, mountPath: /var/lib/registry }
       volumes:
         - name: data
+          {{- if .Values.persistence.ephemeral }}
+          emptyDir: { sizeLimit: {{ $r.storage }} }
+          {{- else }}
           persistentVolumeClaim:
             claimName: {{ $name }}
+          {{- end }}
 ---
 # ClusterIP for builds and the control plane; the NodePort is how the node's
 # container runtime pulls toolchain images (localhost:<nodePort>).

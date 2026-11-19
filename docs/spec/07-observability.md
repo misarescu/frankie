@@ -52,6 +52,7 @@ All interventions are recorded as events with the acting user.
 - Merge queue view per repo.
 - Release view: stage progression, verification results, rollback, linked auto-bugs.
   - M7 API (D130): `GET /api/releases?project=<name>` (each release's version, status, issues and stages) and `GET /api/releases/{id}` (notes, the provider release, the bug issue, issues, deployments with their verification, the release agent's runs and cost). Each deployment records how its verification ended; `GET /api/runs` lists release runs too.
+  - M7.1 API (D131): `GET /api/version` answers `{"version": "<commit>"}`, the commit the control plane was built from (`unknown` for a build that stamped none), which a preview's driver reads to know the preview runs its head.
   - M7 UI (`#/releases`, `#/releases/<id>`): the project's releases with version, status, each stage's outcome and issues; a release's page shows its version or why it has none, the provider release, each stage's deployment with its reason, its verification and the failed tests with the issues they are tagged with, the bug issue, the notes and who wrote them, the issues, and the release agent's runs, whose transcripts open like any run's. The run list names release runs by their release.
 - Workflow and role editors with save-time validation feedback.
 - Settings: connectors, provider profiles, budgets, protected paths, deployment profile.

@@ -6,6 +6,7 @@
 // M5: every write needs the API token (D58); reads stay open. Projects and
 // issues for the board and the issue page (D59); starting issues and retrying
 // failed ones (D62); approving or rejecting specs (D64). M7: releases (D130).
+// M7.1: the build commit, for previews (D131).
 package api
 
 import (
@@ -26,6 +27,9 @@ type Server struct {
 	// Token is the bearer token every write request must carry (D58); with
 	// none set, writes are refused.
 	Token string
+	// Version is the commit the control plane was built from, for GET
+	// /api/version (D131); empty when the build stamped none.
+	Version string
 	// MaxConcurrentIssues is the scheduler's limit, for the plans the start
 	// endpoint returns (D62).
 	MaxConcurrentIssues int
@@ -55,4 +59,5 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/questions/{id}/answer", s.requireToken(s.answerQuestion))
 	mux.HandleFunc("GET /api/releases", s.listReleases)
 	mux.HandleFunc("GET /api/releases/{id}", s.getRelease)
+	mux.HandleFunc("GET /api/version", s.getVersion)
 }

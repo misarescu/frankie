@@ -22,6 +22,10 @@ paths:
   # The workflow definitions and roles the platform ships.
   - workflows/**
   - roles/**
+  # The factory's own e2e check, which judges a preview of a change request
+  # (D132): the change it judges must not loosen it unseen.
+  - cmd/factory-e2e/**
+  - internal/factorye2e/**
   # Lint configuration and scripts.
   - scripts/lint-*.sh
   - buf.yaml

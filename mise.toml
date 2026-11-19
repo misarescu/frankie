@@ -64,6 +64,10 @@ run = "go test -tags smoke -count=1 -v -timeout 10m -run '^TestSmokeRealModel$' 
 description = "Smoke-test the pi adapter against a real model through OpenRouter (spends usage; needs OPENROUTER_API_KEY)"
 run = "go test -tags smoke -count=1 -v -timeout 10m -run '^TestSmokeRealModel$' ./internal/runner/pi/"
 
+[tasks."e2e:factory"]
+description = "The factory's own e2e check against a preview of it (D132): wait for its issue in frankie-dummy to end; needs E2E_BASE_URL"
+run = "go run ./cmd/factory-e2e"
+
 [tasks.e2e]
 description = "Run cluster acceptance tests (Ginkgo, build tag e2e; see e2e/e2e_suite_test.go)"
 run = "ginkgo --tags=e2e -v ./e2e"

@@ -82,6 +82,9 @@ agents:
     # beyond a command gate's egress (D118): the stages they test, e.g. the
     # Tailscale operator's egress proxies to a homelab stage:
     #   stageEgress: [{namespace: tailscale, ports: [80]}]
+    # or every namespace with these labels, e.g. the previews of the factory,
+    # each in its own namespace (D131, D136):
+    #   stageEgress: [{namespaceLabels: {frankie.dev/preview: "true"}, ports: [8080]}]
     # Agents and command gates never get it. Empty: verification reaches no stage
     # in the cluster, and a suite that cannot connect is inconclusive.
     stageEgress: []

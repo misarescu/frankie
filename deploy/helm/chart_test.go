@@ -177,6 +177,44 @@ func TestPreviewRunsNoWebUI(t *testing.T) {
 	}
 }
 
+// D136: verification pods reach stages by namespace name, or by labels for
+// the previews of the factory, each in its own namespace; an entry needs
+// exactly one of them.
+func TestVerifyStageEgress(t *testing.T) {
+	objs := render(t, "frankie", "frankie", "-f", "frankie/values-concrete.yaml",
+		"--set-json", `agents.verify.stageEgress=[{"namespace":"tailscale","ports":[80]},{"namespaceLabels":{"frankie.dev/preview":"true"},"ports":[8080]}]`)
+	i := slices.IndexFunc(objs, func(o object) bool { return o.Kind == "NetworkPolicy" && o.Name == "verify" })
+	if i < 0 {
+		t.Fatal("no NetworkPolicy verify")
+	}
+	b, err := yaml.Marshal(objs[i].Doc["spec"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(b)
+	for _, want := range []string{"kubernetes.io/metadata.name: tailscale", "port: 80\n", "frankie.dev/preview: \"true\"", "port: 8080"} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("verify NetworkPolicy lacks %q:\n%s", want, spec)
+		}
+	}
+
+	for name, entry := range map[string]string{
+		"neither": `[{"ports":[80]}]`,
+		"both":    `[{"namespace":"tailscale","namespaceLabels":{"a":"b"},"ports":[80]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := exec.LookPath("helm"); err != nil {
+				t.Skip("helm not on PATH")
+			}
+			cmd := exec.CommandContext(t.Context(), "helm", "template", "frankie", "frankie", "--set", "images.tag=sha-test",
+				"-f", "frankie/values-concrete.yaml", "--set-json", "agents.verify.stageEgress="+entry)
+			if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "give a namespace or namespaceLabels") {
+				t.Errorf("helm template = %v:\n%s", err, out)
+			}
+		})
+	}
+}
+
 // D131 (4), D133: the gateway admits the extra peers it is given (production:
 // the previews' gateways) and may reach the extra destinations (a preview: the
 // gateway it chains to).

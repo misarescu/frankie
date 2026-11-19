@@ -197,10 +197,17 @@ spec:
           protocol: TCP
     {{- include "frankie.goModuleProxyEgress" . | nindent 4 }}
     {{- range .Values.agents.verify.stageEgress }}
+    {{- if eq (empty .namespace) (empty .namespaceLabels) }}
+    {{- fail "agents.verify.stageEgress[]: give a namespace or namespaceLabels, not both" }}
+    {{- end }}
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ required "agents.verify.stageEgress[].namespace is required" .namespace | quote }}
+              {{- if .namespace }}
+              kubernetes.io/metadata.name: {{ .namespace | quote }}
+              {{- else }}
+              {{- toYaml .namespaceLabels | nindent 14 }}
+              {{- end }}
       ports:
         {{- range (required "agents.verify.stageEgress[].ports is required" .ports) }}
         - { port: {{ . }}, protocol: TCP }

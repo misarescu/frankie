@@ -133,7 +133,7 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
   2. The chart and API for previews: `GET /api/version`, `persistence.ephemeral`, an optional web UI, a render test that the preview values create nothing cluster-scoped but Namespaces, and the production gateway admitting preview gateways. CI pushes images for change request heads. Done: `values-preview.yaml`, `deploy/helm/chart_test.go`, and images tagged with the head's commit.
   3. The driver and the gate: `flux-preview` slots, a preview stage's `readyTimeout`, and the `preview` gate in `default-build`. Done (D134).
   4. The judge, `mise run e2e:factory`, as a protected path, then Frankie's preview stage and `e2e` command in `.factory/config.yaml`, merged after the GitOps side is live. Done: the judge (D135), checked against `dum-1` on the production factory; the configuration waits for step 5.
-  5. `misarescu/frankie-cd`: the `frankie-previews` ResourceSet with the setup Job, NetworkPolicies, quota and ExternalSecrets, and the cleanup CronJob. Secrets in Scaleway Secret Manager: the dummy-only GitHub token and the previews' virtual key.
+  5. `misarescu/frankie-cd`: the `frankie-previews` ResourceSet with the setup Job, which also cleans up after closed change requests, NetworkPolicies, quota and ExternalSecrets (D136). Secrets in Scaleway Secret Manager: the dummy-only GitHub token and the previews' virtual key.
 - **Done when:** a Frankie issue's change request is checked in its preview, whose factory builds the todo service end to end, and the check gates its merge; a deliberately broken change request fails the check and names the step that broke.
 
 ## M8 - Production and flag rollout

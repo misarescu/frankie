@@ -129,7 +129,7 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
 - Split from M7 because a Frankie preview is a whole factory, with its own sandboxes, egress, budgets and git credential, far larger than a Goodreads-Clone preview, and the release path for projects does not depend on it.
 - Done before the design: `misarescu/frankie-dummy` and its seed, and a sizing run on the production factory (`dum-1`, `docs/notes/m7.1-sizing.md`).
 - Plan, one PR each:
-  1. A spike: Claude Code through a preview's LiteLLM chained to the production gateway (open question 22).
+  1. A spike: Claude Code through a preview's LiteLLM chained to the production gateway (open question 22). Done: it works (D133).
   2. The chart and API for previews: `GET /api/version`, `persistence.ephemeral`, an optional web UI, a render test that the preview values create nothing cluster-scoped but Namespaces, and the production gateway admitting preview gateways. CI pushes images for change request heads.
   3. The driver and the gate: `flux-preview` slots, a preview stage's `readyTimeout`, and the `preview` gate in `default-build`.
   4. The judge, `mise run e2e:factory`, as a protected path, then Frankie's preview stage and `e2e` command in `.factory/config.yaml`, merged after the GitOps side is live.

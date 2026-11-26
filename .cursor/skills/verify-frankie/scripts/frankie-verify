@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# frankie-verify: start, check and tear down an isolated Frankie web UI plus
+# control plane for verification. See ../SKILL.md.
+#
+#   frankie-verify launch    build and start Postgres + control plane + web UI, seed rows
+#   frankie-verify doctor    read-only: is the current instance worth driving?
+#   frankie-verify env       print the instance's URLs, token and evidence directory
+#   frankie-verify sql <q>   run a read-only SQL query against the instance's Postgres
+#   frankie-verify cleanup   copy logs into the evidence directory, stop everything we started
+#
+# Nothing here touches a cluster: the control plane runs without Temporal or
+# Kubernetes, so it serves the API and the UI's data but starts no workflows.
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$SKILL_DIR/../../.." && pwd)"
+STATE_ROOT="${FRANKIE_VERIFY_STATE:-${TMPDIR:-/tmp}/frankie-verify}"
+EVIDENCE_ROOT="${FRANKIE_VERIFY_EVIDENCE:-$HOME/.frankie-verify/evidence}"
+PW_DIR="${FRANKIE_VERIFY_PLAYWRIGHT:-$HOME/.cache/frankie-verify/playwright}"
+
+die() { echo "frankie-verify: $*" >&2; exit 1; }
+
+free_port() { node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})'; }
+
+# DETACH CMD...: run in its own session so the process outlives the calling shell.
+DETACH=(perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' --)
+
+pid_alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+
+# listener_pid PORT: the pid listening on 127.0.0.1:PORT, empty if none.
+listener_pid() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1 || true; }
+
+current_run() {
+	if [ -n "${FRANKIE_VERIFY_RUN:-}" ]; then echo "$FRANKIE_VERIFY_RUN"; return; fi
+	[ -f "$STATE_ROOT/current" ] || die "no instance: run 'frankie-verify launch' first"
+	cat "$STATE_ROOT/current"
+}
+
+load_state() {
+	RUN_ID="$(current_run)"
+	RUN_DIR="$STATE_ROOT/runs/$RUN_ID"
+	[ -f "$RUN_DIR/state.env" ] || die "run $RUN_ID has no state at $RUN_DIR"
+	# shellcheck disable=SC1091
+	. "$RUN_DIR/state.env"
+	EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"
+}
+
+psql_in() { docker exec -i "$PG_NAME" psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
+
+ensure_playwright() {
+	if [ -d "$PW_DIR/node_modules/playwright" ] && { ls "$HOME/Library/Caches/ms-playwright" "$HOME/.cache/ms-playwright" 2>/dev/null || true; } | grep -q chromium; then
+		return
+	fi
+	echo "installing Playwright + Chromium into $PW_DIR (once)"
+	mkdir -p "$PW_DIR"
+	(cd "$PW_DIR" && { [ -f package.json ] || npm init -y >/dev/null; } && npm i playwright@1 --silent && npx playwright install chromium)
+}
+
+cmd_launch() {
+	for t in docker node bun lsof curl mise perl; do command -v "$t" >/dev/null || die "$t is required"; done
+	docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+	if [ -f "$STATE_ROOT/current" ] && [ -z "${FRANKIE_VERIFY_RUN:-}" ]; then
+		prev="$(cat "$STATE_ROOT/current")"
+		if [ -f "$STATE_ROOT/runs/$prev/state.env" ]; then
+			die "instance $prev still exists (run 'frankie-verify cleanup' first, or set FRANKIE_VERIFY_RUN=<new id> to run beside it)"
+		fi
+	fi
+	ensure_playwright
+
+	RUN_ID="${FRANKIE_VERIFY_RUN:-$(date +%Y%m%d-%H%M%S)-$$}"
+	RUN_DIR="$STATE_ROOT/runs/$RUN_ID"
+	EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"
+	mkdir -p "$RUN_DIR" "$EVIDENCE_DIR"
+	PG_NAME="frankie-verify-pg-$RUN_ID"
+	PG_PORT="$(free_port)"; API_PORT="$(free_port)"; GIT_PORT="$(free_port)"; WEB_PORT="$(free_port)"; CDP_PORT="$(free_port)"
+	TOKEN="$(node -e 'console.log(require("crypto").randomBytes(24).toString("hex"))')"
+	GITKEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+	COMMIT="$(git -C "$REPO" rev-parse HEAD)"
+	{
+		for v in RUN_ID PG_NAME PG_PORT API_PORT GIT_PORT WEB_PORT CDP_PORT TOKEN COMMIT; do printf '%s=%q\n' "$v" "${!v}"; done
+	} >"$RUN_DIR/state.env"
+	chmod 600 "$RUN_DIR/state.env"
+	echo "$RUN_ID" >"$STATE_ROOT/current"
+
+	echo "== postgres ($PG_NAME on 127.0.0.1:$PG_PORT)"
+	docker run -d --name "$PG_NAME" -p "127.0.0.1:$PG_PORT:5432" -e POSTGRES_PASSWORD=frankie postgres:17 >/dev/null
+	# A TCP query, not pg_isready: the image's init scripts run a socket-only server first.
+	for _ in $(seq 1 60); do
+		psql_in -c 'select 1' >/dev/null 2>&1 && break
+		sleep 1
+	done
+	psql_in -c 'select 1' >/dev/null 2>&1 || die "postgres did not become ready"
+
+	echo "== control plane (building at $COMMIT)"
+	(cd "$REPO" && mise exec -- go build \
+		-ldflags "-X github.com/misarescu/frankie/internal/buildinfo.commit=$COMMIT" \
+		-o "$RUN_DIR/controlplane" ./cmd/controlplane)
+	cat >"$RUN_DIR/config.json" <<EOF
+{"maxConcurrentIssues":5,"repos":[{"name":"verify/demo","upstream":"https://example.invalid/verify/demo.git","keyPrefix":"vfy"}]}
+EOF
+	FRANKIE_DATABASE_URL="postgres://postgres:frankie@127.0.0.1:$PG_PORT/postgres?sslmode=disable" \
+		FRANKIE_GITPROXY_KEY="$GITKEY" FRANKIE_API_TOKEN="$TOKEN" FRANKIE_CONFIG="$RUN_DIR/config.json" \
+		"${DETACH[@]}" "$RUN_DIR/controlplane" --api-listen "127.0.0.1:$API_PORT" --gitproxy-listen "127.0.0.1:$GIT_PORT" \
+		</dev/null >"$RUN_DIR/controlplane.log" 2>&1 &
+	echo "CP_PID=$!" >>"$RUN_DIR/state.env"
+	for _ in $(seq 1 60); do
+		curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && break
+		sleep 1
+	done
+	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 || { tail -20 "$RUN_DIR/controlplane.log" >&2; die "control plane did not become ready"; }
+	# Ready means migrated and the project exists, not just that the port answers.
+	for _ in $(seq 1 30); do
+		curl -fsS "http://127.0.0.1:$API_PORT/api/projects" 2>/dev/null | grep -q 'verify/demo' && break
+		sleep 1
+	done
+
+	echo "== seed"
+	psql_in <"$SKILL_DIR/scripts/seed.sql"
+
+	echo "== web UI"
+	(cd "$REPO/web" && { [ -d node_modules ] || bun install --frozen-lockfile; })
+	(cd "$REPO/web" && CONTROLPLANE_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" exec "${DETACH[@]}" bun server.ts </dev/null >"$RUN_DIR/web.log" 2>&1) &
+	echo "WEB_PID=$!" >>"$RUN_DIR/state.env"
+	for _ in $(seq 1 30); do
+		curl -fsS "http://127.0.0.1:$WEB_PORT/healthz" >/dev/null 2>&1 && break
+		sleep 1
+	done
+	curl -fsS "http://127.0.0.1:$WEB_PORT/api/projects" | grep -q 'verify/demo' || die "web UI does not reach the control plane"
+
+	echo "== browser"
+	node "$SKILL_DIR/scripts/browser.mjs" start >/dev/null
+	echo "ready: $RUN_ID"
+	cmd_env
+}
+
+cmd_env() {
+	load_state
+	cat <<EOF
+RUN_ID=$RUN_ID
+UI=http://127.0.0.1:$WEB_PORT/
+API=http://127.0.0.1:$API_PORT
+API_TOKEN=$TOKEN
+EVIDENCE_DIR=$EVIDENCE_DIR
+STATE_DIR=$RUN_DIR
+EOF
+}
+
+cmd_sql() {
+	load_state
+	[ $# -eq 1 ] || die "usage: frankie-verify sql '<query>'"
+	psql_in -At -c "$1"
+}
+
+cmd_doctor() {
+	load_state
+	local bad=0
+	ok() { printf 'OK    %s\n' "$*"; }
+	fail() { printf 'FAIL  %s\n' "$*"; bad=1; }
+	[ -f "$RUN_DIR/state.env" ] && ok "instance $RUN_ID"
+	for pair in "control plane:CP_PID:$API_PORT" "web UI:WEB_PID:$WEB_PORT"; do
+		IFS=: read -r name var port <<<"$pair"
+		pid="${!var:-}"
+		if ! pid_alive "$pid"; then fail "$name: process ${pid:-?} is not running"; continue; fi
+		owner="$(listener_pid "$port")"
+		if [ "$owner" = "$pid" ]; then ok "$name: pid $pid owns port $port"; else fail "$name: port $port is held by '${owner:-nobody}', not our pid $pid"; fi
+	done
+	if [ "$(docker inspect -f '{{.State.Running}}' "$PG_NAME" 2>/dev/null)" = true ]; then ok "postgres container $PG_NAME running"; else fail "postgres container $PG_NAME is not running"; fi
+	v="$(curl -fsS "http://127.0.0.1:$API_PORT/api/version" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null || true)"
+	if [ "$v" = "$COMMIT" ]; then ok "control plane build $v"; else fail "control plane reports build '$v', launched at $COMMIT"; fi
+	head="$(git -C "$REPO" rev-parse HEAD)"
+	[ "$head" = "$COMMIT" ] && ok "checkout is still at the launched commit" || echo "WARN  checkout moved since launch ($head); the control plane runs $COMMIT. Web code is served live from the checkout."
+	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && ok "API ready (database reachable)" || fail "API /readyz fails"
+	n="$(curl -fsS "http://127.0.0.1:$WEB_PORT/api/issues?project=verify%2Fdemo" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).length' 2>/dev/null || echo 0)"
+	if [ "$n" -ge 7 ]; then ok "web UI proxies to the API; $n seeded issues"; else fail "web UI shows $n issues for verify/demo, want at least 7 (seed missing?)"; fi
+	# A 400 on an empty body means the token passed; a 401 means it did not.
+	code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"keys":[]}' "http://127.0.0.1:$API_PORT/api/issues/start")"
+	if [ "$code" = 400 ]; then ok "API token accepted"; else fail "API token check answered $code, want 400"; fi
+	if node "$SKILL_DIR/scripts/browser.mjs" status >/dev/null 2>&1; then ok "browser session up"; else fail "browser session is not running (node scripts/browser.mjs start)"; fi
+	return $bad
+}
+
+cmd_cleanup() {
+	load_state
+	mkdir -p "$EVIDENCE_DIR/logs"
+	cp -f "$RUN_DIR"/*.log "$EVIDENCE_DIR/logs/" 2>/dev/null || true
+	node "$SKILL_DIR/scripts/browser.mjs" stop >/dev/null 2>&1 || true
+	for var in WEB_PID CP_PID; do
+		pid="${!var:-}"
+		pid_alive "$pid" && { kill "$pid" 2>/dev/null || true; for _ in 1 2 3 4 5 6 7 8 9 10; do pid_alive "$pid" || break; sleep 0.5; done; pid_alive "$pid" && kill -9 "$pid" 2>/dev/null || true; }
+	done
+	docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+	rm -rf "$RUN_DIR"
+	[ "$(cat "$STATE_ROOT/current" 2>/dev/null)" = "$RUN_ID" ] && rm -f "$STATE_ROOT/current"
+	echo "cleaned up $RUN_ID; evidence kept in $EVIDENCE_DIR"
+}
+
+case "${1:-}" in
+	launch) cmd_launch ;;
+	doctor) cmd_doctor ;;
+	env) cmd_env ;;
+	sql) shift; cmd_sql "$@" ;;
+	cleanup) cmd_cleanup ;;
+	*) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

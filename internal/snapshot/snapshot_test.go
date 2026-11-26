@@ -246,9 +246,14 @@ func TestFrankiesOwnConfigResolves(t *testing.T) {
 		}
 		files[p] = string(b)
 	}
-	s, err := Resolve(t.Context(), &repo{files: files}, "misarescu/frankie", "main")
+	s, err := ResolveFor(t.Context(), &repo{files: files}, "misarescu/frankie", "main", "task", previewDrivers(t))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// M7.1 (D131, D136): a change request is checked in a preview of Frankie
+	// reached at the Helm release's own service name.
+	if p := s.PreviewStage; p == nil || p.URLFor(7) != "http://frankie-pr-7-controlplane.frankie-pr-7.svc.cluster.local:8080" || p.Verify != config.VerifyE2ESuite {
+		t.Errorf("preview stage = %+v", p)
 	}
 	if _, err := config.ParseProject([]byte(files[config.ProjectConfigPath]), 1); err != nil {
 		t.Fatalf("with one service per pod: %v", err)

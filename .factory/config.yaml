@@ -27,3 +27,32 @@ dependencies:
     - web/package.json
     - web/bun.lock
   run: mise run deps:warm
+
+# The factory's own e2e check (D132, D135), run against a preview of it
+# (verify: e2e-suite): it follows the preview's API while the preview builds a
+# todo service in misarescu/frankie-dummy, and passes once that issue merged.
+e2e:
+  command: mise run e2e:factory
+
+# Before the merge queue, each change request's head is checked in a preview
+# of Frankie on Kapsule (D131, D134, D136): the flux-preview driver adds the
+# head's images to the ResourceSet inputs in misarescu/frankie-cd, Kapsule's
+# Flux runs a complete factory as Helm release frankie-pr-<number> in its own
+# namespaces, and the factory reaches its control plane in the cluster. Once
+# the preview reports the head, the e2e check above runs against it; failures
+# go back to the coder. The preview is removed after the check. At most two
+# run at once (they fill an agent node); a third change request waits for
+# room. A preview starts a factory and may wait for a node, so it gets 20
+# minutes to come up. There are no release stages: production's pin in
+# misarescu/frankie-cd is still bumped by a person (invariant 5).
+stages:
+  - name: preview
+    driver: flux-preview
+    url: http://frankie-pr-{changeRequest}-controlplane.frankie-pr-{changeRequest}.svc.cluster.local:8080
+    verify: e2e-suite
+    readyTimeout: 20m
+    config:
+      repo: misarescu/frankie-cd
+      path: apps/kapsule/frankie-previews/inputs.yaml
+      versionURL: http://frankie-pr-{changeRequest}-controlplane.frankie-pr-{changeRequest}.svc.cluster.local:8080/api/version
+      maxPreviews: 2

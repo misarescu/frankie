@@ -32,6 +32,8 @@ Before a Frankie change request is enqueued, the `preview` gate (D126) checks it
 4. Once the preview reports the head (`/api/version`), the verification pod runs Frankie's `mise run e2e:factory` against it. That command waits for the issue to merge into `e2e/pr-<n>`, through the preview's gates and merge queue, and reports each step as a test.
 5. The preview is removed after the check, pass or fail. A failure goes back to the coder with the failing step; a preview that never ran escalates. An hourly CronJob removes what closed change requests left in frankie-dummy.
 
+The preview gate was first exercised on Frankie's own change requests on 2026-11-27.
+
 The preview is a second instance and never production (FR-SH-1). Frankie's only stage is this preview, so its releases deploy nothing, and production still moves only when a person merges a bump in `misarescu/frankie-cd` (FR-SH-2).
 
 ## What it gives back

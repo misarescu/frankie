@@ -1,5 +1,6 @@
 # Agent sandbox namespace (docs/spec/05). Agent and gate pods run here under the
 # Kata runtime class, with Pod Security "restricted" enforced by the API server.
+{{- if .Values.namespaces.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -9,6 +10,7 @@ metadata:
     pod-security.kubernetes.io/enforce: {{ .Values.agents.podSecurity }}
     pod-security.kubernetes.io/warn: {{ .Values.agents.podSecurity }}
 ---
+{{- end }}
 # FR-SB-5: no RBAC bindings and no mounted token.
 apiVersion: v1
 kind: ServiceAccount

@@ -130,6 +130,7 @@ spec:
   ports:
     - { name: registry, port: {{ $r.port }}, targetPort: registry, nodePort: {{ $r.nodePort }} }
 ---
+{{- if .Values.namespaces.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -138,6 +139,7 @@ metadata:
     {{- include "frankie.labels" . | nindent 4 }}
     pod-security.kubernetes.io/enforce: {{ $b.podSecurity }}
 ---
+{{- end }}
 # Like agent pods, build pods get no RBAC bindings and no token.
 apiVersion: v1
 kind: ServiceAccount

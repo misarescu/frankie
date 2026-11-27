@@ -56,6 +56,14 @@ images:
   # are published, e.g. { controlplane: docker.io/library/frankie-controlplane:dev }.
   overrides: {}
 
+# Whether the chart creates the agents and build namespaces. false when whoever
+# installs it has no rights outside namespaces it was given: the previews of
+# the factory, whose GitOps ResourceSet creates them and installs the chart
+# with a service account bound only there (D138). They must then exist, with
+# the Pod Security labels agents.podSecurity and toolchains.build.podSecurity.
+namespaces:
+  create: true
+
 # Where agent and gate pods run (docs/spec/05-sandbox-and-toolchains.md).
 agents:
   namespace: frankie-agents

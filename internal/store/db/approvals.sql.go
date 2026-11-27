@@ -115,12 +115,15 @@ func (q *Queries) GetApprovalByStepRun(ctx context.Context, stepRunID uuid.UUID)
 }
 
 const getPendingApproval = `-- name: GetPendingApproval :one
-SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id,
+       COALESCE(i.key, 'release-' || left(rel.sha, 7))::text AS issue_key,
+       COALESCE(i.title, 'Release ' || left(rel.sha, 7) || ' of ' || rel.repo)::text AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
 JOIN runs r ON r.id = a.run_id
-JOIN issues i ON i.id = r.issue_id
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
 WHERE a.step_run_id = $1 AND a.status = 'pending'
 `
 
@@ -174,12 +177,15 @@ func (q *Queries) GetPendingApproval(ctx context.Context, stepRunID uuid.UUID) (
 }
 
 const listPendingApprovals = `-- name: ListPendingApprovals :many
-SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.id, a.step_run_id, a.run_id, a.reason, a.commit_sha, a.change_request_url, a.status, a.decided_by, a.comment, a.expires_at, a.decided_at, a.created_at, a.updated_at, a.can_request_changes, s.step_id,
+       COALESCE(i.key, 'release-' || left(rel.sha, 7))::text AS issue_key,
+       COALESCE(i.title, 'Release ' || left(rel.sha, 7) || ' of ' || rel.repo)::text AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
 JOIN runs r ON r.id = a.run_id
-JOIN issues i ON i.id = r.issue_id
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
 WHERE a.status = 'pending'
 ORDER BY a.created_at, a.id
 `
@@ -207,7 +213,8 @@ type ListPendingApprovalsRow struct {
 }
 
 // The approvals inbox: pending decisions with what a human needs to decide
-// and what the API needs to signal the run's workflow.
+// and what the API needs to signal the run's workflow. A release's gate (D139)
+// names the release where an issue's names the issue.
 func (q *Queries) ListPendingApprovals(ctx context.Context) ([]ListPendingApprovalsRow, error) {
 	rows, err := q.db.Query(ctx, listPendingApprovals)
 	if err != nil {

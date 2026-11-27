@@ -36,6 +36,9 @@ type ReleaseStage struct {
 	// ReadyTimeout bounds waiting for the stage to run the release: the
 	// stage's readyTimeout, zero when it sets none (D131).
 	ReadyTimeout time.Duration `json:",omitempty"`
+	// Gate is config.GateHuman when a person approves before the stage
+	// deploys (D139).
+	Gate string `json:",omitempty"`
 }
 
 // ReleasePlan is a prepared release: its ID and the stages it moves through,
@@ -57,8 +60,8 @@ type ReleasePlan struct {
 // with the issues it contains (D110) and starts it (D114):
 //   - no project, no configuration or no release stages: nothing is released;
 //   - stages that do not parse, that their drivers reject (FR-RL-3), or that
-//     need what this deployment cannot do yet (a human gate, verification
-//     without a verifier): the release is recorded as failed with the reason;
+//     need what this deployment cannot do yet (verification without a
+//     verifier): the release is recorded as failed with the reason;
 //   - a release of the commit that already ended is not released again.
 //
 // Idempotent: the release of a commit is created once and started once.
@@ -140,9 +143,6 @@ func (a *Activities) checkReleaseStages(ctx context.Context, p config.Project) (
 	}
 	var unsupported []string
 	for _, s := range config.ReleaseStages(p.Stages, reg) {
-		if s.Gate != "" {
-			unsupported = append(unsupported, fmt.Sprintf("stages.%s: gate %s is not supported yet (M8)", s.Name, s.Gate))
-		}
 		if s.Verify != "" && a.Verifier == nil {
 			unsupported = append(unsupported, fmt.Sprintf("stages.%s: verify %s is not available in this deployment yet", s.Name, s.Verify))
 		}
@@ -155,7 +155,7 @@ func (a *Activities) checkReleaseStages(ctx context.Context, p config.Project) (
 			rollback = *s.Rollback
 		}
 		stages = append(stages, ReleaseStage{Name: s.Name, Driver: s.Driver, Config: s.Config, URL: s.URL, Verify: s.Verify, Rollback: rollback,
-			ReadyTimeout: s.ReadyWithin()})
+			ReadyTimeout: s.ReadyWithin(), Gate: s.Gate})
 	}
 	if len(unsupported) > 0 {
 		return nil, config.ProjectConfigPath + ": " + strings.Join(unsupported, "; ")

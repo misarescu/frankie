@@ -82,6 +82,15 @@ func (a *Activities) PrepareReleaseSession(ctx context.Context, req ReleaseAgent
 	if err != nil {
 		return ReleaseSession{}, temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
 	}
+	// The session's image build is shared with the verification's (D78), so
+	// it needs the project's egress hosts too (D80, D140).
+	project, err := a.projectConfig(ctx, req.Repo, req.SHA)
+	if errors.Is(err, errInvalidProjectConfig) {
+		return ReleaseSession{}, temporal.NewNonRetryableApplicationError(err.Error(), "config", err)
+	}
+	if err != nil {
+		return ReleaseSession{}, err
+	}
 	issues, err := a.releaseIssues(ctx, rel)
 	if err != nil {
 		return ReleaseSession{}, err
@@ -107,7 +116,8 @@ func (a *Activities) PrepareReleaseSession(ctx context.Context, req ReleaseAgent
 	}
 	key := "release-" + short(rel.SHA)
 	return ReleaseSession{
-		Issue: IssueRunInput{IssueKey: key, Title: "Release " + short(rel.SHA), Spec: task, Repo: req.Repo, BaseBranch: req.BaseBranch},
+		Issue: IssueRunInput{IssueKey: key, Title: "Release " + short(rel.SHA), Spec: task, Repo: req.Repo, BaseBranch: req.BaseBranch,
+			EgressAllow: project.Egress.Allow},
 		Run: StartRunResult{RunID: run.ID.String(), StepRunID: step.ID.String(), Branch: "agent/" + key + "/" + req.Step, ReleaseID: rel.ID.String(),
 			Step: &AgentStep{StepID: req.Step, Role: role.Name, RoleVersion: role.Version, SystemPrompt: system,
 				Model: config.GatewayModel(role.DefaultModel), BudgetUSD: a.Release.agentBudget(), Timeout: releaseSessionTimeout,

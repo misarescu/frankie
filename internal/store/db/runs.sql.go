@@ -566,6 +566,19 @@ func (q *Queries) ListStepRuns(ctx context.Context, runID uuid.UUID) ([]StepRun,
 	return items, nil
 }
 
+const lockRelease = `-- name: LockRelease :one
+SELECT id FROM releases WHERE id = $1 FOR UPDATE
+`
+
+// Holds the release's row until the transaction ends, so that its run is
+// created once.
+func (q *Queries) LockRelease(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockRelease, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const releaseSpend = `-- name: ReleaseSpend :one
 SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent
 FROM step_runs s JOIN runs r ON r.id = s.run_id

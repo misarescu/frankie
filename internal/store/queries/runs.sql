@@ -7,6 +7,11 @@ RETURNING *;
 -- name: ListReleaseRuns :many
 SELECT * FROM runs WHERE release_id = @release_id ORDER BY created_at DESC, id DESC;
 
+-- Holds the release's row until the transaction ends, so that its run is
+-- created once.
+-- name: LockRelease :one
+SELECT id FROM releases WHERE id = @id FOR UPDATE;
+
 -- What a release's agent sessions have spent on models so far (D129).
 -- name: ReleaseSpend :one
 SELECT coalesce(sum(s.cost_usd), 0)::float8 AS spent

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -112,6 +113,24 @@ func TestPrepareReleaseSession(t *testing.T) {
 			}
 		}
 	})
+}
+
+// M8 (D140): a release agent session carries the project's egress hosts at
+// the release commit. Its EnsureStepImage is the first to ask for the
+// release's toolchain image, and VerifyStage later joins that build (D78): a
+// build started without them could not install the toolchain, and the
+// release's verification failed (the live M8 run, release of 8a03c99).
+func TestReleaseSessionCarriesTheProjectEgress(t *testing.T) {
+	f := newReleaseFixture(t, agentOn+"egress: {allow: [nodejs.org, registry.npmjs.org]}\n")
+	plan := f.prepare(t)
+	s := f.session(t, ReleaseAgentRequest{ReleaseID: plan.ReleaseID, Repo: relRepo, SHA: relSHA, BaseBranch: "main", Step: ReleaseStepNotes})
+	if !slices.Equal(s.Issue.EgressAllow, []string{"nodejs.org", "registry.npmjs.org"}) {
+		t.Errorf("session egress = %v; want the project's hosts", s.Issue.EgressAllow)
+	}
+	if got := newReleaseFixture(t, agentOn); len(got.session(t, ReleaseAgentRequest{ReleaseID: got.prepare(t).ReleaseID, Repo: relRepo, SHA: relSHA,
+		BaseBranch: "main", Step: ReleaseStepNotes}).Issue.EgressAllow) != 0 {
+		t.Errorf("a project without egress hosts got some")
+	}
 }
 
 // The task of a release after a versioned one names the range it covers.

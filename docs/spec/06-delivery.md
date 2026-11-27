@@ -64,7 +64,7 @@ stages:
     verify: e2e-suite
     rollback: true                         # requires a driver that can roll back
   - { name: prod,    driver: flux, config: { ... }, gate: human }
-  - { name: rollout, driver: flagd }       # only if feature flags are enabled (M8)
+  - { name: rollout, driver: flagd }       # only if feature flags are enabled (later)
 ```
 
 ```yaml

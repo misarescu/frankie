@@ -132,17 +132,20 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
   1. A spike: Claude Code through a preview's LiteLLM chained to the production gateway (open question 22). Done: it works (D133).
   2. The chart and API for previews: `GET /api/version`, `persistence.ephemeral`, an optional web UI, a render test that the preview values create nothing cluster-scoped but Namespaces, and the production gateway admitting preview gateways. CI pushes images for change request heads. Done: `values-preview.yaml`, `deploy/helm/chart_test.go`, and images tagged with the head's commit.
   3. The driver and the gate: `flux-preview` slots, a preview stage's `readyTimeout`, and the `preview` gate in `default-build`. Done (D134).
-  4. The judge, `mise run e2e:factory`, as a protected path, then Frankie's preview stage and `e2e` command in `.factory/config.yaml`, merged after the GitOps side is live. Done: the judge (D135), checked against `dum-1` on the production factory; the configuration waits for step 5.
-  5. `misarescu/frankie-cd`: the `frankie-previews` ResourceSet with the setup Job, which also cleans up after closed change requests, NetworkPolicies, quota and ExternalSecrets (D136). Secrets in Scaleway Secret Manager: the dummy-only GitHub token and the previews' virtual key.
+  4. The judge, `mise run e2e:factory`, as a protected path, then Frankie's preview stage and `e2e` command in `.factory/config.yaml`, merged after the GitOps side is live. Done: the judge (D135), checked against `dum-1` on the production factory, and the configuration (frankie#165).
+  5. `misarescu/frankie-cd`: the `frankie-previews` ResourceSet with the setup Job, which also cleans up after closed change requests, NetworkPolicies, quota and ExternalSecrets (D136). Secrets in Scaleway Secret Manager: the dummy-only GitHub token and the previews' virtual key. Done: frankie-cd#34, and both secrets.
 - **Done when:** a Frankie issue's change request is checked in its preview, whose factory builds the todo service end to end, and the check gates its merge; a deliberately broken change request fails the check and names the step that broke.
+- **Done (2026-11-27):** frk-5's change request (frankie#168) passed the `preview` gate: its preview ran the head and built the todo service as `pr168dum-1`, and the queue merged it. frk-4's change request (frankie#169) made `GET /api/version` return an empty version on purpose. It failed the gate with "the version URL reports no version", and its run escalated. The first attempt found the ResourceSet rendering the setup Job's `CHANGE_REQUEST` as an integer, which Flux rejected (frankie-cd#35). After acceptance, a preview left from an earlier check is removed before the next one (D137), and Flux installs each preview with a service account bound only in its namespaces (D138), checked live.
 
-## M8 - Production and flag rollout
+## M8 - Production stage
 
-- `prod` stage with human gate (the gate is in place: D139); canary deployments to production with Flux (D132 (8)); `flagd` driver and OpenFeature in the spec template; rollout steps with gates; automatic flag-cleanup issues.
-- Optional `factory-driver` MCP server with scoped tools.
-- Further drivers as needed (GitHub Releases first).
-- **Done when:** a flagged feature rolls internal > test pool > percentage > 100% through gates and generates a cleanup issue after N days at 100%.
+- `prod` stage with human gate (D139): a release that passed staging waits in the approvals inbox, and only an approval deploys it to production.
+- The flag rollout, the `factory-driver` MCP server and further drivers were planned for M8 and were not built. They move to Later.
+- **Done when:** a Goodreads-Clone release that passed staging waits for a person before production; a rejected release fails and leaves production as it was, and an approved one deploys there.
+- **Done (2026-11-27):** Goodreads-Clone's `production` stage (Goodreads-Clone#159) deploys with the `flux` driver behind `gate: human` and rolls back a release that production does not run within 3 minutes. It has no `verify`, since the API suite writes data. The release of `0f942f2` (Goodreads-Clone#160) passed staging (369 tests) and was rejected at the gate: it ended `failed`, and production stayed on `sha-a44235f`. The release of `6ea0c02` (Goodreads-Clone#161) was approved, ran in production and was published as `v0.1.1`. An earlier attempt, the release of `8a03c99`, failed staging verification because the toolchain build its release agent started lacked the project's egress hosts (D140).
 
 ## Later
+
+From M8, the flag rollout: canary deployments to production with Flux (D132 (8)), a `flagd` driver and OpenFeature in the spec template, rollout steps with gates, and automatic flag-cleanup issues. It is done when a flagged feature rolls internal > test pool > percentage > 100% through gates and generates a cleanup issue after N days at 100%. Also from M8: an optional `factory-driver` MCP server with scoped tools, and further drivers as needed (GitHub Releases first).
 
 Speculative merge batching; external executors (`runsOn:`); Argo CD / registry drivers; PVC-per-issue workspaces; multi-user auth and RBAC; Unleash/GrowthBook behind OpenFeature; full-profile services (NATS, Nexus, Harbor/Zot, Tempo/Loki).

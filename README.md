@@ -4,7 +4,7 @@ Frankie is a self-hosted platform that turns specs into merged, released softwar
 
 The name comes from the shipwright of the Strawhats crew from One Piece. Frankie can build and maintain everything, you just have to ask.
 
-Status: **M5.1 complete**: issues synced from GitHub with their hierarchy and dependencies, an issue list with a live view of each run, a scheduler that runs an epic in dependency order, opt-in spec refinement and approval, and issues completed or canceled from Frankie and closed on GitHub to match, on top of configurable workflows and gates on three harnesses and two model providers, running on a homelab k3s cluster and on this repo itself. Next: M5.2 (sandbox and builds), then the merge queue (M6). Start with `AGENTS.md`, then `docs/spec/10-roadmap.md`.
+Status: **M8 complete**. Issues sync from GitHub and run through configurable workflows and gates on three harnesses and two model providers, then a merge queue. Change requests can be checked in previews, and releases move through staging and a production stage behind a human gate. The factory runs on Scaleway Kapsule and builds this repo too. Start with `AGENTS.md`, then `docs/spec/10-roadmap.md`.
 
 Getting started: install [mise](https://mise.jdx.dev), then `mise install` and `mise run doctor`.
 

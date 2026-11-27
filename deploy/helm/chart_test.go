@@ -73,11 +73,13 @@ func production(t *testing.T) []object {
 }
 
 // preview renders change request 7's preview as D131 describes it: the concrete
-// profile, the preview profile, and what the ResourceSet sets per preview.
+// profile, the preview profile, and what the ResourceSet sets per preview,
+// which creates the namespaces itself (D138).
 func preview(t *testing.T, args ...string) []object {
 	return render(t, "frankie-pr-7", "frankie-pr-7", append([]string{
 		"-f", "frankie/values-concrete.yaml",
 		"-f", "frankie/values-preview.yaml",
+		"--set", "namespaces.create=false",
 		"--set", "agents.namespace=frankie-pr-7-agents",
 		"--set", "toolchains.build.namespace=frankie-pr-7-build",
 		"--set", "toolchains.registry.nodePort=30510",
@@ -104,20 +106,44 @@ func nodePorts(objs []object) []string {
 	return ports
 }
 
-// D131 (4): a preview creates nothing cluster-wide but its own namespaces.
-func TestPreviewCreatesNothingClusterScopedButItsNamespaces(t *testing.T) {
-	var namespaces []string
+// D131 (4), D138: a preview creates nothing cluster-wide, not even its
+// namespaces, which the ResourceSet creates; production creates its own.
+func TestPreviewCreatesNothingClusterScoped(t *testing.T) {
 	for _, o := range preview(t) {
-		switch {
-		case o.Kind == "Namespace":
-			namespaces = append(namespaces, o.Name)
-		case slices.Contains(clusterScoped, o.Kind):
+		if slices.Contains(clusterScoped, o.Kind) {
 			t.Errorf("preview renders cluster-scoped %s %q", o.Kind, o.Name)
 		}
 	}
+	var namespaces []string
+	for _, o := range production(t) {
+		if o.Kind == "Namespace" {
+			namespaces = append(namespaces, o.Name)
+		}
+	}
 	slices.Sort(namespaces)
-	if want := []string{"frankie-pr-7-agents", "frankie-pr-7-build"}; !slices.Equal(namespaces, want) {
-		t.Errorf("preview creates namespaces %v, want %v", namespaces, want)
+	if want := []string{"frankie-agents", "frankie-build"}; !slices.Equal(namespaces, want) {
+		t.Errorf("production creates namespaces %v, want %v", namespaces, want)
+	}
+}
+
+// D138: the previews' Helm service account is bound only in the preview's three
+// namespaces, to a role granting these kinds (misarescu/frankie-cd,
+// apps/kapsule/frankie-previews/rbac.yaml). A preview object elsewhere, or of
+// another kind, fails here rather than in the preview.
+func TestPreviewStaysWithinItsDeployerRole(t *testing.T) {
+	granted := []string{
+		"ConfigMap", "Secret", "Service", "ServiceAccount", "Pod",
+		"Deployment", "StatefulSet", "Job",
+		"NetworkPolicy", "Role", "RoleBinding",
+	}
+	namespaces := []string{"frankie-pr-7", "frankie-pr-7-agents", "frankie-pr-7-build"}
+	for _, o := range preview(t) {
+		if !slices.Contains(granted, o.Kind) {
+			t.Errorf("preview renders %s %q, which its deployer role does not grant", o.Kind, o.Name)
+		}
+		if !slices.Contains(namespaces, o.Namespace) {
+			t.Errorf("preview renders %s %q in namespace %q, outside %v", o.Kind, o.Name, o.Namespace, namespaces)
+		}
 	}
 }
 

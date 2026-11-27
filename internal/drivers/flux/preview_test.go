@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -362,6 +363,59 @@ func TestPreviewSlots(t *testing.T) {
 	}
 	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
 		t.Errorf("rolled back, entries = %+v", got)
+	}
+}
+
+// versionServer answers the version URL of every preview with the version
+// running holds, or 404 while it is empty, and returns the config pointing
+// at it.
+func versionServer(t *testing.T, running *atomic.Value) (string, *http.Client) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v, _ := running.Load().(string)
+		if v == "" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"version":%q}`, v)
+	}))
+	t.Cleanup(srv.Close)
+	return strings.Replace(goodPreviewConfig, "http://goodreads-previews.stages.svc.cluster.local", srv.URL, 1), srv.Client()
+}
+
+// M7.1 blast radius, risk 2: an entry the deployment did not write was left
+// by an earlier check whose removal failed. Its preview holds the earlier
+// check's state, so Publish removes it and waits until that preview is gone
+// before adding the head, and Rollback removes the entry rather than putting
+// the leftover back.
+func TestPreviewLeftoverEntry(t *testing.T) {
+	for name, leftover := range map[string]string{"earlier head": releaseSHA, "same head": headSHA} {
+		t.Run(name, func(t *testing.T) {
+			var running atomic.Value
+			running.Store(short(leftover))
+			cfg, client := versionServer(t, &running)
+			g := newPreviewRepo(t, inSlot(entryFor(168, leftover), "1"))
+			d := drivers.Checked(NewPreview(g, client))
+			r := previewRequest(168, headSHA, cfg)
+
+			if _, err := d.Publish(t.Context(), r); !errors.Is(err, drivers.ErrNoRoom) || g.writes != 1 || len(g.entries(t)) != 0 ||
+				!strings.Contains(g.head().Message, "Remove the preview of misarescu/Goodreads-Clone#168 left from before") {
+				t.Fatalf("publish over the leftover = %v, %d writes, entries %+v, message %q; want it removed and ErrNoRoom", err, g.writes, g.entries(t), g.head().Message)
+			}
+			if _, err := d.Publish(t.Context(), r); !errors.Is(err, drivers.ErrNoRoom) || !strings.Contains(err.Error(), "still runs "+short(leftover)) || g.writes != 1 {
+				t.Fatalf("publish while the leftover still runs = %v, %d writes; want ErrNoRoom and nothing written", err, g.writes)
+			}
+
+			running.Store("")
+			s, err := d.Publish(t.Context(), r)
+			if err != nil || g.writes != 2 || !slices.Equal(g.entries(t), []previewEntry{inSlot(entryFor(168, headSHA), "0")}) {
+				t.Fatalf("publish once the leftover is gone = %v, %d writes, entries %+v", err, g.writes, g.entries(t))
+			}
+			r.Deployment.State = s
+			if _, err := d.Rollback(t.Context(), r); err != nil || g.writes != 3 || len(g.entries(t)) != 0 {
+				t.Errorf("rollback = %v, %d writes, entries %+v; want the entry removed", err, g.writes, g.entries(t))
+			}
+		})
 	}
 }
 

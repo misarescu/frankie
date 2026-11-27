@@ -16,10 +16,10 @@ type versionJSON struct {
 // getVersion reports the control plane's build commit; a read, open like the
 // others (D58).
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
-	v := s.Version
-	if v == "" {
-		v = "unknown"
-	}
+	// frk-4: a deliberate M7.1 acceptance fault. The commit is always reported
+	// empty, so a preview's driver can never see its head and its gate must
+	// end inconclusive. Do not restore s.Version here as part of frk-4.
+	v := ""
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(versionJSON{Version: v})
 }

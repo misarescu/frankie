@@ -121,6 +121,15 @@ func previewRequest(n int, sha, config string) drivers.Request {
 	}
 }
 
+// gone is the client of a driver whose previews' version URLs all answer 404.
+var gone = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Request: r}, nil
+})}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func decodePreview(t *testing.T, s drivers.State) previewState {
 	t.Helper()
 	var st previewState
@@ -134,14 +143,14 @@ func decodePreview(t *testing.T, s drivers.State) previewState {
 // it again, since it had none.
 func TestPreviewPublishAndRollback(t *testing.T) {
 	g := newPreviewRepo(t)
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	r := previewRequest(152, headSHA, goodPreviewConfig)
 
 	s, err := d.Publish(t.Context(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := decodePreview(t, s); st.Commit != "c1" || st.Tag != "sha-abcdef1" || st.Previous != nil || len(st.Removed) != 0 {
+	if st := decodePreview(t, s); st.Commit != "c1" || st.Tag != "sha-abcdef1" || len(st.Removed) != 0 {
 		t.Errorf("state = %+v", st)
 	}
 	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(152, headSHA), "0")}) {
@@ -177,34 +186,13 @@ func TestPreviewPublishAndRollback(t *testing.T) {
 	}
 }
 
-// A new head replaces the change request's entry; rolling back puts the
-// earlier head back.
-func TestPreviewNewHead(t *testing.T) {
-	earlier := entryFor(152, releaseSHA)
-	g := newPreviewRepo(t, earlier)
-	d := drivers.Checked(NewPreview(g, nil))
-	r := previewRequest(152, headSHA, goodPreviewConfig)
-	s, err := d.Publish(t.Context(), r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st := decodePreview(t, s); st.Previous == nil || *st.Previous != earlier || !strings.Contains(g.head().Message, "(was sha-1234567)") {
-		t.Errorf("state = %+v, message %q", st, g.head().Message)
-	}
-	r.Deployment.State = s
-	if _, err := d.Rollback(t.Context(), r); err != nil || !slices.Equal(g.entries(t), []previewEntry{earlier}) ||
-		!strings.Contains(g.head().Message, "Put back sha-1234567 as the preview of misarescu/Goodreads-Clone#152") {
-		t.Errorf("rollback = %v, entries %+v, message %q", err, g.entries(t), g.head().Message)
-	}
-}
-
 // A commit drops the previews of change requests no longer open, and is
 // refused when as many as allowed are open besides this one.
 func TestPreviewRoom(t *testing.T) {
 	merged, open, closed := entryFor(150, releaseSHA), entryFor(151, releaseSHA), entryFor(149, releaseSHA)
 	g := newPreviewRepo(t, closed, merged, open)
 	g.status[150], g.status[149] = domain.ChangeRequestMerged, domain.ChangeRequestClosed
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	s, err := d.Publish(t.Context(), previewRequest(152, headSHA, goodPreviewConfig))
 	if err != nil {
 		t.Fatal(err)
@@ -232,32 +220,25 @@ func TestPreviewRoom(t *testing.T) {
 	}
 }
 
-// An entry that already has the head writes nothing, not even to drop others.
-func TestPreviewUnchanged(t *testing.T) {
+// M7.1, D137: a state written before D137 for an entry that already had the
+// head holds no commit; rolling it back removes the entry all the same.
+func TestPreviewRollbackOfUnchangedEntry(t *testing.T) {
 	g := newPreviewRepo(t, entryFor(150, releaseSHA), entryFor(152, headSHA))
-	g.status[150] = domain.ChangeRequestMerged
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	r := previewRequest(152, headSHA, goodPreviewConfig)
-	s, err := d.Publish(t.Context(), r)
-	if err != nil || g.writes != 0 || len(g.entries(t)) != 2 {
-		t.Fatalf("publish = %v, %d writes, entries %+v", err, g.writes, g.entries(t))
-	}
-	if st := decodePreview(t, s); st.Commit != "" || st.Tag != "sha-abcdef1" {
-		t.Errorf("state = %+v", st)
-	}
-	r.Deployment.State = s
-	if _, err := d.Rollback(t.Context(), r); err != nil || g.writes != 0 {
-		t.Errorf("rollback of nothing = %v, %d writes", err, g.writes)
+	r.Deployment.State = json.RawMessage(`{"tag":"sha-abcdef1"}`)
+	if _, err := d.Rollback(t.Context(), r); err != nil || g.writes != 1 || !slices.Equal(g.entries(t), []previewEntry{entryFor(150, releaseSHA)}) ||
+		strings.Contains(g.head().Message, "Reverts") {
+		t.Errorf("rollback = %v, %d writes, entries %+v, message %q", err, g.writes, g.entries(t), g.head().Message)
 	}
 }
 
 // A retry whose earlier attempt committed but lost its state finds the commit
-// and what it replaced.
+// and what it dropped.
 func TestPreviewRetryFindsItsCommit(t *testing.T) {
-	earlier := entryFor(152, releaseSHA)
-	g := newPreviewRepo(t, entryFor(150, releaseSHA), earlier)
+	g := newPreviewRepo(t, entryFor(150, releaseSHA))
 	g.status[150] = domain.ChangeRequestClosed
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	r := previewRequest(152, headSHA, goodPreviewConfig)
 	if _, err := d.Publish(t.Context(), r); err != nil {
 		t.Fatal(err)
@@ -266,7 +247,7 @@ func TestPreviewRetryFindsItsCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := decodePreview(t, s); st.Commit != "c1" || st.Previous == nil || *st.Previous != earlier || !slices.Equal(st.Removed, []int{150}) || g.writes != 1 {
+	if st := decodePreview(t, s); st.Commit != "c1" || st.Tag != "sha-abcdef1" || !slices.Equal(st.Removed, []int{150}) || g.writes != 1 {
 		t.Errorf("state = %+v after %d writes", st, g.writes)
 	}
 }
@@ -274,13 +255,17 @@ func TestPreviewRetryFindsItsCommit(t *testing.T) {
 // A rollback never undoes a later head.
 func TestPreviewRollbackWhenMovedOn(t *testing.T) {
 	g := newPreviewRepo(t)
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	first := previewRequest(152, releaseSHA, goodPreviewConfig)
 	s, err := d.Publish(t.Context(), first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Publish(t.Context(), previewRequest(152, headSHA, goodPreviewConfig)); err != nil {
+	later := previewRequest(152, headSHA, goodPreviewConfig)
+	if _, err := d.Publish(t.Context(), later); !errors.Is(err, drivers.ErrNoRoom) {
+		t.Fatalf("publish over the first = %v, want it removed and ErrNoRoom", err)
+	}
+	if _, err := d.Publish(t.Context(), later); err != nil {
 		t.Fatal(err)
 	}
 	first.Deployment.State = s
@@ -291,7 +276,7 @@ func TestPreviewRollbackWhenMovedOn(t *testing.T) {
 
 func TestPreviewErrors(t *testing.T) {
 	g := newPreviewRepo(t)
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	if c := d.Capabilities(); !c.Preview || !c.Rollback || !c.Health || c.Progressive || d.Name() != "flux-preview" {
 		t.Errorf("capabilities = %+v, name %s", c, d.Name())
 	}
@@ -314,18 +299,18 @@ func TestPreviewErrors(t *testing.T) {
 	if err := d.ValidateConfig(t.Context(), json.RawMessage(goodPreviewConfig)); err != nil {
 		t.Errorf("ValidateConfig(good) = %v", err)
 	}
-	if _, err := NewPreview(g, nil).Promote(t.Context(), r, drivers.RolloutStep{Name: "x"}); !errors.Is(err, drivers.ErrUnsupported) {
+	if _, err := NewPreview(g, gone).Promote(t.Context(), r, drivers.RolloutStep{Name: "x"}); !errors.Is(err, drivers.ErrUnsupported) {
 		t.Errorf("Promote = %v, want ErrUnsupported", err)
 	}
 }
 
-// M7.1, D131: each preview holds a slot below maxPreviews, the lowest free
-// when it starts, kept across new heads and given back when it goes; entries
-// from before slots hold none and keep none until their head changes.
+// M7.1, D131, D137: each preview holds a slot below maxPreviews, the lowest
+// free when it starts, given back when it goes; entries from before slots
+// hold none.
 func TestPreviewSlots(t *testing.T) {
 	legacy := entryFor(150, releaseSHA)
 	g := newPreviewRepo(t, legacy)
-	d := drivers.Checked(NewPreview(g, nil))
+	d := drivers.Checked(NewPreview(g, gone))
 	three := strings.Replace(goodPreviewConfig, `"repo"`, `"maxPreviews":3,"repo"`, 1)
 	publish := func(n int, sha string) drivers.State {
 		t.Helper()
@@ -343,26 +328,20 @@ func TestPreviewSlots(t *testing.T) {
 
 	// #152 closes: its slot goes to the next preview, once #152's entry is dropped.
 	g.status[152], g.status[150] = domain.ChangeRequestClosed, domain.ChangeRequestMerged
-	publish(154, headSHA)
+	s154 := publish(154, headSHA)
 	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
 		t.Fatalf("after #152 closed, entries = %+v", got)
 	}
 
-	// A new head keeps its slot, and rolling it back puts the earlier head back in it.
-	r := previewRequest(153, releaseSHA, three)
-	s, err := d.Publish(t.Context(), r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, releaseSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
-		t.Fatalf("new head, entries = %+v", got)
-	}
-	r.Deployment.State = s
+	// Rolling a preview back gives its slot to the next one.
+	r := previewRequest(154, headSHA, three)
+	r.Deployment.State = s154
 	if _, err := d.Rollback(t.Context(), r); err != nil {
 		t.Fatal(err)
 	}
-	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(154, headSHA), "0")}) {
-		t.Errorf("rolled back, entries = %+v", got)
+	publish(155, headSHA)
+	if got := g.entries(t); !slices.Equal(got, []previewEntry{inSlot(entryFor(153, headSHA), "1"), inSlot(entryFor(155, headSHA), "0")}) {
+		t.Errorf("after #154 rolled back, entries = %+v", got)
 	}
 }
 
@@ -383,7 +362,7 @@ func versionServer(t *testing.T, running *atomic.Value) (string, *http.Client) {
 	return strings.Replace(goodPreviewConfig, "http://goodreads-previews.stages.svc.cluster.local", srv.URL, 1), srv.Client()
 }
 
-// M7.1 blast radius, risk 2: an entry the deployment did not write was left
+// M7.1, D137: an entry the deployment did not write was left
 // by an earlier check whose removal failed. Its preview holds the earlier
 // check's state, so Publish removes it and waits until that preview is gone
 // before adding the head, and Rollback removes the entry rather than putting

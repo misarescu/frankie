@@ -1,8 +1,10 @@
 package flux
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -49,16 +51,14 @@ var _ drivers.Driver = (*PreviewDriver)(nil)
 
 // previewState is the driver's record of a deployment.
 type previewState struct {
-	// Commit set the change request's entry; empty when it already had it.
+	// Commit added the change request's entry. Empty in states written
+	// before D137 when the entry already had the head.
 	Commit string `json:"commit,omitempty"`
 	Tag    string `json:"tag,omitempty"`
-	// Previous is the change request's entry before Commit; nil when it had
-	// none.
-	Previous *previewEntry `json:"previous,omitempty"`
 	// Removed are the change requests, no longer open, whose entries Commit
 	// dropped.
 	Removed []int `json:"removed,omitempty"`
-	// RevertCommit put Previous back.
+	// RevertCommit removed the entry.
 	RevertCommit string `json:"revertCommit,omitempty"`
 }
 
@@ -79,12 +79,15 @@ func (d *PreviewDriver) ValidateConfig(_ context.Context, config json.RawMessage
 	return nil
 }
 
-// Publish implements drivers.Driver: it sets the change request's entry to
-// its head unless the entry already has it. The entry keeps its slot, or gets
-// the lowest one free (D131). A commit also drops the entries of change
-// requests that are no longer open, and is refused with drivers.ErrNoRoom when
-// MaxPreviews open ones would remain besides this one. A retry finds the
-// commit an earlier attempt made by the deployment's marker.
+// Publish implements drivers.Driver: it adds the change request's entry with
+// its head, in the lowest slot free (D131). An entry the deployment did not
+// write is left from an earlier check and its preview holds that check's
+// state, so Publish first removes it and then refuses with drivers.ErrNoRoom
+// while the change request's version URL still reports a version (D137). A
+// commit also drops the entries of change requests that are no longer open,
+// and is refused with drivers.ErrNoRoom when MaxPreviews open ones would
+// remain besides this one. A retry finds the commit an earlier attempt made
+// by the deployment's marker.
 func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers.State, error) {
 	cfg, st, err := d.load(r)
 	if err != nil {
@@ -100,16 +103,27 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 		return nil, err
 	}
 	current, had := f.entry(n)
-	want.Slot = current.Slot
-	if had && current == want {
+	if had && current.Tag == want.Tag && current.SHA == want.SHA {
 		if st.Commit == "" {
-			// Ours from an earlier attempt, or the preview already ran it.
 			if st, err = d.findCommit(ctx, cfg, n, publishMarker(r.Deployment.ID)); err != nil {
 				return nil, err
 			}
 		}
-		st.Tag = want.Tag
-		return encodePreview(st)
+		if st.Commit != "" {
+			st.Tag = want.Tag
+			return encodePreview(st)
+		}
+	}
+	if had {
+		return nil, d.removeLeftover(ctx, cfg, r, f, blob, current)
+	}
+	// An unreachable version URL counts as gone: a removed preview's Service
+	// name stops resolving.
+	switch v, _, err := reportedVersion(ctx, d.http, cfg.versionURL(n), cfg.VersionField); {
+	case errors.Is(err, drivers.ErrInvalidConfig), ctx.Err() != nil:
+		return nil, cmp.Or(ctx.Err(), err)
+	case v != "":
+		return nil, fmt.Errorf("flux-preview: %w: the preview of #%d removed before still runs %s", drivers.ErrNoRoom, n, quoted(v))
 	}
 
 	var keep []previewEntry
@@ -131,19 +145,13 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 	if len(keep) >= cfg.MaxPreviews {
 		return nil, fmt.Errorf("flux-preview: %w: %d previews run, for change requests %s, at most %d", drivers.ErrNoRoom, len(keep), numbers(keep), cfg.MaxPreviews)
 	}
-	if want.Slot == "" || slices.ContainsFunc(keep, func(e previewEntry) bool { return e.Slot == want.Slot }) {
-		want.Slot = freeSlot(keep, cfg.MaxPreviews)
-	}
+	want.Slot = freeSlot(keep, cfg.MaxPreviews)
 	content, err := f.render(append(keep, want))
 	if err != nil {
 		return nil, err
 	}
-	msg := fmt.Sprintf("Preview %s#%d at %s\n\nThe %s stage runs change request #%d as %s",
+	msg := fmt.Sprintf("Preview %s#%d at %s\n\nThe %s stage runs change request #%d as %s.",
 		r.Subject.Repo, n, short(r.Subject.SHA), r.Stage.Name, n, want.Tag)
-	if had {
-		msg += fmt.Sprintf(" (was %s)", current.Tag)
-	}
-	msg += "."
 	if len(removed) > 0 {
 		msg += fmt.Sprintf(" Removes the previews of %s, no longer open.", joinNumbers(removed))
 	}
@@ -152,11 +160,24 @@ func (d *PreviewDriver) Publish(ctx context.Context, r drivers.Request) (drivers
 	if err != nil {
 		return nil, fmt.Errorf("flux-preview: commit the preview of #%d to %s: %w", n, cfg.Repo, err)
 	}
-	st = previewState{Commit: commit, Tag: want.Tag, Removed: removed}
-	if had {
-		st.Previous = &current
+	return encodePreview(previewState{Commit: commit, Tag: want.Tag, Removed: removed})
+}
+
+// removeLeftover commits the removal of left, change request n's entry from
+// an earlier check, and returns drivers.ErrNoRoom: the preview it rendered is
+// still going away.
+func (d *PreviewDriver) removeLeftover(ctx context.Context, cfg PreviewConfig, r drivers.Request, f inputsFile, blob string, left previewEntry) error {
+	n := r.Subject.ChangeRequest
+	content, err := f.render(slices.DeleteFunc(slices.Clone(f.entries), func(e previewEntry) bool { return e.number() == n }))
+	if err != nil {
+		return err
 	}
-	return encodePreview(st)
+	msg := fmt.Sprintf("Remove the preview of %s#%d left from before\n\nIt runs %s from an earlier check; the %s stage checks %s in a new one.",
+		r.Subject.Repo, n, left.Tag, r.Stage.Name, short(r.Subject.SHA))
+	if _, err := d.repo.WriteFile(ctx, cfg.Repo, cfg.Path, cfg.Branch, content, blob, msg); err != nil {
+		return fmt.Errorf("flux-preview: remove the preview of #%d left from before: %w", n, err)
+	}
+	return fmt.Errorf("flux-preview: %w: removed the preview of #%d left from before, running %s", drivers.ErrNoRoom, n, left.Tag)
 }
 
 // Status implements drivers.Driver: ready once the preview's version URL
@@ -174,17 +195,17 @@ func (d *PreviewDriver) Promote(context.Context, drivers.Request, drivers.Rollou
 	return nil, fmt.Errorf("flux-preview: promote: %w", drivers.ErrUnsupported)
 }
 
-// Rollback implements drivers.Driver: while the change request's entry still
-// has the deployment's head, it puts back the entry it had before, or removes
-// it when it had none. Nothing to undo when the deployment changed nothing;
-// done when the previous entry is back. Entries Publish dropped stay dropped:
-// their change requests are no longer open.
+// Rollback implements drivers.Driver: it removes the change request's entry
+// while the entry still has the deployment's head; a later head is never
+// undone. A preview lives only for its check, so there is no earlier entry to
+// put back (D137). Entries Publish dropped stay dropped: their change requests
+// are no longer open.
 func (d *PreviewDriver) Rollback(ctx context.Context, r drivers.Request) (drivers.State, error) {
 	cfg, st, err := d.load(r)
 	if err != nil {
 		return nil, err
 	}
-	if st.Commit == "" {
+	if st.Tag == "" {
 		return encodePreview(st)
 	}
 	n := r.Subject.ChangeRequest
@@ -194,22 +215,20 @@ func (d *PreviewDriver) Rollback(ctx context.Context, r drivers.Request) (driver
 	}
 	current, had := f.entry(n)
 	switch {
-	case !had && st.Previous == nil, had && st.Previous != nil && current == *st.Previous:
+	case !had:
 		return encodePreview(st)
-	case !had || current.Tag != st.Tag:
+	case current.Tag != st.Tag:
 		return nil, fmt.Errorf("%w: the preview of #%d no longer runs %s", ErrMovedOn, n, st.Tag)
 	}
-	entries := slices.DeleteFunc(slices.Clone(f.entries), func(e previewEntry) bool { return e.number() == n })
-	what := "Remove"
-	if st.Previous != nil {
-		entries = append(entries, *st.Previous)
-		what = "Put back " + st.Previous.Tag + " as"
-	}
-	content, err := f.render(entries)
+	content, err := f.render(slices.DeleteFunc(slices.Clone(f.entries), func(e previewEntry) bool { return e.number() == n }))
 	if err != nil {
 		return nil, err
 	}
-	msg := fmt.Sprintf("%s the preview of %s#%d\n\nReverts %s.\n\n%s", what, r.Subject.Repo, n, short(st.Commit), rollbackMarker(r.Deployment.ID))
+	msg := fmt.Sprintf("Remove the preview of %s#%d\n\n", r.Subject.Repo, n)
+	if st.Commit != "" {
+		msg += fmt.Sprintf("Reverts %s.\n\n", short(st.Commit))
+	}
+	msg += rollbackMarker(r.Deployment.ID)
 	commit, err := d.repo.WriteFile(ctx, cfg.Repo, cfg.Path, cfg.Branch, content, blob, msg)
 	if err != nil {
 		return nil, fmt.Errorf("flux-preview: roll back the preview of #%d: %w", n, err)
@@ -250,8 +269,8 @@ func (d *PreviewDriver) read(ctx context.Context, cfg PreviewConfig, ref string)
 }
 
 // findCommit rebuilds the state of the latest commit of the inputs file whose
-// message carries marker: change request n's entry before it, and the entries
-// it dropped. Empty when there is none.
+// message carries marker: the entries of change requests other than n it
+// dropped. Empty when there is none.
 func (d *PreviewDriver) findCommit(ctx context.Context, cfg PreviewConfig, n int, marker string) (previewState, error) {
 	commits, err := d.repo.FileCommits(ctx, cfg.Repo, cfg.Path, cfg.Branch, 30)
 	if err != nil {
@@ -274,9 +293,7 @@ func (d *PreviewDriver) findCommit(ctx context.Context, cfg PreviewConfig, n int
 			return previewState{}, err
 		}
 		for _, e := range before.entries {
-			if e.number() == n {
-				st.Previous = &e
-			} else if _, kept := after.entry(e.number()); !kept {
+			if _, kept := after.entry(e.number()); !kept && e.number() != n {
 				st.Removed = append(st.Removed, e.number())
 			}
 		}

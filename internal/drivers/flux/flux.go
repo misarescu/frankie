@@ -128,34 +128,50 @@ func (d *Driver) Status(ctx context.Context, r drivers.Request) (drivers.Status,
 // versionStatus asks versionURL which version the target runs: ready once
 // field names commit sha. Only the version is ever quoted back.
 func versionStatus(ctx context.Context, client *http.Client, versionURL, field, sha string) (drivers.Status, error) {
+	v, why, err := reportedVersion(ctx, client, versionURL, field)
+	switch {
+	case err != nil:
+		return drivers.Status{}, err
+	case v == "":
+		return drivers.Status{Phase: drivers.PhaseProgressing, Message: why}, nil
+	case versionMatches(v, sha):
+		return drivers.Status{Phase: drivers.PhaseReady, Message: "version is " + v}, nil
+	}
+	return drivers.Status{Phase: drivers.PhaseProgressing, Message: "version is " + quoted(v)}, nil
+}
+
+// reportedVersion is the version versionURL reports in field, or empty with
+// why it reports none. The error is a bad URL or an unreachable target.
+func reportedVersion(ctx context.Context, client *http.Client, versionURL, field string) (version, why string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
-		return drivers.Status{}, fmt.Errorf("%w: %w", drivers.ErrInvalidConfig, err)
+		return "", "", fmt.Errorf("%w: %w", drivers.ErrInvalidConfig, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return drivers.Status{}, fmt.Errorf("flux: %s: %w", versionURL, err)
+		return "", "", fmt.Errorf("flux: %s: %w", versionURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return drivers.Status{Phase: drivers.PhaseProgressing, Message: fmt.Sprintf("the version URL answered %d", resp.StatusCode)}, nil
+		return "", fmt.Sprintf("the version URL answered %d", resp.StatusCode), nil
 	}
 	var body map[string]any
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
-		return drivers.Status{Phase: drivers.PhaseProgressing, Message: "the version URL did not answer JSON"}, nil
+		return "", "the version URL did not answer JSON", nil
 	}
-	v, _ := body[field].(string)
-	switch {
-	case v == "":
-		return drivers.Status{Phase: drivers.PhaseProgressing, Message: "the version URL reports no " + field}, nil
-	case versionMatches(v, sha):
-		return drivers.Status{Phase: drivers.PhaseReady, Message: "version is " + v}, nil
+	if v, _ := body[field].(string); v != "" {
+		return v, "", nil
 	}
+	return "", "the version URL reports no " + field, nil
+}
+
+// quoted shortens a version the target reported for a message.
+func quoted(v string) string {
 	if len(v) > 64 {
-		v = v[:64] + "..."
+		return v[:64] + "..."
 	}
-	return drivers.Status{Phase: drivers.PhaseProgressing, Message: "version is " + v}, nil
+	return v
 }
 
 // versionMatches reports whether a reported version names commit sha: the

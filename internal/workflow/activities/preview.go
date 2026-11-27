@@ -167,7 +167,7 @@ func (a *Activities) VerifyPreview(ctx context.Context, req PreviewRequest) (Ver
 }
 
 // RemovePreview takes the preview down by rolling its deployment back, which
-// removes it, since the gate's deployment had no earlier head (D125, D126).
+// removes it (D126, D137).
 // Nothing to do before PublishPreview returned a state.
 func (a *Activities) RemovePreview(ctx context.Context, req PreviewRequest) error {
 	if len(req.State) == 0 {

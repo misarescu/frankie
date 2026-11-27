@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
@@ -44,6 +45,10 @@ type releaseFixture struct {
 	sessionDelay time.Duration
 	sessions     []activities.ReleaseAgentRequest
 	notes        []activities.ReleaseNotesRequest
+
+	// Human gates before stages (D139): gates opened, and how they closed.
+	gates  []activities.ReleaseGateRequest
+	closed []activities.HumanGateClose
 }
 
 func (f *releaseFixture) logAgent(s string) {
@@ -164,6 +169,16 @@ func newReleaseFixture(t *testing.T, opts ...func(*releaseFixture)) *releaseFixt
 	})
 	f.env.OnActivity(a.FinishReleaseRun, mock.Anything, mock.Anything).Return(func(_ context.Context, id string) error {
 		f.logAgent("finish-run " + id)
+		return nil
+	})
+	f.env.OnActivity(a.OpenReleaseGate, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseGateRequest) (string, error) {
+		f.gates = append(f.gates, req)
+		f.calls = append(f.calls, "gate "+req.Stage)
+		return "gate-" + req.Stage, nil
+	})
+	f.env.OnActivity(a.CloseHumanGate, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.HumanGateClose) error {
+		f.closed = append(f.closed, in)
+		f.calls = append(f.calls, "close "+string(in.Status))
 		return nil
 	})
 	f.env.OnActivity(a.ReportReleaseFailure, mock.Anything, mock.Anything).Return(func(_ context.Context, req activities.ReleaseFailureReport) (string, error) {
@@ -388,9 +403,113 @@ func TestReleaseReplaysRecordedHistories(t *testing.T) {
 	r := worker.NewWorkflowReplayer()
 	r.RegisterWorkflow(Release)
 	for _, f := range []string{"release_succeeded.json", "release_verify_failed_rolled_back.json", "release_batched.json", "release_bug_issue.json",
-		"release_agent_versioned.json", "release_agent_analysis.json"} {
+		"release_agent_versioned.json", "release_agent_analysis.json", "release_gate_approved.json"} {
 		if err := r.ReplayWorkflowHistoryFromJSONFile(nil, "testdata/"+f); err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
+	}
+}
+
+var gatedProdStage = activities.ReleaseStage{Name: "production", Driver: "flux", Rollback: true, Gate: config.GateHuman}
+
+// gatedFixture releases through staging and a production stage with a human
+// gate; each decision is signalled at its time on the test clock.
+func gatedFixture(t *testing.T, decisions map[time.Duration]HumanDecision) *releaseFixture {
+	t.Helper()
+	f := newReleaseFixture(t, func(f *releaseFixture) {
+		f.plan = func(sha string) activities.ReleasePlan {
+			return activities.ReleasePlan{ReleaseID: "rel-" + sha, Stages: []activities.ReleaseStage{stagingStage, gatedProdStage}, Status: domain.ReleaseInProgress}
+		}
+	})
+	for at, d := range decisions {
+		f.env.RegisterDelayedCallback(func() { f.env.SignalWorkflow(HumanDecisionSignal, d) }, at)
+	}
+	return f
+}
+
+var stagingCalls = []string{"start staging", "publish staging", "await staging", "verify staging"}
+
+// M8, D139: a release waits at a gated stage until a person approves, then
+// deploys to it.
+func TestReleaseGateApproved(t *testing.T) {
+	f := gatedFixture(t, map[time.Duration]HumanDecision{
+		time.Hour:     {StepRunID: "gate-staging", Approved: true, By: "someone"}, // another gate's: ignored
+		2 * time.Hour: {StepRunID: "gate-production", Approved: true, By: "mihai", Comment: "ship it"},
+	})
+	start := f.env.Now()
+	var publishedAt time.Duration
+	f.publish = func(req activities.StageRequest) error {
+		if req.Stage.Name == "production" {
+			publishedAt = f.env.Now().Sub(start)
+		}
+		return nil
+	}
+	f.run(t, shaA)
+	want := slices.Concat([]string{"prepare " + shaA}, stagingCalls, []string{"gate production", "close approved",
+		"start production", "publish production", "await production", "verify production"})
+	if !slices.Equal(f.calls, want) {
+		t.Errorf("calls = %v, want %v", f.calls, want)
+	}
+	if publishedAt < 2*time.Hour {
+		t.Errorf("production published after %s, before the approval at 2h", publishedAt)
+	}
+	if g := f.gates[0]; g.ReleaseID != "rel-"+shaA || g.SHA != shaA || g.Stage != "production" ||
+		g.ExpiresAt.Sub(start) != time.Duration(config.DefaultHumanTimeout) {
+		t.Errorf("gate = %+v", g)
+	}
+	if c := f.closed[0]; c != (activities.HumanGateClose{StepRunID: "gate-production", Status: domain.ApprovalApproved, By: "mihai", Comment: "ship it"}) {
+		t.Errorf("closed = %+v", c)
+	}
+	if len(f.finished) != 1 || f.finished[0].Status != domain.ReleaseSucceeded {
+		t.Errorf("finished = %+v", f.finished)
+	}
+	if !slices.Contains(f.agentLog, "finish-run rel-"+shaA) {
+		t.Errorf("the release's run was not finished: %v", f.agentLog)
+	}
+}
+
+// M8, D139: rejected or undecided, the release stops before the gated stage,
+// which keeps what it ran; the stages before it keep the release.
+func TestReleaseGateStops(t *testing.T) {
+	tests := []struct {
+		name      string
+		decisions map[time.Duration]HumanDecision
+		status    domain.ApprovalStatus
+		reason    string
+	}{
+		{"rejected", map[time.Duration]HumanDecision{time.Hour: {StepRunID: "gate-production", By: "mihai", Comment: "not today"}},
+			domain.ApprovalRejected, "production: rejected by mihai: not today"},
+		{"no decision", nil, domain.ApprovalTimedOut, "production: no human decision within 72h0m0s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := gatedFixture(t, tt.decisions)
+			f.run(t, shaA)
+			want := slices.Concat([]string{"prepare " + shaA}, stagingCalls, []string{"gate production", "close " + string(tt.status)})
+			if !slices.Equal(f.calls, want) {
+				t.Errorf("calls = %v, want %v", f.calls, want)
+			}
+			if len(f.finished) != 1 || f.finished[0] != (activities.FinishReleaseRequest{ReleaseID: "rel-" + shaA, Status: domain.ReleaseFailed, Reason: tt.reason}) {
+				t.Errorf("finished = %+v", f.finished)
+			}
+			if len(f.reported) != 0 {
+				t.Errorf("a stopped release opened a bug issue: %+v", f.reported)
+			}
+		})
+	}
+}
+
+// A release that fails before the gated stage never asks a person.
+func TestReleaseGateNotOpenedAfterAFailedStage(t *testing.T) {
+	f := gatedFixture(t, nil)
+	f.verify = func(activities.StageRequest) activities.Verification {
+		return activities.Verification{Summary: "1 test failed"}
+	}
+	f.run(t, shaA)
+	if len(f.gates) != 0 || slices.Contains(f.calls, "start production") {
+		t.Errorf("calls = %v, want no gate and no production", f.calls)
+	}
+	if len(f.finished) != 1 || f.finished[0].Status != domain.ReleaseRolledBack {
+		t.Errorf("finished = %+v", f.finished)
 	}
 }

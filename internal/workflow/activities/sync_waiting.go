@@ -15,7 +15,7 @@ func (a *Activities) syncWaiting(ctx context.Context, stepRunID uuid.UUID) error
 		return err
 	}
 	run, err := a.Store.GetRun(ctx, step.RunID)
-	if err != nil {
+	if err != nil || run.IssueID == uuid.Nil { // a release's run has no issue
 		return err
 	}
 	_, err = a.Store.SyncIssueWaiting(ctx, run.IssueID)

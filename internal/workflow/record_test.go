@@ -588,15 +588,27 @@ type releaseStub struct {
 	// awaitFor makes waiting for a stage take this long, so signals arrive
 	// while a release runs.
 	awaitFor time.Duration
+	// gated puts a human gate before production (D139); gates receives the
+	// step run ID of each gate opened.
+	gated bool
+	gates chan string
 }
 
 func (s *releaseStub) PrepareRelease(_ context.Context, req activities.PrepareReleaseRequest) (activities.ReleasePlan, error) {
 	return activities.ReleasePlan{ReleaseID: "0198f2a4-5555-7000-8000-" + req.SHA[:12], Status: domain.ReleaseInProgress, Issues: []string{"gc-1"}, Agent: s.agent,
 		Stages: []activities.ReleaseStage{
 			{Name: "staging", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/staging"}`), URL: "https://goodreads-stg.example.ts.net", Verify: "e2e-suite", Rollback: true},
-			{Name: "production", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/production"}`), Rollback: true},
+			{Name: "production", Driver: "flux", Config: []byte(`{"path":"apps/goodreads/production"}`), Rollback: true, Gate: map[bool]string{true: config.GateHuman}[s.gated]},
 		}}, nil
 }
+
+func (s *releaseStub) OpenReleaseGate(context.Context, activities.ReleaseGateRequest) (string, error) {
+	const id = "0198f2a4-6666-7000-8000-000000000001"
+	s.gates <- id
+	return id, nil
+}
+
+func (s *releaseStub) CloseHumanGate(context.Context, activities.HumanGateClose) error { return nil }
 
 func (s *releaseStub) StartDeployment(_ context.Context, req activities.StageRequest) (string, error) {
 	return "0198f2a4-6666-7000-8000-00000000000" + map[string]string{"staging": "1", "production": "2"}[req.Stage.Name], nil
@@ -700,6 +712,8 @@ func TestRecordReleaseHistories(t *testing.T) {
 		// the version; and the analysis of a failed verification.
 		{"release_agent_versioned.json", &releaseStub{agent: true}, nil},
 		{"release_agent_analysis.json", &releaseStub{agent: true, failVerify: true}, nil},
+		// release-stage-gate version (D139): production waits for a person.
+		{"release_gate_approved.json", &releaseStub{gated: true, gates: make(chan string, 1)}, nil},
 	} {
 		if only := os.Getenv("FRANKIE_RECORD_ONLY"); only != "" && only != rec.file {
 			continue
@@ -721,6 +735,12 @@ func TestRecordReleaseHistories(t *testing.T) {
 		}
 		for _, s := range rec.signals {
 			if err := c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), ReleaseRequestSignal, ReleaseRequest{SHA: s}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if rec.stub.gated {
+			d := HumanDecision{StepRunID: <-rec.stub.gates, Approved: true, By: "mihai"}
+			if err := c.SignalWorkflow(t.Context(), run.GetID(), run.GetRunID(), HumanDecisionSignal, d); err != nil {
 				t.Fatal(err)
 			}
 		}

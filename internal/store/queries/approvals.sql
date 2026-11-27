@@ -22,22 +22,29 @@ WHERE step_run_id = @step_run_id AND status = 'pending'
 RETURNING *;
 
 -- The approvals inbox: pending decisions with what a human needs to decide
--- and what the API needs to signal the run's workflow.
+-- and what the API needs to signal the run's workflow. A release's gate (D139)
+-- names the release where an issue's names the issue.
 -- name: ListPendingApprovals :many
-SELECT a.*, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.*, s.step_id,
+       COALESCE(i.key, 'release-' || left(rel.sha, 7))::text AS issue_key,
+       COALESCE(i.title, 'Release ' || left(rel.sha, 7) || ' of ' || rel.repo)::text AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
 JOIN runs r ON r.id = a.run_id
-JOIN issues i ON i.id = r.issue_id
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
 WHERE a.status = 'pending'
 ORDER BY a.created_at, a.id;
 
 -- name: GetPendingApproval :one
-SELECT a.*, s.step_id, i.key AS issue_key, i.title AS issue_title,
+SELECT a.*, s.step_id,
+       COALESCE(i.key, 'release-' || left(rel.sha, 7))::text AS issue_key,
+       COALESCE(i.title, 'Release ' || left(rel.sha, 7) || ' of ' || rel.repo)::text AS issue_title,
        r.temporal_workflow_id, r.temporal_run_id
 FROM approvals a
 JOIN step_runs s ON s.id = a.step_run_id
 JOIN runs r ON r.id = a.run_id
-JOIN issues i ON i.id = r.issue_id
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
 WHERE a.step_run_id = @step_run_id AND a.status = 'pending';

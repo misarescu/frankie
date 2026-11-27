@@ -138,7 +138,7 @@ Fixes found by the M5.1 acceptance run, before the merge queue: projects configu
 
 ## M8 - Production and flag rollout
 
-- `prod` stage with human gate; canary deployments to production with Flux (D132 (8)); `flagd` driver and OpenFeature in the spec template; rollout steps with gates; automatic flag-cleanup issues.
+- `prod` stage with human gate (the gate is in place: D139); canary deployments to production with Flux (D132 (8)); `flagd` driver and OpenFeature in the spec template; rollout steps with gates; automatic flag-cleanup issues.
 - Optional `factory-driver` MCP server with scoped tools.
 - Further drivers as needed (GitHub Releases first).
 - **Done when:** a flagged feature rolls internal > test pool > percentage > 100% through gates and generates a cleanup issue after N days at 100%.

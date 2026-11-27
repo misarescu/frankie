@@ -208,7 +208,6 @@ func TestPrepareReleaseFailsInvalidStages(t *testing.T) {
 	tests := []struct{ name, cfg, want string }{
 		{"unknown driver", "stages: [{name: staging, driver: argocd}]", `unknown release driver "argocd"`},
 		{"rollback impossible", "stages: [{name: staging, driver: plain, rollback: true}]", "cannot roll back"},
-		{"human gate", "stages: [{name: prod, driver: flux, gate: human}]", "gate human is not supported yet"},
 		{"does not parse", "stages: [{name: Staging, driver: flux}]", `name "Staging"`},
 	}
 	for _, tt := range tests {
@@ -235,6 +234,19 @@ func TestPrepareReleaseFailsInvalidStages(t *testing.T) {
 	f.a.Verifier = nil
 	if plan := f.prepare(t); !strings.Contains(plan.Failed, "verify e2e-suite is not available") {
 		t.Errorf("without a verifier = %+v", plan)
+	}
+}
+
+// M8, D139: a stage's human gate goes into the plan; the release workflow asks
+// a person before that stage.
+func TestPrepareReleaseCarriesAHumanGate(t *testing.T) {
+	f := newReleaseFixture(t, "stages: [{name: staging, driver: flux}, {name: production, driver: flux, gate: human}]")
+	plan := f.prepare(t)
+	if plan.Failed != "" || len(plan.Stages) != 2 {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if plan.Stages[0].Gate != "" || plan.Stages[1].Gate != config.GateHuman {
+		t.Errorf("gates = %q, %q; want none, human", plan.Stages[0].Gate, plan.Stages[1].Gate)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/misarescu/frankie/internal/config"
 	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/workflow/activities"
 )
@@ -46,7 +47,8 @@ var verifyOptions = workflow.ActivityOptions{
 // at a time. Requests that arrive while a release runs are batched: the next
 // release is of the newest commit asked for, which contains the others (D110).
 // Each release moves through the project's release stages in order, as
-// configured at its commit: publish, wait until the stage runs it, verify. A
+// configured at its commit: for a stage with a human gate, a person's approval
+// first (D139), then publish, wait until the stage runs it, verify. A
 // stage that fails stops the release, rolled back when the stage allows it
 // (FR-RL-2); a release that passes every stage releases its issues. The
 // workflow ends when nothing is pending; the next merge starts it again.
@@ -111,7 +113,18 @@ func runRelease(ctx workflow.Context, repo string, req ReleaseRequest) {
 		defer finishReleaseRun(ctx, plan.ReleaseID)
 		defer notes.Wait(ctx)
 	}
+	gated := false
 	for _, st := range plan.Stages {
+		if st.Gate == config.GateHuman && workflow.GetVersion(ctx, "release-stage-gate", workflow.DefaultVersion, 1) >= 1 {
+			if !agent && !gated {
+				defer finishReleaseRun(ctx, plan.ReleaseID)
+			}
+			gated = true
+			if why := approveStage(ctx, activities.ReleaseGateRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, Stage: st.Name}); why != "" {
+				finishRelease(ctx, plan.ReleaseID, domain.ReleaseFailed, st.Name+": "+why)
+				return
+			}
+		}
 		status, reason, failed := deployStage(ctx, activities.StageRequest{ReleaseID: plan.ReleaseID, Repo: repo, SHA: sha, BaseBranch: req.BaseBranch, Stage: st})
 		if status != domain.ReleaseSucceeded {
 			finishRelease(ctx, plan.ReleaseID, status, reason)
@@ -187,6 +200,62 @@ func deployStage(ctx workflow.Context, req activities.StageRequest) (status doma
 		return domain.ReleaseFailed, reason + "; rolling back failed: " + err.Error(), failed
 	}
 	return domain.ReleaseRolledBack, reason, failed
+}
+
+// approveStage waits for a person to approve the release before it deploys to
+// a gated stage (D139). It returns "" once approved, else why the release
+// stops before the stage: rejected, no decision in time, or canceled. The
+// decision arrives as the HumanDecisionSignal an Interpret gate gets.
+func approveStage(ctx workflow.Context, req activities.ReleaseGateRequest) string {
+	var a *activities.Activities
+	short := workflow.WithActivityOptions(ctx, shortOptions)
+	timeout := time.Duration(config.DefaultHumanTimeout)
+	req.ExpiresAt = workflow.Now(ctx).Add(timeout)
+	var stepRunID string
+	if err := workflow.ExecuteActivity(short, a.OpenReleaseGate, req).Get(ctx, &stepRunID); err != nil {
+		return "opening the human gate failed: " + err.Error()
+	}
+
+	decisions := workflow.GetSignalChannel(ctx, HumanDecisionSignal)
+	timerCtx, cancelTimer := workflow.WithCancel(ctx)
+	timer := workflow.NewTimer(timerCtx, timeout)
+	var decision *HumanDecision
+	expired := false
+	for decision == nil && !expired && ctx.Err() == nil {
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(decisions, func(c workflow.ReceiveChannel, _ bool) {
+			var d HumanDecision
+			c.Receive(ctx, &d)
+			if d.StepRunID == stepRunID {
+				decision = &d
+			}
+		})
+		sel.AddFuture(timer, func(workflow.Future) { expired = true })
+		sel.Select(ctx)
+	}
+	cancelTimer()
+
+	closing := activities.HumanGateClose{StepRunID: stepRunID, Status: domain.ApprovalTimedOut}
+	why := fmt.Sprintf("no human decision within %s", timeout)
+	switch {
+	case ctx.Err() != nil:
+		ctx, _ = workflow.NewDisconnectedContext(ctx)
+		short = workflow.WithActivityOptions(ctx, shortOptions)
+		closing = activities.HumanGateClose{StepRunID: stepRunID, Status: domain.ApprovalRejected, By: "frankie", Comment: "the release was canceled"}
+		why = "canceled while waiting for a human decision"
+	case decision != nil && decision.Approved:
+		closing, why = activities.HumanGateClose{StepRunID: stepRunID, Status: domain.ApprovalApproved, By: decision.By, Comment: decision.Comment}, ""
+	case decision != nil:
+		closing = activities.HumanGateClose{StepRunID: stepRunID, Status: domain.ApprovalRejected, By: decision.By, Comment: decision.Comment}
+		why = "rejected by " + decision.By
+		if decision.Comment != "" {
+			why += ": " + decision.Comment
+		}
+	}
+	if err := workflow.ExecuteActivity(short, a.CloseHumanGate, closing).Get(ctx, nil); err != nil {
+		return "recording the decision failed: " + err.Error()
+	}
+	return why
 }
 
 // reportReleaseFailure opens the bug issue of a failed verification; a failure

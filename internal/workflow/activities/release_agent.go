@@ -117,15 +117,9 @@ func (a *Activities) PrepareReleaseSession(ctx context.Context, req ReleaseAgent
 
 // releaseRun is the release's run, created with its first session (D129).
 func (a *Activities) releaseRun(ctx context.Context, rel domain.Release, repo string) (domain.Run, error) {
-	runs, err := a.Store.ListReleaseRuns(ctx, rel.ID)
+	run, err := a.Store.ReleaseRun(ctx, store.NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`),
+		WorkflowVersion: releaseAgentRole, TemporalWorkflowID: ReleaseWorkflowID(repo)})
 	if err != nil {
-		return domain.Run{}, err
-	}
-	run := domain.Run{}
-	if len(runs) > 0 {
-		run = runs[0]
-	} else if run, err = a.Store.CreateRun(ctx, store.NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`),
-		WorkflowVersion: releaseAgentRole, TemporalWorkflowID: ReleaseWorkflowID(repo)}); err != nil {
 		return domain.Run{}, err
 	}
 	if run.Status == domain.ExecPending {

@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -414,5 +416,44 @@ func TestReleaseRuns(t *testing.T) {
 		if _, err := s.CreateRun(ctx, in); err == nil {
 			t.Errorf("%s: a run of %s was created", name, name)
 		}
+	}
+}
+
+// M8 (D139): a release's gate and its agent's notes session ask for the
+// release's run at the same time; they get one run between them.
+func TestReleaseRunCreatedOnce(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	p := mustProject(t, s)
+	for r := range 10 {
+		rel := mustRelease(t, s, p.ID, fmt.Sprintf("r%d", r))
+		in := NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "release-agent",
+			TemporalWorkflowID: "release/" + releaseRepo}
+		ids := make([]uuid.UUID, 16)
+		var wg sync.WaitGroup
+		for i := range ids {
+			wg.Go(func() {
+				run, err := s.ReleaseRun(ctx, in)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				ids[i] = run.ID
+			})
+		}
+		wg.Wait()
+		if runs, err := s.ListReleaseRuns(ctx, rel.ID); err != nil || len(runs) != 1 {
+			t.Fatalf("release %d: %d runs, %v; want 1", r, len(runs), err)
+		}
+		for _, id := range ids[1:] {
+			if id != ids[0] {
+				t.Fatalf("release %d: runs = %v; want one", r, ids)
+			}
+		}
+	}
+	_, err := s.ReleaseRun(ctx, NewRun{ReleaseID: domain.NewID(), WorkflowSnapshot: json.RawMessage(`{}`),
+		WorkflowVersion: "release-agent", TemporalWorkflowID: "release/" + releaseRepo})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown release: %v; want ErrNotFound", err)
 	}
 }

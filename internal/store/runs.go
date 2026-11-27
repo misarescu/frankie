@@ -27,6 +27,10 @@ type NewRun struct {
 // CreateRun inserts a pending Run. It returns ErrConflict if the issue already has an
 // active (pending or running) Run, or if the Temporal run ID is taken.
 func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
+	return createRun(ctx, s.q, in)
+}
+
+func createRun(ctx context.Context, q *db.Queries, in NewRun) (domain.Run, error) {
 	switch {
 	case (in.IssueID == uuid.Nil) == (in.ReleaseID == uuid.Nil):
 		return domain.Run{}, errors.New("store: create run: a run belongs to exactly one issue or release")
@@ -37,7 +41,7 @@ func (s *Store) CreateRun(ctx context.Context, in NewRun) (domain.Run, error) {
 	case in.TemporalWorkflowID == "":
 		return domain.Run{}, errors.New("store: create run: empty temporal workflow id")
 	}
-	row, err := s.q.CreateRun(ctx, db.CreateRunParams{
+	row, err := q.CreateRun(ctx, db.CreateRunParams{
 		ID:                 domain.NewID(),
 		IssueID:            optionalID(in.IssueID),
 		ReleaseID:          optionalID(in.ReleaseID),
@@ -279,6 +283,31 @@ func (s *Store) ListReleaseRuns(ctx context.Context, releaseID uuid.UUID) ([]dom
 		runs = append(runs, r)
 	}
 	return runs, nil
+}
+
+// ReleaseRun returns the newest run of in.ReleaseID, creating it from in when
+// the release has none. Concurrent calls for one release get the same run.
+func (s *Store) ReleaseRun(ctx context.Context, in NewRun) (domain.Run, error) {
+	if in.ReleaseID == uuid.Nil || in.IssueID != uuid.Nil {
+		return domain.Run{}, errors.New("store: release run: needs a release and no issue")
+	}
+	var run domain.Run
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		if _, err := q.LockRelease(ctx, in.ReleaseID); err != nil {
+			return mapErr("lock release", err)
+		}
+		rows, err := q.ListReleaseRuns(ctx, &in.ReleaseID)
+		if err != nil {
+			return mapErr("list release runs", err)
+		}
+		if len(rows) > 0 {
+			run, err = runFromRow(rows[0])
+			return err
+		}
+		run, err = createRun(ctx, q, in)
+		return err
+	})
+	return run, err
 }
 
 // ReleaseSpend is what a release's agent sessions have spent on models so

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Outlet, useRouterState } from "@tanstack/react-router";
 import { FolderXIcon } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
-import { getJSON, keys, projectsQuery, releaseQuery, runsQuery } from "@/api/queries";
+import { projectsQuery, releaseQuery, runQuery } from "@/api/queries";
 import { useCrumbs } from "@/components/app/Breadcrumbs";
 import { entityProject, pageEntity } from "@/components/app/nav";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
@@ -46,21 +46,11 @@ export function useProject(): Project {
   return p;
 }
 
-// useRunSummary finds a run among the recent runs (GET /api/runs), and
-// among more of them when it is older than those. settled says the search is
+// useRunSummary reads a run (GET /api/runs/{id}). settled says the read is
 // over, found or not, so a page can wait for the run's status.
 export function useRunSummary(id: string | undefined): { run: RunSummary | undefined; settled: boolean } {
-  const recent = useQuery({ ...runsQuery(), enabled: !!id });
-  const found = id ? recent.data?.find((r) => r.ID === id) : undefined;
-  const older = useQuery({
-    queryKey: [...keys.runs, "older"],
-    queryFn: () => getJSON<RunSummary[]>("/api/runs?limit=200"),
-    enabled: !!id && recent.isSuccess && !found,
-    staleTime: 60_000,
-  });
-  const run = found ?? (id ? older.data?.find((r) => r.ID === id) : undefined);
-  const settled = !id || !!found || recent.isError || (recent.isSuccess && (older.isSuccess || older.isError));
-  return { run, settled };
+  const q = useQuery({ ...runQuery(id ?? ""), enabled: !!id });
+  return { run: id ? q.data : undefined, settled: !id || q.isSuccess || q.isError };
 }
 
 // useCurrentProject is the project the shell shows (sidebar, palette): the

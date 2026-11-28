@@ -80,7 +80,7 @@ test("says whether the transcript is live", () => {
   expect(connection("running", { end: null, reconnecting: true })).toBe("reconnecting");
   expect(connection("running", { end: "succeeded", reconnecting: false })).toBe("finished");
   expect(connection("failed", { end: null, reconnecting: false })).toBe("finished");
-  // Until the run's status is known (GET /api/runs) or its stream ended, the
+  // Until the run's status is known (GET /api/runs/{id}) or its stream ended, the
   // page cannot say the run is live: a cold load of a finished run read Live.
   expect(connection(undefined, { end: null, reconnecting: false })).toBe("connecting");
   expect(connection(undefined, { end: null, reconnecting: true })).toBe("connecting");

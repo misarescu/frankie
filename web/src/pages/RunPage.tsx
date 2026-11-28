@@ -33,8 +33,8 @@ const route = getRouteApi("/runs/$id");
 export function RunPage() {
   const { id } = route.useParams();
   const steps = useQuery(runStepsQuery(id, false));
-  // The run's status comes from the run list; until it does (or the search
-  // ends without it) the page does not know whether the run is live.
+  // Until the run's status answers (or the read fails) the page does not know
+  // whether the run is live.
   const summary = useRunSummary(id);
   if (steps.isPending || (!summary.settled && !steps.error)) return <Crumbs tail={runCrumbs(id, undefined)}><LoadingState rows={6} /></Crumbs>;
   if (steps.error && !steps.data) {

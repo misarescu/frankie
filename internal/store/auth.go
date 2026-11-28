@@ -304,6 +304,10 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id uuid.UUID, passwordHa
 			if err := q.DeleteOtherUserSessions(ctx, db.DeleteOtherUserSessionsParams{UserID: id, TokenHash: keepSessionHash}); err != nil {
 				return mapErr("delete other sessions", err)
 			}
+		} else {
+			if err := q.DeleteUserSessions(ctx, id); err != nil {
+				return mapErr("delete user sessions", err)
+			}
 		}
 		return nil
 	})
@@ -398,29 +402,40 @@ func (s *Store) ListAllUserIdentities(ctx context.Context) (map[uuid.UUID][]doma
 // DeleteIdentity unlinks one SSO identity from userID, refusing to remove the
 // user's last remaining sign-in method (no password and only one identity).
 func (s *Store) DeleteIdentity(ctx context.Context, userID, identityID uuid.UUID) error {
-	return s.inTx(ctx, func(q *db.Queries) error {
-		u, err := q.GetUser(ctx, userID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: delete identity begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Lock the user row so concurrent unlinks or password updates serialize cleanly.
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM users WHERE id = $1 FOR UPDATE", userID); err != nil {
+		return mapErr("lock user", err)
+	}
+	q := s.q.WithTx(tx)
+	u, err := q.GetUser(ctx, userID)
+	if err != nil {
+		return mapErr("get user", err)
+	}
+	n, err := q.DeleteUserIdentity(ctx, db.DeleteUserIdentityParams{ID: identityID, UserID: userID})
+	if err != nil {
+		return mapErr("delete identity", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: delete identity: %w", ErrNotFound)
+	}
+	if u.PasswordHash == "" {
+		rem, err := q.CountUserIdentities(ctx, userID)
 		if err != nil {
-			return mapErr("get user", err)
+			return mapErr("count identities", err)
 		}
-		if u.PasswordHash == "" {
-			n, err := q.CountUserIdentities(ctx, userID)
-			if err != nil {
-				return mapErr("count identities", err)
-			}
-			if n <= 1 {
-				return ErrLastAuthMethod
-			}
+		if rem == 0 {
+			return ErrLastAuthMethod
 		}
-		n, err := q.DeleteUserIdentity(ctx, db.DeleteUserIdentityParams{ID: identityID, UserID: userID})
-		if err != nil {
-			return mapErr("delete identity", err)
-		}
-		if n == 0 {
-			return fmt.Errorf("store: delete identity: %w", ErrNotFound)
-		}
-		return nil
-	})
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: delete identity commit: %w", err)
+	}
+	return nil
 }
 
 // CreateSession stores a hashed browser session token (D144).

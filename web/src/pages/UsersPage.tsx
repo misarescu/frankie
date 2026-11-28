@@ -297,13 +297,13 @@ export function UsersPage() {
               </select>
             </label>
             <label className="grid gap-1 text-[13px] font-medium">
-              Initial password (at least 10 characters)
+              Initial password (at least 12 characters)
               <Input type="password" autoComplete="new-password" value={password} disabled={createUser.isPending} onChange={(e) => setPassword(e.target.value)} />
             </label>
             <WriteError error={createUser.error} what="create user" />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setUserDialog(false)}>Cancel</Button>
-              <Button type="submit" disabled={createUser.isPending || username.trim() === "" || password.length < 10}>Create user</Button>
+              <Button type="submit" disabled={createUser.isPending || username.trim() === "" || password.length < 12}>Create user</Button>
             </DialogFooter>
           </form>
         </DialogContent>

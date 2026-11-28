@@ -176,6 +176,11 @@ func (s *Server) allowedOrigins(r *http.Request) []string {
 			out = append(out, o)
 		}
 	}
+	// When PublicURL is explicitly configured, do not trust request Host or
+	// X-Forwarded-Host headers as additional allowed origins.
+	if s.Auth.PublicURL != "" {
+		return out
+	}
 	host := firstHeaderValue(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
 		host = r.Host
@@ -243,11 +248,24 @@ func firstHeaderValue(h string) string {
 	return strings.TrimSpace(v)
 }
 
+func lastHeaderValue(h string) string {
+	if h == "" {
+		return ""
+	}
+	parts := strings.Split(h, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if v := strings.TrimSpace(parts[i]); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func clientIP(r *http.Request) string {
 	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
 		return ip
 	}
-	if ip := firstHeaderValue(r.Header.Get("X-Forwarded-For")); ip != "" {
+	if ip := lastHeaderValue(r.Header.Get("X-Forwarded-For")); ip != "" {
 		return ip
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
@@ -620,7 +638,13 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
-		http.Redirect(w, r, "/login?error=sso_denied", http.StatusFound)
+		dest := "/login?error=sso_denied"
+		if cookie, err := r.Cookie(OAuthStateCookieName); err == nil {
+			if st, err := s.Auth.StateSigner.Verify(cookie.Value, r.URL.Query().Get("state"), provider); err == nil && st.Mode == "link" {
+				dest = "/settings/account?error=sso_denied"
+			}
+		}
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 	cookie, err := r.Cookie(OAuthStateCookieName)
@@ -673,7 +697,11 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Log.Info("sso identity linked", "user", actor.User.Username, "provider", provider)
-		http.Redirect(w, r, auth.SafeNext(st.Next, "/settings/account"), http.StatusFound)
+		next := auth.SafeNext(st.Next, "/settings/account")
+		if next == "/settings/account" {
+			next = "/settings/account?linked=" + url.QueryEscape(string(provider))
+		}
+		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
 

@@ -487,6 +487,9 @@ func (s *SSOService) discover(ctx context.Context, cfg ProviderConfig) (oidcDisc
 	if doc.Issuer == "" || doc.AuthorizationEndpoint == "" || doc.TokenEndpoint == "" || doc.JWKSURI == "" {
 		return oidcDiscovery{}, errors.New("auth: incomplete oidc discovery document")
 	}
+	if strings.TrimRight(doc.Issuer, "/") != strings.TrimRight(cfg.IssuerURL, "/") {
+		return oidcDiscovery{}, fmt.Errorf("auth: oidc discovery issuer %q != configured %q", doc.Issuer, cfg.IssuerURL)
+	}
 	s.mu.Lock()
 	s.discovery[cfg.ID] = cachedDiscovery{doc: doc, fetchedAt: s.now()}
 	s.mu.Unlock()

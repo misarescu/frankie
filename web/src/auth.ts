@@ -101,10 +101,19 @@ export function safeNextPath(raw: string | undefined): string {
 
 const SSO_ERRORS: Record<string, string> = {
   sso_failed: "Sign-in with the identity provider did not complete. Please try again.",
+  sso_denied: "Sign-in was canceled at the identity provider.",
+  invalid_state: "Your sign-in session expired before returning from the provider. Please try again.",
+  missing_code: "The identity provider did not return an authorization code. Please try again.",
   not_allowed: "Your account is not invited or on the sign-in allowlist for this Frankie deployment.",
   account_disabled: "Your Frankie account has been disabled. Ask an administrator for help.",
+  identity_in_use: "That external account is already linked to another Frankie user.",
   already_linked: "That external account is already linked to another Frankie user.",
+  link_failed: "Could not link that external account. Please try again.",
+  session_required: "Please sign in again before linking an external account.",
   invite_invalid: "That invite is invalid, expired, or restricted to a different email address.",
+  provision_failed: "Could not create your Frankie account from SSO. Ask an administrator for help.",
+  session_failed: "Could not start your session. Please try again.",
+  provider_unavailable: "That sign-in provider is not enabled on this deployment.",
   provider_disabled: "That sign-in provider is not enabled on this deployment.",
 };
 

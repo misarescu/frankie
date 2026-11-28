@@ -114,7 +114,7 @@ export function InvitePage() {
                     />
                   </label>
                   <label className="grid gap-1.5 text-[13px] font-medium">
-                    Password (at least 10 characters)
+                    Password (at least 12 characters)
                     <Input
                       type="password"
                       autoComplete="new-password"
@@ -124,7 +124,7 @@ export function InvitePage() {
                     />
                   </label>
                   <WriteError error={accept.error} what="create account" />
-                  <Button type="submit" className="w-full" disabled={accept.isPending || username.trim() === "" || password.length < 10}>
+                  <Button type="submit" className="w-full" disabled={accept.isPending || username.trim() === "" || password.length < 12}>
                     <UserPlusIcon className="size-3.5" />
                     {accept.isPending ? "Creating account…" : "Create account"}
                   </Button>

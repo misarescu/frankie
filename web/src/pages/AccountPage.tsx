@@ -184,7 +184,7 @@ export function AccountPage() {
                 </label>
               )}
               <label className="grid gap-1 text-[13px] font-medium">
-                New password (at least 10 characters)
+                New password (at least 12 characters)
                 <Input
                   type="password"
                   autoComplete="new-password"
@@ -197,7 +197,7 @@ export function AccountPage() {
               <div>
                 <Button
                   type="submit"
-                  disabled={changePassword.isPending || newPassword.length < 10 || (user.has_password && currentPassword === "")}
+                  disabled={changePassword.isPending || newPassword.length < 12 || (user.has_password && currentPassword === "")}
                 >
                   {changePassword.isPending ? "Updating…" : user.has_password ? "Update password" : "Set password"}
                 </Button>

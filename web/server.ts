@@ -4,9 +4,20 @@
 // is the app (M9, D141): the router reads the URL in the browser.
 import index from "./index.html";
 
+function rightmostHeaderValue(raw: string | null): string {
+  if (!raw) return "";
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
+
 // Bun closes connections idle for idleTimeout seconds (default 10). Event
 // streams are quiet for minutes while a toolchain builds, so they are exempt.
-export function createServer(controlplaneURL: string, port: number, opts: { idleTimeout?: number } = {}) {
+export function createServer(
+  controlplaneURL: string,
+  port: number,
+  opts: { idleTimeout?: number; trustProxy?: boolean } = {},
+) {
+  const trustProxy = opts.trustProxy ?? (process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1");
   return Bun.serve({
     port,
     idleTimeout: opts.idleTimeout,
@@ -20,15 +31,31 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
       "/api/*": async (req, server) => {
         const url = new URL(req.url);
         const headers = new Headers(req.headers);
-        if (!headers.has("x-forwarded-proto")) {
+        const peerIP = server.requestIP(req)?.address ?? "";
+        if (trustProxy) {
+          if (!headers.has("x-forwarded-proto")) {
+            headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
+          }
+          if (!headers.has("x-forwarded-host")) {
+            headers.set("x-forwarded-host", req.headers.get("host") || url.host);
+          }
+          const clientIP = rightmostHeaderValue(headers.get("x-forwarded-for")) || peerIP;
+          if (clientIP) {
+            headers.set("x-forwarded-for", clientIP);
+          } else {
+            headers.delete("x-forwarded-for");
+          }
+        } else {
+          // Direct connection: never trust client-supplied forwarding headers so
+          // rate limits and origin/scheme checks cannot be spoofed.
           headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
-        }
-        if (!headers.has("x-forwarded-host")) {
           headers.set("x-forwarded-host", req.headers.get("host") || url.host);
-        }
-        const ip = server.requestIP(req)?.address;
-        if (ip && !headers.has("x-forwarded-for")) {
-          headers.set("x-forwarded-for", ip);
+          headers.delete("cf-connecting-ip");
+          if (peerIP) {
+            headers.set("x-forwarded-for", peerIP);
+          } else {
+            headers.delete("x-forwarded-for");
+          }
         }
         let upstream: Response;
         try {

@@ -35,6 +35,8 @@ describe("auth helpers (M10)", () => {
   test("ssoErrorMessage maps known codes", () => {
     expect(ssoErrorMessage(undefined)).toBeNull();
     expect(ssoErrorMessage("not_allowed")).toContain("allowlist");
+    expect(ssoErrorMessage("identity_in_use")).toContain("already linked");
+    expect(ssoErrorMessage("provider_unavailable")).toContain("not enabled");
     expect(ssoErrorMessage("unknown_code")).toContain("Sign-in failed");
   });
 

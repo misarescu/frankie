@@ -25,48 +25,69 @@ export function invalidations(runID: string, type: string): QueryKey[] {
   return [keys.runSteps(runID), ["issue"], ["issues"], keys.runs, ["release"], ["releases"], keys.approvals, keys.questions];
 }
 
-type Source = { addEventListener(type: string, listener: (m: Event) => void): void; close(): void };
+type Source = { addEventListener(type: string, listener: (m: Event) => void): void; close(): void; readyState?: number };
 type SourceFactory = (url: string) => Source;
+type Held = { source: Source; refs: number; retry?: ReturnType<typeof setTimeout> };
 
-const open = new Map<string, { source: Source; refs: number }>();
+// EventSource.CLOSED: the browser gave up on the stream, as it does when the
+// server answers with an error (the control plane down) instead of the stream.
+const CLOSED = 2;
+export const RETRY_MS = 3000;
+
+const open = new Map<string, Held>();
 
 // subscribeRun follows a run's stream until the returned function is called.
 // Subscribers of one run share one connection; the last one to leave closes
-// it. A new connection starts after the last event the cache already has.
-export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFactory = (u) => new EventSource(u)): () => void {
+// it. A new connection starts after the last event the cache already has,
+// also when the browser gave up on the old one: it opens again after retryMs.
+export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFactory = (u) => new EventSource(u), retryMs = RETRY_MS): () => void {
   const held = open.get(runID);
   if (held) {
     held.refs++;
     return () => release(runID);
   }
   const key = keys.runEvents(runID);
-  const cached = qc.getQueryData<RunEvents>(key);
-  if (cached?.end) return () => {};
-  const after = cached?.events.at(-1)?.seq;
-  const source = connect(`/api/runs/${encodeURIComponent(runID)}/stream${after ? `?after=${after}` : ""}`);
-  open.set(runID, { source, refs: 1 });
+  if (qc.getQueryData<RunEvents>(key)?.end) return () => {};
   const update = (f: (prev: RunEvents) => RunEvents) => qc.setQueryData<RunEvents>(key, (prev) => f(prev ?? noEvents));
   const stale = (type: string) => {
     for (const k of invalidations(runID, type)) void qc.invalidateQueries({ queryKey: k });
   };
-  for (const t of eventTypes) {
-    source.addEventListener(t, (m: Event) => {
-      const e = parseStreamEvent(m);
-      if (e) {
-        update((prev) => mergeEvent(prev, e));
-        stale(e.type);
-      } else if (t === "error" && isConnectionError(m)) {
-        update((prev) => ({ ...prev, reconnecting: true }));
-      }
+  const current = (source: Source) => open.get(runID)?.source === source;
+  const start = (): Source => {
+    const after = qc.getQueryData<RunEvents>(key)?.events.at(-1)?.seq;
+    const source = connect(`/api/runs/${encodeURIComponent(runID)}/stream${after ? `?after=${after}` : ""}`);
+    for (const t of eventTypes) {
+      source.addEventListener(t, (m: Event) => {
+        const e = parseStreamEvent(m);
+        if (e) {
+          update((prev) => mergeEvent(prev, e));
+          stale(e.type);
+        } else if (t === "error" && isConnectionError(m)) {
+          update((prev) => ({ ...prev, reconnecting: true }));
+          const h = open.get(runID);
+          if (h && current(source) && source.readyState === CLOSED && !h.retry) {
+            h.retry = setTimeout(() => {
+              h.retry = undefined;
+              if (current(source)) h.source = start();
+            }, retryMs);
+          }
+        }
+      });
+    }
+    // Connected (again): the stream is live, though no new event came yet.
+    source.addEventListener("open", () => update((prev) => (prev.reconnecting ? { ...prev, reconnecting: false } : prev)));
+    source.addEventListener("end", (m: Event) => {
+      const e = parseStreamEvent(m) as { status?: string } | null;
+      update((prev) => ({ ...prev, end: e?.status ?? "finished", reconnecting: false }));
+      stale("end");
+      source.close();
+      if (current(source)) open.delete(runID);
     });
-  }
-  source.addEventListener("end", (m: Event) => {
-    const e = parseStreamEvent(m) as { status?: string } | null;
-    update((prev) => ({ ...prev, end: e?.status ?? "finished", reconnecting: false }));
-    stale("end");
-    source.close();
-    open.delete(runID);
-  });
+    return source;
+  };
+  const h: Held = { source: { addEventListener() {}, close() {} }, refs: 1 };
+  open.set(runID, h);
+  h.source = start();
   return () => release(runID);
 }
 
@@ -74,6 +95,7 @@ function release(runID: string) {
   const held = open.get(runID);
   if (!held) return;
   if (--held.refs > 0) return;
+  clearTimeout(held.retry);
   held.source.close();
   open.delete(runID);
 }

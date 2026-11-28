@@ -18,6 +18,8 @@ export type RunSummary = {
   ReleaseSHA?: string;
   ReleaseVersion?: string;
   CreatedAt: string;
+  StartedAt?: string | null;
+  FinishedAt?: string | null;
   CostUSD: number;
 };
 

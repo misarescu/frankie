@@ -8,3 +8,7 @@ test("the theme's text-xs2 size survives a text colour after it", () => {
 test("a later size still wins over text-xs2", () => {
   expect(cn("text-xs2", "text-sm")).toBe("text-sm");
 });
+
+test("a later colour still wins over an earlier one", () => {
+  expect(cn("text-muted-fg", "text-bad")).toBe("text-bad");
+});

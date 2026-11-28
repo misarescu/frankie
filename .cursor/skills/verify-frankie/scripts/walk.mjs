@@ -27,6 +27,10 @@
 //              an exact text match; an object is a locator as in --history. The first
 //              sighting is screenshotted as <name>.<viewport>.<theme>.absent.png.
 //   "present": ["Finished"]  must be visible once the load has settled (1 s grace).
+//   "mock":    [{"url": "/\\/api\\/runs(\\?|$)/", "json": []}]  answer matching requests with
+//              this JSON (status 200, or "status") instead of sending them, to see the page
+//              when the API leaves something out (a run older than the newest the list
+//              returns). A mock wins over a slow entry for the same URL.
 //   "budget":  4  most times one GET /api URL (path and query) may be requested
 //              between navigation and settling; null turns it off. Default 4, or the
 //              file's top-level "budget", or --budget. Event streams are not counted.
@@ -176,6 +180,10 @@ async function walkPaths(browser, base, spec, out, flags) {
             await route.continue().catch(() => {});
           });
         }
+        for (const m of p.mock ?? []) {
+          await page.route((u) => matches(m.url, u.href), (route) =>
+            route.fulfill({ status: m.status ?? 200, contentType: "application/json", body: JSON.stringify(m.json) }).catch(() => {}));
+        }
         const stem = join(out, name + "." + viewport + "." + theme);
         const t0 = Date.now();
         const absent = (p.absent ?? []).map((t) => ({ t, loc: textLocator(page, t), seen: null }));
@@ -214,7 +222,7 @@ async function walkPaths(browser, base, spec, out, flags) {
         const shot = stem + ".png";
         await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
         const seenAbsent = absent.filter((a) => a.seen).map((a) => ({ text: a.t, ...a.seen }));
-        const r = { name, path: p.path, viewport, theme, url: page.url(), h1: await heading(page), screenshot: shot, settled, loadError, slow: p.slow ?? [],
+        const r = { name, path: p.path, viewport, theme, url: page.url(), h1: await heading(page), screenshot: shot, settled, loadError, slow: p.slow ?? [], mock: (p.mock ?? []).map((m) => m.url),
           seenAbsent, missingPresent: missing, budget, overBudget, requests, ...seen };
         r.ok = ok(seen) && !loadError && seenAbsent.length === 0 && missing.length === 0 && overBudget.length === 0;
         results.push(r);

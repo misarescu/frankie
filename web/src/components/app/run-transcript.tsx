@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangleIcon, BotIcon, ChevronRightIcon, CircleCheckIcon, CircleHelpIcon, CoinsIcon, FileDiffIcon, HammerIcon, MessageSquareIcon,
+  ActivityIcon, AlertTriangleIcon, BotIcon, ChevronRightIcon, CircleCheckIcon, CircleHelpIcon, CoinsIcon, FileDiffIcon, HammerIcon, MessageSquareIcon,
   ScrollTextIcon, SearchCheckIcon, ShieldCheckIcon, TerminalIcon, UserIcon, WrenchIcon,
 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -196,7 +196,7 @@ function EventRow({ e }: { e: RunEvent }) {
     case "done":
       return <Line e={e} icon={<CircleCheckIcon className={ic} />} text={text} tone={e.payload.status === "failed" ? "text-bad" : undefined} />;
     case "state_change":
-      return <Line e={e} icon={<ChevronRightIcon className={ic} />} text={text} />;
+      return <Line e={e} icon={<ActivityIcon className={ic} />} text={text} />;
     default:
       return (
         <div className="px-4 py-2">

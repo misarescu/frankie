@@ -41,10 +41,13 @@ export function ApprovalsPage() {
 
   // A release gate links to its release: found by its run, else by commit.
   const releaseGates = (gates.data ?? []).some((a) => releaseGateSHA(a));
-  const runs = useQuery({ ...runsQuery(), enabled: releaseGates }).data ?? [];
-  const projects = useQuery(projectsQuery()).data ?? [];
-  const releases = useQueries({ queries: projects.map((p) => ({ ...releasesQuery(p.name), enabled: releaseGates })) })
-    .flatMap((r) => r.data ?? []);
+  const runsRead = useQuery({ ...runsQuery(), enabled: releaseGates });
+  const projectsRead = useQuery(projectsQuery());
+  const runs = runsRead.data ?? [];
+  const projects = projectsRead.data ?? [];
+  const releasesRead = useQueries({ queries: projects.map((p) => ({ ...releasesQuery(p.name), enabled: releaseGates })) });
+  const releases = releasesRead.flatMap((r) => r.data ?? []);
+  const findingRelease = runsRead.isPending || projectsRead.isPending || releasesRead.some((r) => r.isPending);
 
   const items = inboxItems(questions.data ?? [], gates.data ?? [], specs.data ?? []);
   const counts = inboxCounts(items);
@@ -105,7 +108,7 @@ export function ApprovalsPage() {
           case "gate": {
             const id = releaseOf(i.approval, runs, releases);
             const rel = releases.find((r) => r.id === id);
-            return <GateCard key={i.id} approval={i.approval} release={id ? { id, name: rel && releaseName(rel) } : undefined} />;
+            return <GateCard key={i.id} approval={i.approval} release={id ? { id, name: rel && releaseName(rel) } : undefined} findingRelease={findingRelease} />;
           }
         }
       })}

@@ -61,7 +61,8 @@ export function ReleasePage() {
 
 function Release({ rel, project, stale }: { rel: ReleaseDetail; project: Project | undefined; stale?: string }) {
   const runIDs = new Set(rel.runs.map((r) => r.id));
-  const gates = (useQuery(approvalsQuery()).data ?? []).filter((a) => runIDs.has(a.run_id));
+  const approvals = useQuery(approvalsQuery());
+  const gates = (approvals.data ?? []).filter((a) => runIDs.has(a.run_id));
   const issues = useQuery({ ...issuesQuery(project?.name ?? ""), enabled: !!project && !!rel.bug_issue_ref }).data ?? [];
   const bugIssue = rel.bug_issue_ref ? issues.find((i) => i.source_ref === rel.bug_issue_ref) : undefined;
   const stages = pipelineStages(rel.stages, gates.map((g) => g.step));
@@ -98,7 +99,7 @@ function Release({ rel, project, stale }: { rel: ReleaseDetail; project: Project
           </div>
         </Alert>
       )}
-      <Card className="px-4 py-3"><Pipeline stages={stages} big /></Card>
+      <Card className="px-4 py-3"><Pipeline stages={stages} big checking={approvals.isPending && isLive(rel.status)} /></Card>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-5">

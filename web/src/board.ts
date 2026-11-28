@@ -55,7 +55,9 @@ export function waitsFor(i: IssueSummary, byKey: ReadonlyMap<string, IssueSummar
   return out;
 }
 
-export type BoardSummary = { running: number; waiting: number; merged: number; spent: number };
+// waiting is undefined until the inbox, the runs and the releases have all
+// answered: a count missing its release gates would read low, then jump.
+export type BoardSummary = { running: number; waiting: number | undefined; merged: number; spent: number };
 
 // boardSummary is the strip above the board: the issues with a run going
 // (leaves: a parent is running while any issue under it is), what waits for
@@ -67,11 +69,11 @@ export function boardSummary(project: Project, issues: IssueSummary[], inbox: In
   const mine = (key: string) => keyPrefix(key) === project.key_prefix;
   const releaseIDs = new Set(releaseRuns?.releases.map((r) => r.id));
   const releaseRunIDs = new Set(releaseRuns?.runs.filter((r) => r.ReleaseID && releaseIDs.has(r.ReleaseID)).map((r) => r.ID));
-  const waiting = inbox
+  const waiting = inbox && releaseRuns
     ? inbox.approvals.filter((a) => mine(a.issue_key) || releaseRunIDs.has(a.run_id)).length +
       inbox.questions.filter((q) => mine(q.issue_key)).length +
       inbox.specs.filter((s) => s.project === project.name).length
-    : 0;
+    : undefined;
   return {
     running: issues.filter((i) => i.status === "running" && !parents.has(i.key)).length,
     waiting,

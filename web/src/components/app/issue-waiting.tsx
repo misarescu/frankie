@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { approvalsQuery, questionsQuery } from "@/api/queries";
 import { AppLink } from "@/components/app/AppLink";
 import { GateDecision, QuestionAnswer, SpecDecision } from "@/components/app/decisions";
+import { InboxAlert } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 import { formatWhen, shortSHA } from "@/format";
 import type { IssueDetail } from "@/issues";
@@ -31,12 +32,16 @@ const openInbox = (kind: ApprovalKind) => (
 // place: a human gate of its run (D43, D92), an agent's question (D55) and a
 // refined spec (D64). The approvals inbox lists the same across projects.
 export function IssueWaiting({ issue }: { issue: IssueDetail }) {
-  const gates = (useQuery(approvalsQuery()).data ?? []).filter((a) => a.issue_key === issue.key);
-  const questions = (useQuery(questionsQuery()).data ?? []).filter((q) => q.issue_key === issue.key);
+  const approvalsRead = useQuery(approvalsQuery());
+  const questionsRead = useQuery(questionsQuery());
+  const gates = (approvalsRead.data ?? []).filter((a) => a.issue_key === issue.key);
+  const questions = (questionsRead.data ?? []).filter((q) => q.issue_key === issue.key);
   const proposal = issue.status === "refining" ? issue.spec_proposal : undefined;
-  if (gates.length === 0 && questions.length === 0 && !proposal) return null;
+  const alert = <InboxAlert reads={[approvalsRead, questionsRead]} />;
+  if (gates.length === 0 && questions.length === 0 && !proposal) return alert;
   return (
     <div className="space-y-3">
+      {alert}
       {gates.map((a) => (
         <Banner key={a.step_run_id} icon={<ShieldAlertIcon className="size-4" />} title={`Gate ${a.step} waits for your decision`}>
           <p className="text-[13px] text-muted-fg [overflow-wrap:anywhere]">{a.reason}</p>

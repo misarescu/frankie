@@ -12,12 +12,13 @@ import { useCrumbs } from "@/components/app/Breadcrumbs";
 import { PageHeader } from "@/components/app/PageHeader";
 import { useProject } from "@/components/app/project";
 import { Stat } from "@/components/app/Stat";
-import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
+import { EmptyState, ErrorState, InboxAlert, LoadingState } from "@/components/app/states";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Segmented } from "@/components/ui/segmented";
+import { Skeleton } from "@/components/ui/skeleton";
 import { boardRows, boardSummary, graphIssues, type Inbox } from "@/board";
 import { projectCrumb } from "@/crumbs";
 import type { Project, StartReply } from "@/issues";
@@ -101,6 +102,7 @@ function Board({ project }: { project: Project }) {
   const rows = boardRows(all, { finished, collapsed });
   const summary = boardSummary(project, all, inbox, runs.data && releases.data ? { runs: runs.data, releases: releases.data } : undefined);
   const hiddenFinished = !finished && rows.length === 0 && all.length > 0;
+  const counting = [approvals, questions, specs, runs, releases].some((q) => q.isPending);
 
   return (
     <div className="space-y-5">
@@ -118,10 +120,11 @@ function Board({ project }: { project: Project }) {
           <div className="min-w-0 [overflow-wrap:anywhere]">Could not refresh the issues ({issues.error.message}); showing what was loaded last.</div>
         </Alert>
       )}
+      <InboxAlert reads={[approvals, questions, specs]} />
       <Card className="grid grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-line">
         <Stat label="Running" value={summary.running} sub="issues with a run going" tone={summary.running ? "primary" : undefined} />
         <AppLink href={paths.approvals()} className="rounded-lg hover:bg-hover">
-          <Stat label="Waiting for you" value={inbox ? summary.waiting : "-"} sub="gates, questions, specs" tone={summary.waiting ? "warn" : undefined} />
+          <Stat label="Waiting for you" value={summary.waiting ?? (counting ? <Skeleton className="mt-1 h-5 w-6" /> : "-")} sub="gates, questions, specs" tone={summary.waiting ? "warn" : undefined} />
         </AppLink>
         <Stat label="Merged" value={summary.merged} sub="merged or released" />
         <Stat label="Spent" value={usd(summary.spent)} sub="all issues, rolled up" />

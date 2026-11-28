@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { RocketIcon } from "lucide-react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { approvalsQuery, releasesQuery, runsQuery } from "@/api/queries";
 import { AppLink } from "@/components/app/AppLink";
 import { useCrumbs } from "@/components/app/Breadcrumbs";
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { releaseOf } from "@/inbox";
 import { paths } from "@/paths";
 import { formatWhen, shortSHA } from "@/format";
-import { pipelineStages, releaseName, type ReleaseSummary, type StageStatus } from "@/releases";
+import { isLive, pipelineStages, releaseName, type ReleaseSummary } from "@/releases";
 
 // ReleasesPage lists a project's releases newest first (D130): each one's
 // version or commit, status, its stages as a pipeline (a stage waiting at its
@@ -29,8 +29,11 @@ export function ReleasesPage() {
   const project = useProject();
   useCrumbs([projectCrumb(project), { label: "Releases" }]);
   const releases = useQuery(releasesQuery(project.name));
-  const approvals = useQuery(approvalsQuery()).data ?? [];
-  const runs = useQuery(runsQuery()).data ?? [];
+  const approvalsRead = useQuery(approvalsQuery());
+  const runsRead = useQuery(runsQuery());
+  const approvals = approvalsRead.data ?? [];
+  const runs = runsRead.data ?? [];
+  const checking = approvalsRead.isPending || runsRead.isPending;
 
   const header = <PageHeader title="Releases" sub="every merge from the merge queue asks for a release; its stages come from .factory/config.yaml" />;
   if (releases.isPending) return <div className="space-y-5">{header}<LoadingState rows={4} /></div>;
@@ -38,8 +41,11 @@ export function ReleasesPage() {
     return <div className="space-y-5">{header}<ErrorState error={releases.error} what="the releases" onRetry={() => void releases.refetch()} /></div>;
   }
   const list = releases.data;
-  const stagesOf = (r: ReleaseSummary): StageStatus[] =>
-    pipelineStages(r.stages, approvals.filter((a) => releaseOf(a, runs, list) === r.id).map((a) => a.step));
+  // Until the gates load, a live release may have a stage waiting for a person.
+  const pipeline = (r: ReleaseSummary) => (
+    <Pipeline stages={pipelineStages(r.stages, approvals.filter((a) => releaseOf(a, runs, list) === r.id).map((a) => a.step))}
+      checking={checking && isLive(r.status)} />
+  );
 
   return (
     <div className="space-y-5">
@@ -51,9 +57,9 @@ export function ReleasesPage() {
         </EmptyState>
       ) : (
         <>
-          <ReleasesTable releases={list} stagesOf={stagesOf} />
+          <ReleasesTable releases={list} pipeline={pipeline} />
           <ul className="space-y-3 md:hidden">
-            {list.map((r) => <li key={r.id}><ReleaseCard release={r} stages={stagesOf(r)} /></li>)}
+            {list.map((r) => <li key={r.id}><ReleaseCard release={r} pipeline={pipeline(r)} /></li>)}
           </ul>
         </>
       )}
@@ -86,7 +92,7 @@ function Issues({ keys }: { keys: string[] }) {
 
 const finished = (r: ReleaseSummary) => (r.finished_at ? formatWhen(r.finished_at) : "-");
 
-function ReleasesTable({ releases, stagesOf }: { releases: ReleaseSummary[]; stagesOf: (r: ReleaseSummary) => StageStatus[] }) {
+function ReleasesTable({ releases, pipeline }: { releases: ReleaseSummary[]; pipeline: (r: ReleaseSummary) => ReactNode }) {
   const router = useRouter();
   // A row opens its release; a link inside it goes where it points.
   const open = (r: ReleaseSummary) => (e: MouseEvent) => {
@@ -111,7 +117,7 @@ function ReleasesTable({ releases, stagesOf }: { releases: ReleaseSummary[]; sta
             <TableRow key={r.id} onClick={open(r)} className="cursor-pointer">
               <TableCell><Name r={r} /></TableCell>
               <TableCell><StatusBadge status={r.status} /></TableCell>
-              <TableCell className="min-w-64"><Pipeline stages={stagesOf(r)} /></TableCell>
+              <TableCell className="min-w-64">{pipeline(r)}</TableCell>
               <TableCell className="whitespace-nowrap"><Issues keys={r.issues} /></TableCell>
               <TableCell className="tnum whitespace-nowrap text-muted-fg">{formatWhen(r.created_at)}</TableCell>
               <TableCell className="tnum whitespace-nowrap text-muted-fg">{finished(r)}</TableCell>
@@ -124,14 +130,14 @@ function ReleasesTable({ releases, stagesOf }: { releases: ReleaseSummary[]; sta
 }
 
 // ReleaseCard is a release at phone width, where the table does not fit.
-function ReleaseCard({ release: r, stages }: { release: ReleaseSummary; stages: StageStatus[] }) {
+function ReleaseCard({ release: r, pipeline }: { release: ReleaseSummary; pipeline: ReactNode }) {
   return (
     <Card className="space-y-2 px-4 py-3 text-[13px]">
       <div className="flex items-start justify-between gap-2">
         <Name r={r} />
         <StatusBadge status={r.status} />
       </div>
-      <Pipeline stages={stages} />
+      {pipeline}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
         <Issues keys={r.issues} />
       </div>

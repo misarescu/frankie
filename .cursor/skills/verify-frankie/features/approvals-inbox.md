@@ -36,5 +36,6 @@ Preconditions: fresh launch, name and token set (footer menu `Your name and API 
 - Gate decisions and answers go through Temporal signals; locally they fail with `workflows are not running`. Only spec decisions work here.
 - The inbox polls every 5 s; a decided item disappears when the write's refresh lands. Filter names carry the count once loaded (`Gates 2`): match them without `--exact`.
 - A cold load shows the filter without counts and a loading list until approvals, questions and specs have all answered; one failing shows `Could not load the <kind>` with `Try again` above what loaded.
+- A release gate's card links `Release <sha7> of <repo>` to its release once the runs or the releases answer; until then the title is muted with `finding the release` after it (`role=status`).
 - `Review the change request` links to `https://example.invalid/...` in the seed; do not follow it.
 - The empty inbox for gates and questions needs a workflow to resolve them; it is shown by fulfilling `/api/approvals`, `/api/questions` and `/api/specs` with `[]` in Playwright.

@@ -85,8 +85,12 @@ test("boardSummary counts running leaves, the project's waiting items, merged is
   expect(s).toEqual({ running: 2, waiting: 4, merged: 2, spent: 2.25 });
 });
 
-test("boardSummary counts nothing waiting before the inbox loads", () => {
-  expect(boardSummary(project, issues, undefined, undefined).waiting).toBe(0);
+test("boardSummary leaves the waiting count unknown until the inbox, runs and releases have all answered", () => {
+  const releaseRuns = { runs: [], releases: [] };
+  expect(boardSummary(project, issues, undefined, undefined).waiting).toBeUndefined();
+  expect(boardSummary(project, issues, inbox(), undefined).waiting).toBeUndefined();
+  expect(boardSummary(project, issues, undefined, releaseRuns).waiting).toBeUndefined();
+  expect(boardSummary(project, issues, inbox(), releaseRuns).waiting).toBe(0);
 });
 
 test("graphIssues keeps a finished issue only while an unfinished one waits for it", () => {

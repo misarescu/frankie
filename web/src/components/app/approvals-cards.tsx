@@ -51,8 +51,11 @@ const Reason = ({ children }: { children: ReactNode }) => (
 
 // GateCard is a human gate: on an issue (protected changes, a merge approval
 // with request changes, a bug-fix decision) or before a release stage (D139),
-// which links to its release instead of an issue.
-export function GateCard({ approval: a, release }: { approval: Approval; release?: { id?: string; name?: string } }) {
+// which links to its release instead of an issue; findingRelease while the
+// runs and releases that name it are still loading.
+export function GateCard({ approval: a, release, findingRelease = false }: {
+  approval: Approval; release?: { id?: string; name?: string }; findingRelease?: boolean;
+}) {
   const sha = releaseGateSHA(a);
   const prot = !sha && isProtected(a);
   const expiry = expiresIn(a.expires_at);
@@ -69,7 +72,9 @@ export function GateCard({ approval: a, release }: { approval: Approval; release
           {sha
             ? release?.id
               ? <AppLink href={paths.release(release.id)} className="text-primary hover:underline">{a.issue_title}</AppLink>
-              : <span>{a.issue_title}</span>
+              : findingRelease
+                ? <span className="text-muted-fg">{a.issue_title} <span role="status" className="animate-pulse text-xs">finding the release</span></span>
+                : <span>{a.issue_title}</span>
             : <IssueLink issueKey={a.issue_key} title={a.issue_title} />}
           <AppLink href={paths.run(a.run_id, a.step_run_id)} className={link}>Run · {a.step}</AppLink>
           {a.change_request_url && (

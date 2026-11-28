@@ -1,5 +1,7 @@
+import type { UseQueryResult } from "@tanstack/react-query";
 import { AlertTriangleIcon, RotateCwIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +42,26 @@ export function ErrorState({ error, what, onRetry, className, level = 2 }: {
         </Button>
       )}
     </Card>
+  );
+}
+
+// InboxAlert says the approvals inbox could not be read, so what waits for a
+// person on this page is missing or out of date, and offers to retry.
+export function InboxAlert({ reads }: { reads: UseQueryResult<unknown>[] }) {
+  const failed = reads.filter((r) => r.isError);
+  if (failed.length === 0) return null;
+  const stale = failed.every((r) => r.data !== undefined);
+  return (
+    <Alert tone="warn" className="flex-wrap items-center">
+      <AlertTriangleIcon className="size-4" />
+      <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+        Could not read the approvals inbox ({failed[0]!.error?.message}); what waits for you here {stale ? "may be out of date" : "is not shown"}.
+      </div>
+      <Button variant="outline" size="sm" onClick={() => { for (const r of failed) void r.refetch(); }}>
+        <RotateCwIcon className="size-3.5" />
+        Try again
+      </Button>
+    </Alert>
   );
 }
 

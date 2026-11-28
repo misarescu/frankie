@@ -43,6 +43,7 @@ Preconditions: fresh launch, name and token set. `vfy-5` is refining with a prop
 ## Gotchas
 
 - Only the waiting banners and the `Overlaps` box are `<section>` regions named by their title, so scope their buttons with `--in-section "<title>"`; the other cards (Spec, Relations, the run card) are not sections and `--in-section` cannot scope them. `Approve` prefix-matches `Approve spec`: use `--exact` for a gate.
+- When `/api/approvals` or `/api/questions` fails, the gate and question banners cannot show; a warning under the header says `Could not read the approvals inbox (<reason>); what waits for you here is not shown.` with `Try again`, which brings the banners back once the inbox answers (show it with a Playwright route answering 500).
 - `Cancel issue`, `Send back with feedback`, a gate's `Request changes` (a comment) and `Answer` stay disabled until their text is typed.
 - A cancel or complete that closes more than the issue (a parent's unfinished issues) adds `Closed: <keys> ... Frankie closes their GitHub issues within a minute.`. Intake is not running here, so `source_closed_at` stays null; that GitHub side effect is unverified.
 - `Complete` appears only on a parent whose sub-issues are all finished and at least one is not canceled. Only a merge makes a sub-issue `merged`, so `issue-complete` is unreachable here. Unverified.

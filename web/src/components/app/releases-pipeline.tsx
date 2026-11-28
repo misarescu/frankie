@@ -5,9 +5,13 @@ import { cn } from "@/lib/utils";
 import type { StageStatus } from "@/releases";
 
 // Pipeline is a release's stages in order, each a chip with its status (the
-// mockup's): small in the releases list, boxed on the release page.
-export function Pipeline({ stages, big = false, className }: { stages: StageStatus[]; big?: boolean; className?: string }) {
-  if (stages.length === 0) return <span className={cn("text-xs text-muted-fg", className)}>no stage started</span>;
+// mockup's): small in the releases list, boxed on the release page. checking:
+// the gates are still loading, so a stage that waits for a person may be missing.
+export function Pipeline({ stages, big = false, checking = false, className }: {
+  stages: StageStatus[]; big?: boolean; checking?: boolean; className?: string;
+}) {
+  const hint = checking && <span role="status" className="animate-pulse text-xs text-muted-fg">checking for a gate</span>;
+  if (stages.length === 0) return hint || <span className={cn("text-xs text-muted-fg", className)}>no stage started</span>;
   return (
     <div className={cn("flex min-w-0 flex-wrap items-center gap-1.5", className)} aria-label="Stages">
       {stages.map((s, n) => (
@@ -19,6 +23,7 @@ export function Pipeline({ stages, big = false, className }: { stages: StageStat
           </span>
         </Fragment>
       ))}
+      {hint}
     </div>
   );
 }

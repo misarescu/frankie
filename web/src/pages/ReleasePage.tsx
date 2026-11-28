@@ -239,7 +239,7 @@ function DeploymentCard({ d }: { d: Deployment }) {
           {v && (
             <div className="space-y-2">
               <p className="flex flex-wrap items-center gap-2">
-                <StatusBadge status={verificationState(v)} label={`verification ${verificationState(v)}`} />
+                <StatusBadge status={verificationState(v)} label={verificationState(v) === "skipped" ? "no verification" : `verification ${verificationState(v)}`} />
                 <span className="tnum font-medium [overflow-wrap:anywhere]">{verificationText(v)}</span>
               </p>
               {v.failures && v.failures.length > 0 && (

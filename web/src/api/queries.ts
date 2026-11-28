@@ -5,7 +5,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { Approval } from "@/approvals";
 import type { RunEvent, RunSummary } from "@/events";
-import type { IssueDetail, IssueSummary, Project } from "@/issues";
+import { detailWithTotal, summaryWithTotal, type IssueDetail, type IssueSummary, type Project } from "@/issues";
 import type { Question } from "@/questions";
 import { isLive, type ReleaseDetail, type ReleaseSummary } from "@/releases";
 import type { Spec } from "@/specs";
@@ -58,13 +58,13 @@ export const projectsQuery = () => queryOptions({
 
 export const issuesQuery = (project: string) => queryOptions({
   queryKey: keys.issues(project),
-  queryFn: () => getJSON<IssueSummary[]>(`/api/issues?project=${enc(project)}`),
+  queryFn: () => getJSON<IssueSummary[]>(`/api/issues?project=${enc(project)}`).then((l) => l.map(summaryWithTotal)),
   refetchInterval: 10_000,
 });
 
 export const issueQuery = (key: string) => queryOptions({
   queryKey: keys.issue(key),
-  queryFn: () => getJSON<IssueDetail>(`/api/issues/${enc(key)}`),
+  queryFn: () => getJSON<IssueDetail>(`/api/issues/${enc(key)}`).then(detailWithTotal),
   refetchInterval: (q) => ((q.state.data?.live_runs.length ?? 0) > 0 ? 3_000 : 5_000),
 });
 

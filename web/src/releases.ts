@@ -67,9 +67,14 @@ export function verificationText(v: Verification | undefined): string {
   return v.summary || "failed";
 }
 
-// verificationState is the chip a verification shows.
-export function verificationState(v: Verification): "succeeded" | "failed" | "inconclusive" {
-  if (v.passed) return "succeeded";
+// A stage without a verify step records a passing verification with this
+// summary (internal/workflow/activities/verify_stage.go).
+const NOT_VERIFIED = "not verified";
+
+// verificationState is the chip a verification shows; "skipped" for a stage
+// that has nothing to verify it, which passed without proving anything.
+export function verificationState(v: Verification): "succeeded" | "failed" | "inconclusive" | "skipped" {
+  if (v.passed) return v.summary === NOT_VERIFIED ? "skipped" : "succeeded";
   return v.inconclusive ? "inconclusive" : "failed";
 }
 

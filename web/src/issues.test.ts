@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   ancestors, canComplete, cancelIssue, findProject, keyPrefix, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, startIssues, subtree, tree,
-  type IssueDetail, type IssueRef, type IssueSummary,
+  type IssueDetail, type IssueRef, type IssueSummary, detailWithTotal, summaryWithTotal,
 } from "./issues";
 
 const issue = (key: string, over: Partial<IssueSummary> = {}): IssueSummary => ({
@@ -214,4 +214,19 @@ test("ancestors lists the parents outermost first, and stops at a missing or loo
   expect(ancestors(all, "gc-90")).toEqual([]);
   expect(ancestors(all, "gc-91").map((i) => i.key)).toEqual(["gc-92"]);
   expect(ancestors(all, "nope")).toEqual([]);
+});
+
+// D142: an API without total_cost_usd (a control plane from before M9).
+test("an issue without total_cost_usd totals its own cost", () => {
+  const s = { key: "gc-7", cost_usd: 0.25 } as unknown as IssueSummary;
+  expect(summaryWithTotal(s).total_cost_usd).toBe(0.25);
+  const d = { key: "gc-7", usage: { cost_usd: 0.5, input_tokens: 0, output_tokens: 0 } } as unknown as IssueDetail;
+  expect(detailWithTotal(d).total_cost_usd).toBe(0.5);
+});
+
+test("an issue's total_cost_usd from the API is kept", () => {
+  const s = { key: "gc-7", cost_usd: 0.25, total_cost_usd: 3 } as unknown as IssueSummary;
+  expect(summaryWithTotal(s).total_cost_usd).toBe(3);
+  const d = { key: "gc-7", usage: { cost_usd: 0.5, input_tokens: 0, output_tokens: 0 }, total_cost_usd: 4 } as unknown as IssueDetail;
+  expect(detailWithTotal(d).total_cost_usd).toBe(4);
 });

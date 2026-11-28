@@ -79,6 +79,14 @@ export type IssueDetail = {
   overlaps: Overlap[];
 };
 
+// A control plane older than D142 sends no total_cost_usd; the issue's own
+// cost stands in for it, so a web pod rolled out ahead of its control plane
+// still shows every cost instead of failing.
+export const summaryWithTotal = (i: IssueSummary): IssueSummary =>
+  ({ ...i, total_cost_usd: (i as Partial<IssueSummary>).total_cost_usd ?? i.cost_usd });
+export const detailWithTotal = (i: IssueDetail): IssueDetail =>
+  ({ ...i, total_cost_usd: (i as Partial<IssueDetail>).total_cost_usd ?? i.usage.cost_usd });
+
 export type StartReply = {
   requested: string[];
   starting: string[];

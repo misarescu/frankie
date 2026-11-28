@@ -1,4 +1,6 @@
 import { ActivityIcon, InboxIcon, RocketIcon, SquareKanbanIcon, type LucideIcon } from "lucide-react";
+import type { RunSummary } from "@/events";
+import { keyPrefix, type Project } from "@/issues";
 import { paths } from "@/paths";
 
 export type NavID = "board" | "runs" | "approvals" | "releases";
@@ -28,4 +30,37 @@ export function activeNav(path: string): NavID | undefined {
   if (/^\/projects\/[^/]+\/releases/.test(path) || path.startsWith("/releases/")) return "releases";
   if (path.startsWith("/approvals")) return "approvals";
   return undefined;
+}
+
+// PageEntity is what a path shows that belongs to one project: a project's
+// page, an issue (by its key's prefix), a run or a release (whose project
+// is known once they load).
+export type PageEntity =
+  | { kind: "project" | "issue"; prefix: string }
+  | { kind: "run" | "release"; id: string };
+
+export function pageEntity(path: string): PageEntity | undefined {
+  const m = /^\/(projects|issues|runs|releases)\/([^/?#]+)/.exec(path);
+  if (!m?.[2]) return undefined;
+  const v = decodeURIComponent(m[2]);
+  switch (m[1]) {
+    case "projects": return { kind: "project", prefix: v };
+    case "issues": return { kind: "issue", prefix: keyPrefix(v) };
+    case "runs": return { kind: "run", id: v };
+    default: return { kind: "release", id: v };
+  }
+}
+
+// entityProject is the key prefix of the project a page's entity belongs
+// to: a run's is its issue's, or its release's; a release's is the project
+// it names. Undefined while what it takes has not loaded, or for a project
+// Frankie does not have.
+export function entityProject(e: PageEntity | undefined, projects: Pick<Project, "name" | "key_prefix">[],
+  loaded: { run?: Pick<RunSummary, "IssueKey" | "ReleaseID">; release?: { project: string } } = {}): string | undefined {
+  const byPrefix = (p: string) => projects.find((x) => x.key_prefix === p)?.key_prefix;
+  const byName = (n: string | undefined) => projects.find((x) => x.name === n)?.key_prefix;
+  if (!e) return undefined;
+  if (e.kind === "project" || e.kind === "issue") return byPrefix(e.prefix);
+  if (e.kind === "run" && loaded.run?.IssueKey) return byPrefix(keyPrefix(loaded.run.IssueKey));
+  return byName(loaded.release?.project);
 }

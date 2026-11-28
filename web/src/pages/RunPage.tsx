@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { SearchXIcon, WorkflowIcon } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
-import { approvalsQuery, ApiError, getJSON, issueQuery, keys, projectsQuery, releaseQuery, runPlanQuery, runsQuery, runStepsQuery } from "@/api/queries";
+import { approvalsQuery, ApiError, issueQuery, projectsQuery, releaseQuery, runPlanQuery, runStepsQuery } from "@/api/queries";
 import { useRunEvents } from "@/api/stream";
 import { AppLink } from "@/components/app/AppLink";
 import { useCrumbs, useIssueCrumbs } from "@/components/app/Breadcrumbs";
 import { GateDecision } from "@/components/app/decisions";
 import { IssueLink } from "@/components/app/IssueLink";
 import { PageHeader } from "@/components/app/PageHeader";
+import { useRunSummary } from "@/components/app/project";
 import { Intervene } from "@/components/app/run-intervene";
 import { StepIcon, StepList, StepNotes, StepPills, stepFacts, useNow } from "@/components/app/run-steps";
 import { Transcript } from "@/components/app/run-transcript";
@@ -16,7 +17,6 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { projectTitle, type Crumb } from "@/crumbs";
-import type { RunSummary } from "@/events";
 import { formatWhen, shortID, shortSHA } from "@/format";
 import { duration } from "@/live";
 import { cn } from "@/lib/utils";
@@ -26,20 +26,6 @@ import { runningAgentStep, shownStatus, stepName, timeline, totals, usd, type St
 import { connection, hasRun, releaseRunCrumbs, runCrumbs, selectedStepID, stepEvents, type Connection } from "@/transcript";
 
 const route = getRouteApi("/runs/$id");
-
-// useRunSummary finds the run among the recent runs (GET /api/runs), and
-// among more of them when it is older than those.
-function useRunSummary(id: string): RunSummary | undefined {
-  const recent = useQuery(runsQuery());
-  const found = recent.data?.find((r) => r.ID === id);
-  const older = useQuery({
-    queryKey: [...keys.runs, "older"],
-    queryFn: () => getJSON<RunSummary[]>("/api/runs?limit=200"),
-    enabled: recent.isSuccess && !found,
-    staleTime: 60_000,
-  });
-  return found ?? older.data?.find((r) => r.ID === id);
-}
 
 // RunPage is one run (M9): its steps on the left, the selected step's
 // transcript on the right, live while the run goes.

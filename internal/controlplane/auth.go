@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -51,6 +52,15 @@ type AuthConfig struct {
 
 func validateAuthConfig(cfg Config) error {
 	a := cfg.Auth
+	if a.PublicURL != "" {
+		u, err := url.Parse(strings.TrimSpace(a.PublicURL))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("controlplane: auth.publicURL %q must be an http(s) URL", a.PublicURL)
+		}
+	}
+	if a.Allowlist.DefaultRole != "" && a.Allowlist.DefaultRole != domain.RoleViewer && a.Allowlist.DefaultRole != domain.RoleMember {
+		return fmt.Errorf("controlplane: auth.allowlist.defaultRole %q must be viewer or member", a.Allowlist.DefaultRole)
+	}
 	if a.PreviewMode {
 		if a.PublicURL != "" {
 			return errors.New("controlplane: auth.previewMode cannot be enabled with auth.publicURL")
@@ -146,6 +156,12 @@ func buildAuthConfig(cfg Config) (api.AuthConfig, error) {
 
 func runBootstrapAdmin(ctx context.Context, st *store.Store, b BootstrapAdminConfig, log *slog.Logger) error {
 	if b.Password == "" {
+		return nil
+	}
+	if n, err := st.CountUsers(ctx); err != nil {
+		return fmt.Errorf("controlplane: bootstrap admin count users: %w", err)
+	} else if n > 0 {
+		log.Info("bootstrap admin skipped: users already exist")
 		return nil
 	}
 	rawUsername := strings.TrimSpace(b.Username)

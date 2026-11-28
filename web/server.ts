@@ -32,13 +32,16 @@ export function createServer(
         const url = new URL(req.url);
         const headers = new Headers(req.headers);
         const peerIP = server.requestIP(req)?.address ?? "";
+        // Never forward client-spoofable alternate IP headers (e.g. when behind
+        // a non-Cloudflare Ingress that passes CF-Connecting-IP through).
+        headers.delete("cf-connecting-ip");
+        headers.delete("true-client-ip");
+        headers.delete("x-real-ip");
         if (trustProxy) {
-          if (!headers.has("x-forwarded-proto")) {
-            headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
-          }
-          if (!headers.has("x-forwarded-host")) {
-            headers.set("x-forwarded-host", req.headers.get("host") || url.host);
-          }
+          const proto = rightmostHeaderValue(headers.get("x-forwarded-proto")) || url.protocol.replace(/:$/, "");
+          headers.set("x-forwarded-proto", proto);
+          const host = rightmostHeaderValue(headers.get("x-forwarded-host")) || req.headers.get("host") || url.host;
+          headers.set("x-forwarded-host", host);
           const clientIP = rightmostHeaderValue(headers.get("x-forwarded-for")) || peerIP;
           if (clientIP) {
             headers.set("x-forwarded-for", clientIP);
@@ -50,7 +53,6 @@ export function createServer(
           // rate limits and origin/scheme checks cannot be spoofed.
           headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
           headers.set("x-forwarded-host", req.headers.get("host") || url.host);
-          headers.delete("cf-connecting-ip");
           if (peerIP) {
             headers.set("x-forwarded-for", peerIP);
           } else {

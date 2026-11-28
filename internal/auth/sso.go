@@ -331,6 +331,7 @@ type idTokenClaims struct {
 	Issuer            string      `json:"iss"`
 	Subject           string      `json:"sub"`
 	Audience          audienceVal `json:"aud"`
+	AuthorizedParty   string      `json:"azp"`
 	ExpiresAt         int64       `json:"exp"`
 	NotBefore         int64       `json:"nbf"`
 	Nonce             string      `json:"nonce"`
@@ -402,6 +403,9 @@ func (s *SSOService) verifyIDToken(ctx context.Context, doc oidcDiscovery, clien
 	}
 	if !slices.Contains(claims.Audience, clientID) {
 		return idTokenClaims{}, errors.New("auth: id_token audience mismatch")
+	}
+	if len(claims.Audience) > 1 && claims.AuthorizedParty != clientID {
+		return idTokenClaims{}, errors.New("auth: id_token azp mismatch")
 	}
 	if claims.Subject == "" {
 		return idTokenClaims{}, errors.New("auth: id_token missing sub")
@@ -569,11 +573,11 @@ func (s *SSOService) fetchJWKS(ctx context.Context, jwksURI string) (map[string]
 		case "RSA":
 			nb, err1 := base64.RawURLEncoding.DecodeString(k.N)
 			eb, err2 := base64.RawURLEncoding.DecodeString(k.E)
-			if err1 != nil || err2 != nil || len(nb) == 0 || len(eb) == 0 {
+			if err1 != nil || err2 != nil || len(nb) == 0 || len(eb) == 0 || len(eb) > 8 {
 				continue
 			}
 			eVal := int(new(big.Int).SetBytes(eb).Int64())
-			if eVal <= 0 {
+			if eVal < 3 || eVal%2 == 0 {
 				continue
 			}
 			out[k.Kid] = &rsa.PublicKey{N: new(big.Int).SetBytes(nb), E: eVal}

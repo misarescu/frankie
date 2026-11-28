@@ -302,9 +302,9 @@ temporal:
 web:
   # The UI; a preview of the factory runs without it (D131).
   enabled: true
-  # Trust X-Forwarded-* and CF-Connecting-IP headers from an upstream reverse
-  # proxy (set true when fronted by Cloudflare Tunnel; enabled automatically
-  # when web.ingress.enabled is true).
+  # Trust X-Forwarded-* headers from an upstream reverse proxy (set true when
+  # fronted by Cloudflare Tunnel; enabled automatically when web.ingress.enabled
+  # is true). Alternate client IP headers such as CF-Connecting-IP are stripped.
   trustProxy: false
   # Optional public Ingress for frankie-web (D147). Leave disabled when using a
   # Cloudflare Tunnel (configured in frankie-cd) or port-forward.

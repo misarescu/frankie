@@ -38,11 +38,12 @@ describe("web /api proxy (D147)", () => {
     }
   });
 
-  test("passes 302 redirects, Set-Cookie, and trusted proxy headers through when trustProxy is enabled", async () => {
+  test("strips CF-Connecting-IP and passes rightmost forwarded headers when trustProxy is enabled", async () => {
     let seenProto: string | null = null;
     let seenHost: string | null = null;
     let seenXFF: string | null = null;
     let seenCF: string | null = null;
+    let seenRealIP: string | null = null;
     const upstream = Bun.serve({
       port: 0,
       fetch(req) {
@@ -51,6 +52,7 @@ describe("web /api proxy (D147)", () => {
         seenHost = req.headers.get("x-forwarded-host");
         seenXFF = req.headers.get("x-forwarded-for");
         seenCF = req.headers.get("cf-connecting-ip");
+        seenRealIP = req.headers.get("x-real-ip");
         if (u.pathname === "/api/auth/sso/google/start") {
           const headers = new Headers({ Location: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
           headers.append("Set-Cookie", "frankie_oauth_state=signed; Path=/api/auth/sso; HttpOnly; SameSite=Lax");
@@ -64,10 +66,11 @@ describe("web /api proxy (D147)", () => {
       const resp = await fetch(`${web.url.origin}/api/auth/sso/google/start`, {
         redirect: "manual",
         headers: {
-          "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "frankie.example.com",
+          "X-Forwarded-Proto": "http, https",
+          "X-Forwarded-Host": "evil.example.com, frankie.example.com",
           "X-Forwarded-For": "198.51.100.1, 203.0.113.42",
-          "CF-Connecting-IP": "203.0.113.42",
+          "CF-Connecting-IP": "198.51.100.77",
+          "X-Real-IP": "198.51.100.88",
         },
       });
       expect(resp.status).toBe(302);
@@ -76,7 +79,8 @@ describe("web /api proxy (D147)", () => {
       expect(seenProto).toBe("https");
       expect(seenHost).toBe("frankie.example.com");
       expect(seenXFF).toBe("203.0.113.42");
-      expect(seenCF).toBe("203.0.113.42");
+      expect(seenCF).toBeNull();
+      expect(seenRealIP).toBeNull();
     } finally {
       web.stop(true);
       upstream.stop(true);

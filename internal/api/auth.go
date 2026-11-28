@@ -181,7 +181,7 @@ func (s *Server) allowedOrigins(r *http.Request) []string {
 	if s.Auth.PublicURL != "" {
 		return out
 	}
-	host := firstHeaderValue(r.Header.Get("X-Forwarded-Host"))
+	host := lastHeaderValue(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
 		host = r.Host
 	}
@@ -222,7 +222,7 @@ func (s *Server) isHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	return strings.EqualFold(firstHeaderValue(r.Header.Get("X-Forwarded-Proto")), "https")
+	return strings.EqualFold(lastHeaderValue(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func (s *Server) publicBaseURL(r *http.Request) string {
@@ -233,19 +233,11 @@ func (s *Server) publicBaseURL(r *http.Request) string {
 	if s.isHTTPS(r) {
 		scheme = "https"
 	}
-	host := firstHeaderValue(r.Header.Get("X-Forwarded-Host"))
+	host := lastHeaderValue(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
 		host = r.Host
 	}
 	return scheme + "://" + host
-}
-
-func firstHeaderValue(h string) string {
-	if h == "" {
-		return ""
-	}
-	v, _, _ := strings.Cut(h, ",")
-	return strings.TrimSpace(v)
 }
 
 func lastHeaderValue(h string) string {
@@ -262,9 +254,6 @@ func lastHeaderValue(h string) string {
 }
 
 func clientIP(r *http.Request) string {
-	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
-		return ip
-	}
 	if ip := lastHeaderValue(r.Header.Get("X-Forwarded-For")); ip != "" {
 		return ip
 	}

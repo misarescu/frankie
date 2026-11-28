@@ -311,6 +311,43 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+// D145: a forged CF-Connecting-IP header must never bypass the per-IP login
+// rate limiter when traffic comes through an Ingress or reverse proxy.
+func TestLoginIgnoresSpoofedCFConnectingIP(t *testing.T) {
+	_, srv, _, _ := testServerAuth(t, nil, AuthConfig{
+		LoginIPLimiter:   auth.NewRateLimiter(2, time.Minute),
+		LoginUserLimiter: auth.NewRateLimiter(100, time.Minute),
+	})
+
+	post := func(user, cfIP string) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/api/auth/login",
+			strings.NewReader(`{"username":"`+user+`","password":"wrong password 123"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", "203.0.113.5")
+		req.Header.Set("CF-Connecting-IP", cfIP)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := post("u1", "198.51.100.1"); code != http.StatusUnauthorized {
+		t.Fatalf("attempt 1 = %d, want 401", code)
+	}
+	if code := post("u2", "198.51.100.2"); code != http.StatusUnauthorized {
+		t.Fatalf("attempt 2 = %d, want 401", code)
+	}
+	if code := post("u3", "198.51.100.3"); code != http.StatusTooManyRequests {
+		t.Fatalf("attempt 3 with rotated CF-Connecting-IP = %d, want 429", code)
+	}
+}
+
 // D146: PreviewMode opens reads and accepts the static preview token on writes,
 // while still keeping admin user management locked behind a real admin user.
 func TestPreviewMode(t *testing.T) {

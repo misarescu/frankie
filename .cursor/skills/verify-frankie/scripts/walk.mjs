@@ -18,6 +18,19 @@
 // is a number, a list of numbers, or "any". Status 0 is a request that failed
 // without a response (connection refused, reset).
 //
+// A path entry can also hold:
+//   "slow":    [{"url": "/\\/api\\/runs(\\?|$)/", "ms": 6000}]  hold matching requests that long
+//              before sending them, to see the page while they are out (a cold load
+//              on a busy control plane). The load counts as settled after they answer.
+//   "absent":  ["Live", {"role": "status", "name": "..."}]  must never be visible: sampled
+//              every 100 ms from navigation until settled, and once after. A string is
+//              an exact text match; an object is a locator as in --history. The first
+//              sighting is screenshotted as <name>.<viewport>.<theme>.absent.png.
+//   "present": ["Finished"]  must be visible once the load has settled (1 s grace).
+//   "budget":  4  most times one GET /api URL (path and query) may be requested
+//              between navigation and settling; null turns it off. Default 4, or the
+//              file's top-level "budget", or --budget. Event streams are not counted.
+//
 // steps.json for --history is { "storage": {...}, "expect": [...], "steps": [step, ...] }, a
 // step being {"goto": "<path>"} or {"click": <locator>} (locator: {"role", "name"} |
 // {"text"} | {"label"} | {"placeholder"} | {"css"}, with "exact" and "nth"); a
@@ -39,6 +52,12 @@ const EVIDENCE_ROOT = process.env.FRANKIE_VERIFY_EVIDENCE ?? join(homedir(), ".f
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
 const LOAD_TIMEOUT = Number(process.env.FRANKIE_VERIFY_TIMEOUT_MS ?? 15000);
 const IDLE_MS = 500;
+// A page asks for a URL once, again when its first answers or an event stream's
+// replay make it stale, and maybe once more on a poll before the load settles;
+// four leaves one spare. The run page's replay refetch (#181) asked 5-10 times for
+// each seeded run and 42 times on a real one.
+const BUDGET = 4;
+const SAMPLE_MS = 100;
 
 function die(msg) {
   console.error("walk: " + msg);
@@ -68,10 +87,16 @@ function expected(list, url, status) {
 function watch(page, expect, ignoreConsole) {
   const seen = { consoleErrors: [], pageErrors: [], apiErrors: [], expectedApiErrors: [] };
   const inflight = new Set();
+  // gets counts GET /api requests by path and query, streams left out.
+  const gets = new Map();
   let lastChange = Date.now();
   const streaming = (req) => req.resourceType() === "eventsource" || /\/stream(\?|$)/.test(req.url());
   page.on("request", (req) => {
-    if (!streaming(req)) { inflight.add(req); lastChange = Date.now(); }
+    if (streaming(req)) return;
+    inflight.add(req);
+    lastChange = Date.now();
+    const u = new URL(req.url());
+    if (req.method() === "GET" && u.pathname.startsWith("/api/")) gets.set(u.pathname + u.search, (gets.get(u.pathname + u.search) ?? 0) + 1);
   });
   const done = (req) => { if (inflight.delete(req)) lastChange = Date.now(); };
   page.on("requestfinished", done);
@@ -110,7 +135,7 @@ function watch(page, expect, ignoreConsole) {
     }
     return false;
   };
-  return { seen, idle };
+  return { seen, idle, gets };
 }
 
 async function context(browser, viewport, theme, storage) {
@@ -144,7 +169,30 @@ async function walkPaths(browser, base, spec, out, flags) {
       for (const theme of themes) {
         const ctx = await context(browser, viewport, theme, { ...(spec.storage ?? {}), ...(p.storage ?? {}) });
         const page = await ctx.newPage();
-        const { seen, idle } = watch(page, [...(spec.expect ?? []), ...(p.expect ?? [])], spec.ignoreConsole ?? []);
+        const { seen, idle, gets } = watch(page, [...(spec.expect ?? []), ...(p.expect ?? [])], spec.ignoreConsole ?? []);
+        for (const s of p.slow ?? []) {
+          await page.route((u) => matches(s.url, u.href), async (route) => {
+            await new Promise((r) => setTimeout(r, s.ms));
+            await route.continue().catch(() => {});
+          });
+        }
+        const stem = join(out, name + "." + viewport + "." + theme);
+        const t0 = Date.now();
+        const absent = (p.absent ?? []).map((t) => ({ t, loc: textLocator(page, t), seen: null }));
+        let loading = true;
+        const sample = async () => {
+          for (const a of absent) {
+            if (a.seen || !(await visible(a.loc))) continue;
+            a.seen = { atMs: Date.now() - t0, screenshot: stem + ".absent.png" };
+            await page.screenshot({ path: a.seen.screenshot, fullPage: true }).catch(() => {});
+          }
+        };
+        const sampler = (async () => {
+          while (loading) {
+            await sample();
+            await new Promise((r) => setTimeout(r, SAMPLE_MS));
+          }
+        })();
         let loadError = null, settled = false;
         try {
           await page.goto(new URL(p.path, base).href, { waitUntil: "load", timeout: LOAD_TIMEOUT });
@@ -152,13 +200,28 @@ async function walkPaths(browser, base, spec, out, flags) {
         } catch (e) {
           loadError = String(e.message).split("\n")[0];
         }
-        const shot = join(out, name + "." + viewport + "." + theme + ".png");
+        loading = false;
+        await sampler;
+        await sample();
+        const missing = [];
+        for (const t of p.present ?? []) {
+          const loc = textLocator(page, t);
+          if (!(await loc.first().waitFor({ state: "visible", timeout: 1000 }).then(() => true, () => visible(loc)))) missing.push(t);
+        }
+        const budget = p.budget !== undefined ? p.budget : spec.budget !== undefined ? spec.budget : flags.budget !== undefined ? Number(flags.budget) : BUDGET;
+        const requests = Object.fromEntries([...gets].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]));
+        const overBudget = budget === null ? [] : Object.entries(requests).filter(([, n]) => n > budget).map(([url, n]) => ({ url, n }));
+        const shot = stem + ".png";
         await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
-        const r = { name, path: p.path, viewport, theme, url: page.url(), h1: await heading(page), screenshot: shot, settled, loadError, ...seen };
-        r.ok = ok(seen) && !loadError;
+        const seenAbsent = absent.filter((a) => a.seen).map((a) => ({ text: a.t, ...a.seen }));
+        const r = { name, path: p.path, viewport, theme, url: page.url(), h1: await heading(page), screenshot: shot, settled, loadError, slow: p.slow ?? [],
+          seenAbsent, missingPresent: missing, budget, overBudget, requests, ...seen };
+        r.ok = ok(seen) && !loadError && seenAbsent.length === 0 && missing.length === 0 && overBudget.length === 0;
         results.push(r);
         console.log((r.ok ? "ok    " : "FAIL  ") + name + " " + viewport + " " + theme + (settled ? "" : " (network never idle)") +
-          (r.ok ? "" : ": " + brief([loadError, ...seen.pageErrors, ...seen.consoleErrors, ...seen.apiErrors.map((a) => a.method + " " + a.url + " " + a.status)])));
+          (r.ok ? "" : ": " + brief([loadError, ...seen.pageErrors, ...seen.consoleErrors, ...seen.apiErrors.map((a) => a.method + " " + a.url + " " + a.status),
+            ...seenAbsent.map((a) => "showed " + JSON.stringify(a.text) + " at " + a.atMs + " ms"), ...missing.map((t) => "never showed " + JSON.stringify(t)),
+            ...overBudget.map((o) => "GET " + o.url + " " + o.n + " times (budget " + budget + ")")])));
         await ctx.close();
       }
     }
@@ -168,7 +231,11 @@ async function walkPaths(browser, base, spec, out, flags) {
   return report.ok;
 }
 
-function locate(page, l) {
+// textLocator is an exact text match for a string, else a locator object as in locate.
+const textLocator = (page, t) => (typeof t === "string" ? page.getByText(t, { exact: true }) : locate(page, t, true));
+const visible = (loc) => loc.filter({ visible: true }).count().then((n) => n > 0, () => false);
+
+function locate(page, l, all = false) {
   let loc;
   if (l.role) loc = page.getByRole(l.role, { ...(l.name ? { name: l.name } : {}), exact: l.exact === true });
   else if (l.text) loc = page.getByText(l.text, { exact: l.exact === true });
@@ -176,7 +243,8 @@ function locate(page, l) {
   else if (l.placeholder) loc = page.getByPlaceholder(l.placeholder, { exact: l.exact === true });
   else if (l.css) loc = page.locator(l.css);
   else die("a click needs role, text, label, placeholder or css: " + JSON.stringify(l));
-  return l.nth !== undefined ? loc.nth(l.nth) : loc.first();
+  if (l.nth !== undefined) return loc.nth(l.nth);
+  return all ? loc : loc.first();
 }
 
 async function walkHistory(browser, base, spec, out, flags) {

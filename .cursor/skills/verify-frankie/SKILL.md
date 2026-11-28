@@ -92,6 +92,14 @@ EOF
 node $S/walk.mjs "$UI" /tmp/paths.json --out "$EVIDENCE_DIR/walk"     # --viewports desktop --themes dark to narrow
 ```
 
+A path entry can also slow chosen requests and check what the page says while they are out, and every load has a request budget:
+
+- `"slow": [{"url": "<substring or /regex/>", "ms": 6000}]` holds each matching request that long before sending it (a busy control plane, a cold cache). The load settles only after they answer.
+- `"absent": ["Live"]` must never be visible: sampled every 100 ms from navigation until the load settles, and once after. The first sighting is screenshotted as `<name>.<viewport>.<theme>.absent.png`. `"present": ["Finished"]` must be visible once it has settled. A string is an exact text match; an object is a locator as in `--history` (`{"role": "status", "name": "..."}`).
+- The request budget: a load fails when one GET `/api` URL (path and query) is asked for more than 4 times between navigation and settling. A page asks once, again when its first answers or an event stream's replay make the data stale, and maybe once more on a poll; the default leaves one spare. Set `"budget": <n>` on a path or at the top of the file, `--budget <n>` on the command line, or `"budget": null` to turn it off. `report.json` lists every URL asked for more than once under `requests`, and over-budget ones under `overBudget`.
+
+`features/runs.md` has the cold-load and budget checks of the run page (a finished run never reads `Live` while `/api/runs` is slow; a cold load does not refetch per replayed event).
+
 `--history` takes `{"steps": [{"goto": "/projects/vfy/board"}, {"click": {"role": "link", "name": "vfy-11"}}, ...]}`, runs the steps recording each URL and the page's first `h1`, then goes back step by step (reloading at each) and forward again, and fails when a URL or `h1` does not come back or a click did not change the URL (`"sameUrl": true` allows it). The file header of `walk.mjs` is the reference for both formats; `"storage"` sets more localStorage keys (`frankie.apiToken`, `frankie.project`) before every load.
 
 ## API down
@@ -129,7 +137,7 @@ Copies logs into `EVIDENCE_DIR/logs`, stops the browser, kills the web and contr
 | Command | What |
 |---|---|
 | `scripts/frankie-verify launch \| doctor \| env \| sql '<query>' \| api stop\|start \| cleanup` | instance lifecycle, shown above |
-| `node scripts/walk.mjs [--history] <base-url> <file.json> [--out dir]` | every page in both viewports and themes, or a back/forward/reload walk; `report.json` or `history.json` |
+| `node scripts/walk.mjs [--history] <base-url> <file.json> [--out dir] [--budget n]` | every page in both viewports and themes, with slowed requests, text that must stay absent or appear, and a request budget; or a back/forward/reload walk; `report.json` or `history.json` |
 | `node scripts/browser.mjs start \| status \| stop \| goto \| click \| fill \| check \| expect \| text \| snapshot \| screenshot` | browser driver, shown above (`start`/`stop` are called by launch/cleanup) |
 | `scripts/seed.sql` | rows for both demo projects, applied by launch |
 

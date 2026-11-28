@@ -33,7 +33,7 @@
 ### Control plane (Go)
 Single deployable with these internal modules:
 
-- **api**: HTTP/JSON (and SSE/WebSocket for live streams) for the UI and CLI. Auth: single-user/OIDC to start (open question).
+- **api**: HTTP/JSON (and SSE/WebSocket for live streams) for the UI and CLI. Auth: a single-user token for writes (D58); sign-in with sessions, single sign-on and roles in M10 (open question 7).
 - **domain/store**: entities and Postgres repositories (see `02-domain-model.md`).
 - **scheduler**: decides which ready issues start, honoring the DAG, concurrency limits, budgets and the "likely file overlap" warning.
 - **workflow**: the Temporal workflow interpreter and Activities (see `03-workflows-and-gates.md`).
@@ -108,7 +108,7 @@ internal/
   sandbox/          agent pod spec builder (Kata, no SA token, non-root, limits, proxy env)
 proto/              frankie/runner/v1/runner.proto, frankie/driver/v1/driver.proto
 gen/                generated protobuf/gRPC Go code (committed; public so external drivers can import it)
-web/                React + Bun UI, its own deployment; its Bun server proxies /api to the control plane
+web/                React + Bun UI (shadcn/ui, Tailwind, TanStack Router and Query, D141), its own deployment; its Bun server serves the app on every path and proxies /api to the control plane
 deploy/
   images/           Dockerfiles of platform images, built by CI and published to GHCR (D23)
   helm/frankie/     the platform chart; values.yaml + values-<profile>.yaml

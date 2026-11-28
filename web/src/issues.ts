@@ -17,7 +17,9 @@ export type IssueSummary = {
   depends_on: string[];
   labels: string[];
   source_ref?: string;
+  // The issue's own model cost, and with every issue under it (D142).
   cost_usd: number;
+  total_cost_usd: number;
   latest_run?: { id: string; status: string };
   // The issue's newest change request (M5.1).
   change_request?: { number: number; url: string; status: string };
@@ -65,15 +67,25 @@ export type IssueDetail = {
   children: IssueRef[];
   depends_on: IssueRef[];
   dependents: IssueRef[];
-  runs: { id: string; status: string; workflow: string; created_at: string; cost_usd: number }[];
+  runs: { id: string; status: string; workflow: string; created_at: string; started_at?: string; finished_at?: string; cost_usd: number }[];
   // The runs in progress on this issue and on the issues under it (M5.1).
   live_runs: LiveRunRef[];
   usage: { cost_usd: number; input_tokens: number; output_tokens: number };
+  // The issue's cost with every issue under it (D142); its own is usage.cost_usd.
+  total_cost_usd: number;
   change_requests: { repo: string; number: number; url: string; status: string }[];
   file_hints: string[];
   changed_paths: string[];
   overlaps: Overlap[];
 };
+
+// A control plane older than D142 sends no total_cost_usd; the issue's own
+// cost stands in for it, so a web pod rolled out ahead of its control plane
+// still shows every cost instead of failing.
+export const summaryWithTotal = (i: IssueSummary): IssueSummary =>
+  ({ ...i, total_cost_usd: (i as Partial<IssueSummary>).total_cost_usd ?? i.cost_usd });
+export const detailWithTotal = (i: IssueDetail): IssueDetail =>
+  ({ ...i, total_cost_usd: (i as Partial<IssueDetail>).total_cost_usd ?? i.usage.cost_usd });
 
 export type StartReply = {
   requested: string[];
@@ -233,10 +245,6 @@ export function specDecidable(is: Pick<IssueDetail, "status" | "type" | "childre
   return is.status === "draft" || (is.status === "refining" && !!is.spec_proposal);
 }
 
-// shortID shortens a run's ID for lists. IDs are UUIDv7, whose leading digits
-// are a timestamp shared by runs started close together, so it keeps the end.
-export const shortID = (id: string): string => id.slice(-8);
-
 // Finished issues: on main, released, or dropped.
 const finished = new Set(["merged", "released", "canceled"]);
 export const isFinished = (status: string): boolean => finished.has(status);
@@ -334,4 +342,26 @@ export function dependencyGraph(issues: IssueSummary[]): { nodes: GraphNode[]; e
     nodes.push({ key: i.key, title: i.title, status: i.status, layer: l, row });
   }
   return { nodes, edges };
+}
+
+// keyPrefix is the project part of an issue key: "gc" of "gc-83".
+export const keyPrefix = (key: string): string => key.slice(0, Math.max(0, key.lastIndexOf("-")));
+
+// findProject is the project with a key prefix (the $project of a path, D141).
+export const findProject = (projects: Project[], prefix: string): Project | undefined =>
+  projects.find((p) => p.key_prefix === prefix);
+
+// ancestors lists the issues above key, the outermost first: the epic and
+// story of a task. A parent missing from the list ends the chain.
+export function ancestors(issues: IssueSummary[], key: string): IssueSummary[] {
+  const byKey = new Map(issues.map((i) => [i.key, i]));
+  const out: IssueSummary[] = [];
+  const seen = new Set([key]);
+  for (let p = byKey.get(key)?.parent; p && !seen.has(p); p = byKey.get(p)?.parent) {
+    const i = byKey.get(p);
+    if (!i) break;
+    seen.add(p);
+    out.unshift(i);
+  }
+  return out;
 }

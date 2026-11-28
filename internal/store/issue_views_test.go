@@ -122,6 +122,49 @@ func TestListIssueRunsAndUsage(t *testing.T) {
 	}
 }
 
+// D142: an issue's total adds what every issue under it spent, canceled ones
+// included; a leaf's total is its own cost, and other trees stay out.
+func TestIssueTotalCost(t *testing.T) {
+	s := newTestStore(t)
+	p := mustProject(t, s)
+	ctx := t.Context()
+	epic := mustTyped(t, s, p.ID, domain.IssueEpic, nil)
+	story := mustTyped(t, s, p.ID, domain.IssueStory, &epic)
+	task := mustTyped(t, s, p.ID, domain.IssueTask, &story)
+	canceled, err := s.CreateIssue(ctx, NewIssue{ProjectID: p.ID, ParentID: &story.ID, Type: domain.IssueTask, Title: "dropped",
+		Status: domain.IssueCanceled, CreatedBy: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bug := mustTyped(t, s, p.ID, domain.IssueBug, &epic)
+	idle := mustTyped(t, s, p.ID, domain.IssueTask, &story)
+	other := mustTyped(t, s, p.ID, domain.IssueEpic, nil)
+	for _, c := range []struct {
+		issue domain.Issue
+		cost  float64
+	}{{epic, 0.5}, {story, 0.25}, {task, 1}, {canceled, 2}, {bug, 0.125}, {other, 4}} {
+		spend(t, s, mustRun(t, s, c.issue.ID), c.cost)
+	}
+
+	want := map[uuid.UUID]float64{
+		epic.ID: 3.875, story.ID: 3.25, task.ID: 1, canceled.ID: 2, bug.ID: 0.125, idle.ID: 0, other.ID: 4,
+	}
+	list, err := s.ListProjectIssues(ctx, p.ID)
+	if err != nil || len(list) != len(want) {
+		t.Fatalf("ListProjectIssues = %d issues, %v; want %d", len(list), err, len(want))
+	}
+	for _, is := range list {
+		if is.TotalCostUSD != want[is.ID] {
+			t.Errorf("%s (%s): listed total %v, want %v", is.Key, is.Type, is.TotalCostUSD, want[is.ID])
+		}
+	}
+	for _, is := range []domain.Issue{epic, story, task, canceled, bug, idle, other} {
+		if got, err := s.IssueTotalCost(ctx, is.ID); err != nil || got != want[is.ID] {
+			t.Errorf("IssueTotalCost(%s %s) = %v, %v; want %v", is.Key, is.Type, got, err, want[is.ID])
+		}
+	}
+}
+
 // spend records one agent step on run that used cost USD, 100 input and 10 output tokens.
 func spend(t *testing.T, s *Store, run domain.Run, cost float64) {
 	t.Helper()

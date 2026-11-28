@@ -1,4 +1,7 @@
 // Run transcript events as the control plane API returns them (internal/api).
+
+import { shortSHA } from "./format";
+
 export type RunEvent = {
   seq: number;
   time: string;
@@ -18,6 +21,8 @@ export type RunSummary = {
   ReleaseSHA?: string;
   ReleaseVersion?: string;
   CreatedAt: string;
+  StartedAt?: string | null;
+  FinishedAt?: string | null;
   CostUSD: number;
 };
 
@@ -110,7 +115,7 @@ function gateSummary(p: Record<string, unknown>): string {
   }
   // D126: the change request's head checked in a preview of it.
   if (p.type === "preview") {
-    lines.push(`#${d.changeRequest ?? "?"} at ${(d.sha ?? "").slice(0, 7)} on ${d.url ?? "the preview"}`);
+    lines.push(`#${d.changeRequest ?? "?"} at ${shortSHA(d.sha ?? "")} on ${d.url ?? "the preview"}`);
     if (d.summary) lines.push(d.summary);
     for (const f of d.failures ?? []) lines.push(`${f.test}${f.message ? `: ${f.message}` : ""}`);
     if (d.removeError) lines.push(`not removed: ${d.removeError}`);
@@ -171,19 +176,4 @@ export function summary(e: RunEvent): string {
     }
     default: return str(p);
   }
-}
-
-// A segment is a stretch of consecutive events of one step execution, or of the
-// run itself, so the transcript can say once which step, role, harness and model
-// produced them.
-export type Segment = { stepRunID?: string; events: RunEvent[] };
-
-export function segments(events: RunEvent[]): Segment[] {
-  const out: Segment[] = [];
-  for (const e of events) {
-    const last = out.at(-1);
-    if (last && last.stepRunID === e.step_run_id) last.events.push(e);
-    else out.push({ stepRunID: e.step_run_id, events: [e] });
-  }
-  return out;
 }

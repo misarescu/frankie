@@ -108,7 +108,7 @@ test("D98: a conditional step the run went past shows as skipped, with its condi
 test("M5.1: a step waiting for a person shows as awaiting a human, with where to act", () => {
   const gate = { ...step("protected-changes", "gate", "running"), waits_for: "approval" as const };
   expect(shownStatus(gate)).toBe("awaiting_human");
-  expect(waitNote(gate)).toEqual({ text: "decide it in Approvals", href: "#/approvals" });
+  expect(waitNote(gate)).toEqual({ text: "decide it in Approvals", href: "/approvals?kind=gate" });
   const asking = { ...step("implement", "agent", "running"), waits_for: "answer" as const };
   expect(shownStatus(asking)).toBe("awaiting_human");
   expect(waitNote(asking)?.text).toBe("answer it in Approvals");
@@ -121,7 +121,7 @@ test("M5.1: a step waiting for a person shows as awaiting a human, with where to
 test("M6: a step whose image is being built says so, with where its log is", () => {
   const building = { ...step("implement", "agent", "pending"), waits_for: "toolchain-image" as const };
   expect(shownStatus(building)).toBe("building_image");
-  expect(waitNote(building, "#/runs/r1")).toEqual({ text: "building the toolchain image: see its log", href: "#/runs/r1" });
+  expect(waitNote(building, "/runs/r1")).toEqual({ text: "building the toolchain image: see its log", href: "/runs/r1" });
   expect(waitNote(building)).toEqual({ text: "building the toolchain image; its log is below" });
   const deps = { ...step("checks", "gate", "running"), waits_for: "dependency-image" as const };
   expect(waitNote(deps)?.text).toBe("building the dependency image; its log is below");

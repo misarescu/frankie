@@ -356,6 +356,24 @@ func (q *Queries) GetIssueBySourceRef(ctx context.Context, arg GetIssueBySourceR
 	return i, err
 }
 
+const issueTotalCost = `-- name: IssueTotalCost :one
+WITH RECURSIVE sub (sub_id, depth) AS (
+  SELECT $1::uuid, 0
+  UNION
+  SELECT c.id, sub.depth + 1 FROM issues c JOIN sub ON c.parent_id = sub.sub_id WHERE sub.depth < 10
+)
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS total_cost_usd
+FROM sub JOIN runs r ON r.issue_id = sub.sub_id JOIN step_runs s ON s.run_id = r.id
+`
+
+// What an issue and every issue under it spent (D142), canceled ones included.
+func (q *Queries) IssueTotalCost(ctx context.Context, issueID uuid.UUID) (float64, error) {
+	row := q.db.QueryRow(ctx, issueTotalCost, issueID)
+	var total_cost_usd float64
+	err := row.Scan(&total_cost_usd)
+	return total_cost_usd, err
+}
+
 const issueWaitsForPerson = `-- name: IssueWaitsForPerson :one
 SELECT (EXISTS (SELECT 1 FROM approvals a JOIN step_runs s ON s.id = a.step_run_id JOIN runs r ON r.id = a.run_id
                 WHERE r.issue_id = $1::uuid AND r.status = 'running' AND s.status = 'running' AND a.status = 'pending')
@@ -876,9 +894,17 @@ func (q *Queries) ListProjectDependencies(ctx context.Context, projectID uuid.UU
 }
 
 const listProjectIssues = `-- name: ListProjectIssues :many
+WITH RECURSIVE tree (top_id, sub_id, depth) AS (
+  SELECT t.id, t.id, 0 FROM issues t WHERE t.project_id = $1
+  UNION
+  SELECT tree.top_id, c.id, tree.depth + 1 FROM issues c JOIN tree ON c.parent_id = tree.sub_id WHERE tree.depth < 10
+)
 SELECT i.id, i.project_id, i.type, i.title, i.spec, i.acceptance_criteria, i.status, i.priority, i.source_ref, i.labels, i.created_by, i.created_at, i.updated_at, i.number, i.key, i.parent_id, i.start_requested_at, i.start_requested_by, i.scheduled_at, i.file_hints, i.changed_paths, i.spec_approved_at, i.spec_approved_by, i.spec_rejected_at, i.spec_feedback, i.spec_proposal, i.closed_at, i.closed_by, i.close_reason, i.source_closed_at,
        (SELECT coalesce(sum(s.cost_usd), 0)::float8
           FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8
+          FROM tree JOIN runs r ON r.issue_id = tree.sub_id JOIN step_runs s ON s.run_id = r.id
+         WHERE tree.top_id = i.id) AS total_cost_usd,
        -- An issue without runs gets the nil UUID and an empty status.
        coalesce(lr.id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_run_id,
        coalesce(lr.status, '')::text AS latest_run_status,
@@ -900,6 +926,7 @@ ORDER BY i.priority DESC, i.number
 type ListProjectIssuesRow struct {
 	Issue           Issue
 	CostUsd         float64
+	TotalCostUsd    float64
 	LatestRunID     uuid.UUID
 	LatestRunStatus string
 	LatestCrNumber  int32
@@ -907,7 +934,9 @@ type ListProjectIssuesRow struct {
 	LatestCrStatus  string
 }
 
-// A project's issues for the board: model spend across all runs and the latest run.
+// A project's issues for the board: model spend across all runs, the total
+// with every issue under it (D142), and the latest run. tree pairs each issue
+// with itself and each issue under it; the depth bound stops a loop.
 func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([]ListProjectIssuesRow, error) {
 	rows, err := q.db.Query(ctx, listProjectIssues, projectID)
 	if err != nil {
@@ -949,6 +978,7 @@ func (q *Queries) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([
 			&i.Issue.CloseReason,
 			&i.Issue.SourceClosedAt,
 			&i.CostUsd,
+			&i.TotalCostUsd,
 			&i.LatestRunID,
 			&i.LatestRunStatus,
 			&i.LatestCrNumber,

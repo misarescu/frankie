@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import {
-  canComplete, cancelIssue, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, shortID, startIssues, subtree, tree,
-  type IssueDetail, type IssueRef, type IssueSummary,
+  ancestors, canComplete, cancelIssue, findProject, keyPrefix, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, startIssues, subtree, tree,
+  type IssueDetail, type IssueRef, type IssueSummary, detailWithTotal, summaryWithTotal,
 } from "./issues";
 
 const issue = (key: string, over: Partial<IssueSummary> = {}): IssueSummary => ({
   key, number: Number(key.split("-")[1]), type: "task", title: key, status: "ready", priority: 0,
-  depends_on: [], labels: [], cost_usd: 0, ...over,
+  depends_on: [], labels: [], cost_usd: 0, total_cost_usd: 0, ...over,
 });
 
 test("tree puts children under their parents in the API's order", () => {
@@ -70,10 +70,6 @@ test("startIssues posts the keys and returns the plan", async () => {
 test("retryIssue reports the server's reason", async () => {
   const conflict = async () => new Response("gc-1 is running; only a failed issue can be retried\n", { status: 409 });
   await expect(retryIssue(conflict, "gc-1")).rejects.toThrow("only a failed issue");
-});
-
-test("M5.1: shortID keeps the end of a run ID", () => {
-  expect(shortID("0198f2a4-1111-7000-8000-00000000abcd")).toBe("0000abcd");
 });
 
 test("M5.1: startIssues and retryIssue send the person's name as by", async () => {
@@ -193,3 +189,44 @@ test("M5.1: a parent's page lists everything under it, with the total cost", () 
   expect(subtree(issues, "gc-99")).toEqual({ rows: [], cost: 0 });
 });
 
+
+// M9 (D141): paths name a project by key prefix; breadcrumbs walk up the tree.
+test("keyPrefix and findProject", () => {
+  expect(keyPrefix("gc-83")).toBe("gc");
+  expect(keyPrefix("frk-dummy-2")).toBe("frk-dummy");
+  expect(keyPrefix("nokey")).toBe("");
+  const projects = [{ id: "1", name: "misarescu/Goodreads-Clone", key_prefix: "gc" }, { id: "2", name: "frankie", key_prefix: "frk" }];
+  expect(findProject(projects, "frk")?.name).toBe("frankie");
+  expect(findProject(projects, "nope")).toBeUndefined();
+});
+
+test("ancestors lists the parents outermost first, and stops at a missing or looping parent", () => {
+  const all = [
+    issue("gc-80", { type: "epic" }),
+    issue("gc-81", { type: "story", parent: "gc-80" }),
+    issue("gc-83", { parent: "gc-81" }),
+    issue("gc-90", { parent: "gc-99" }),
+    issue("gc-91", { parent: "gc-92" }),
+    issue("gc-92", { parent: "gc-91" }),
+  ];
+  expect(ancestors(all, "gc-83").map((i) => i.key)).toEqual(["gc-80", "gc-81"]);
+  expect(ancestors(all, "gc-80")).toEqual([]);
+  expect(ancestors(all, "gc-90")).toEqual([]);
+  expect(ancestors(all, "gc-91").map((i) => i.key)).toEqual(["gc-92"]);
+  expect(ancestors(all, "nope")).toEqual([]);
+});
+
+// D142: an API without total_cost_usd (a control plane from before M9).
+test("an issue without total_cost_usd totals its own cost", () => {
+  const s = { key: "gc-7", cost_usd: 0.25 } as unknown as IssueSummary;
+  expect(summaryWithTotal(s).total_cost_usd).toBe(0.25);
+  const d = { key: "gc-7", usage: { cost_usd: 0.5, input_tokens: 0, output_tokens: 0 } } as unknown as IssueDetail;
+  expect(detailWithTotal(d).total_cost_usd).toBe(0.5);
+});
+
+test("an issue's total_cost_usd from the API is kept", () => {
+  const s = { key: "gc-7", cost_usd: 0.25, total_cost_usd: 3 } as unknown as IssueSummary;
+  expect(summaryWithTotal(s).total_cost_usd).toBe(3);
+  const d = { key: "gc-7", usage: { cost_usd: 0.5, input_tokens: 0, output_tokens: 0 }, total_cost_usd: 4 } as unknown as IssueDetail;
+  expect(detailWithTotal(d).total_cost_usd).toBe(4);
+});

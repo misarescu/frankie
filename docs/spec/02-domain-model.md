@@ -66,7 +66,7 @@ Closing (D70): parents do not run, so they stay `draft` (or `ready`) while their
 ### Run / StepRun / AgentSession
 Run and StepRun share one status machine: `pending -> running -> succeeded | failed | canceled`, plus `pending -> failed | canceled`. Entering `running` stamps `started_at`; a terminal status stamps `finished_at`. An issue has at most one active (`pending` or `running`) Run, enforced by a partial unique index.
 
-An agent StepRun records its sessions' model usage (D53): `cost_usd` (the LLM gateway's spend for the session's virtual key), `input_tokens` and `output_tokens` (the harness's session totals); a retried session's attempts each add theirs. A Run's and an Issue's usage are the sums of their StepRuns'.
+An agent StepRun records its sessions' model usage (D53): `cost_usd` (the LLM gateway's spend for the session's virtual key), `input_tokens` and `output_tokens` (the harness's session totals); a retried session's attempts each add theirs. A Run's and an Issue's usage are the sums of their StepRuns'; an Issue's total cost adds the total cost of every Issue under it, canceled ones included (D142).
 
 Every status change (Issue, Run, StepRun) is a compare-and-set on the expected current status and writes a `state_change` Event in the same transaction (FR-WF-7). Repeating a transition that already happened is a no-op success, so retried Activities stay idempotent.
 

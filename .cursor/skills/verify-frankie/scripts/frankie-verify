@@ -6,6 +6,7 @@
 #   frankie-verify doctor    read-only: is the current instance worth driving?
 #   frankie-verify env       print the instance's URLs, token and evidence directory
 #   frankie-verify sql <q>   run a read-only SQL query against the instance's Postgres
+#   frankie-verify api stop|start   stop or restart only the control plane (the UI's API-down states)
 #   frankie-verify cleanup   copy logs into the evidence directory, stop everything we started
 #
 # Nothing here touches a cluster: the control plane runs without Temporal or
@@ -77,7 +78,7 @@ cmd_launch() {
 	GITKEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
 	COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 	{
-		for v in RUN_ID PG_NAME PG_PORT API_PORT GIT_PORT WEB_PORT CDP_PORT TOKEN COMMIT; do printf '%s=%q\n' "$v" "${!v}"; done
+		for v in RUN_ID PG_NAME PG_PORT API_PORT GIT_PORT WEB_PORT CDP_PORT TOKEN GITKEY COMMIT; do printf '%s=%q\n' "$v" "${!v}"; done
 	} >"$RUN_DIR/state.env"
 	chmod 600 "$RUN_DIR/state.env"
 	echo "$RUN_ID" >"$STATE_ROOT/current"
@@ -96,23 +97,11 @@ cmd_launch() {
 		-ldflags "-X github.com/misarescu/frankie/internal/buildinfo.commit=$COMMIT" \
 		-o "$RUN_DIR/controlplane" ./cmd/controlplane)
 	cat >"$RUN_DIR/config.json" <<EOF
-{"maxConcurrentIssues":5,"repos":[{"name":"verify/demo","upstream":"https://example.invalid/verify/demo.git","keyPrefix":"vfy"}]}
+{"maxConcurrentIssues":5,"repos":[
+  {"name":"verify/demo","upstream":"https://example.invalid/verify/demo.git","keyPrefix":"vfy"},
+  {"name":"verify/other","upstream":"https://example.invalid/verify/other.git","keyPrefix":"oth"}]}
 EOF
-	FRANKIE_DATABASE_URL="postgres://postgres:frankie@127.0.0.1:$PG_PORT/postgres?sslmode=disable" \
-		FRANKIE_GITPROXY_KEY="$GITKEY" FRANKIE_API_TOKEN="$TOKEN" FRANKIE_CONFIG="$RUN_DIR/config.json" \
-		"${DETACH[@]}" "$RUN_DIR/controlplane" --api-listen "127.0.0.1:$API_PORT" --gitproxy-listen "127.0.0.1:$GIT_PORT" \
-		</dev/null >"$RUN_DIR/controlplane.log" 2>&1 &
-	echo "CP_PID=$!" >>"$RUN_DIR/state.env"
-	for _ in $(seq 1 60); do
-		curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && break
-		sleep 1
-	done
-	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 || { tail -20 "$RUN_DIR/controlplane.log" >&2; die "control plane did not become ready"; }
-	# Ready means migrated and the project exists, not just that the port answers.
-	for _ in $(seq 1 30); do
-		curl -fsS "http://127.0.0.1:$API_PORT/api/projects" 2>/dev/null | grep -q 'verify/demo' && break
-		sleep 1
-	done
+	start_cp
 
 	echo "== seed"
 	psql_in <"$SKILL_DIR/scripts/seed.sql"
@@ -131,6 +120,53 @@ EOF
 	node "$SKILL_DIR/scripts/browser.mjs" start >/dev/null
 	echo "ready: $RUN_ID"
 	cmd_env
+}
+
+# start_cp: start the control plane on the recorded ports and wait until it
+# has migrated and created both projects; records its pid as CP_PID.
+start_cp() {
+	FRANKIE_DATABASE_URL="postgres://postgres:frankie@127.0.0.1:$PG_PORT/postgres?sslmode=disable" \
+		FRANKIE_GITPROXY_KEY="$GITKEY" FRANKIE_API_TOKEN="$TOKEN" FRANKIE_CONFIG="$RUN_DIR/config.json" \
+		"${DETACH[@]}" "$RUN_DIR/controlplane" --api-listen "127.0.0.1:$API_PORT" --gitproxy-listen "127.0.0.1:$GIT_PORT" \
+		</dev/null >>"$RUN_DIR/controlplane.log" 2>&1 &
+	CP_PID=$!
+	{ grep -v '^CP_PID=' "$RUN_DIR/state.env" || true; echo "CP_PID=$CP_PID"; } >"$RUN_DIR/state.env.new"
+	mv "$RUN_DIR/state.env.new" "$RUN_DIR/state.env"
+	chmod 600 "$RUN_DIR/state.env"
+	for _ in $(seq 1 60); do
+		curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && break
+		sleep 1
+	done
+	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 || { tail -20 "$RUN_DIR/controlplane.log" >&2; die "control plane did not become ready"; }
+	# Ready means migrated and the projects exist, not just that the port answers.
+	for _ in $(seq 1 30); do
+		curl -fsS "http://127.0.0.1:$API_PORT/api/projects" 2>/dev/null | grep -q 'verify/other' && break
+		sleep 1
+	done
+}
+
+# cmd_api stop|start: stop or restart the control plane this instance
+# launched (by its recorded pid), leaving Postgres, the web UI and the
+# browser up, so the UI's API-error states can be shown.
+cmd_api() {
+	load_state
+	case "${1:-}" in
+		stop)
+			pid_alive "${CP_PID:-}" || { echo "control plane is not running"; return 0; }
+			kill "$CP_PID"
+			for _ in $(seq 1 20); do pid_alive "$CP_PID" || break; sleep 0.5; done
+			if pid_alive "$CP_PID"; then kill -9 "$CP_PID" 2>/dev/null || true; fi
+			echo "stopped control plane $CP_PID; the web server now answers /api with 500"
+			;;
+		start)
+			if pid_alive "${CP_PID:-}"; then echo "control plane $CP_PID already running"; return 0; fi
+			[ -n "${GITKEY:-}" ] || die "this instance was launched before 'api start' existed; relaunch it"
+			[ -z "$(listener_pid "$API_PORT")" ] || die "port $API_PORT is held by pid $(listener_pid "$API_PORT")"
+			start_cp
+			echo "started control plane $CP_PID on 127.0.0.1:$API_PORT"
+			;;
+		*) die "usage: frankie-verify api stop|start" ;;
+	esac
 }
 
 cmd_env() {
@@ -171,7 +207,7 @@ cmd_doctor() {
 	[ "$head" = "$COMMIT" ] && ok "checkout is still at the launched commit" || echo "WARN  checkout moved since launch ($head); the control plane runs $COMMIT. Web code is served live from the checkout."
 	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && ok "API ready (database reachable)" || fail "API /readyz fails"
 	n="$(curl -fsS "http://127.0.0.1:$WEB_PORT/api/issues?project=verify%2Fdemo" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).length' 2>/dev/null || echo 0)"
-	if [ "$n" -ge 7 ]; then ok "web UI proxies to the API; $n seeded issues"; else fail "web UI shows $n issues for verify/demo, want at least 7 (seed missing?)"; fi
+	if [ "$n" -ge 18 ]; then ok "web UI proxies to the API; $n seeded issues"; else fail "web UI shows $n issues for verify/demo, want at least 18 (seed missing?)"; fi
 	# A 400 on an empty body means the token passed; a 401 means it did not.
 	code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"keys":[]}' "http://127.0.0.1:$API_PORT/api/issues/start")"
 	if [ "$code" = 400 ]; then ok "API token accepted"; else fail "API token check answered $code, want 400"; fi
@@ -199,6 +235,7 @@ case "${1:-}" in
 	doctor) cmd_doctor ;;
 	env) cmd_env ;;
 	sql) shift; cmd_sql "$@" ;;
+	api) shift; cmd_api "$@" ;;
 	cleanup) cmd_cleanup ;;
-	*) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+	*) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

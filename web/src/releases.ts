@@ -1,6 +1,8 @@
 // Releases (D114, D129, D130): what GET /api/releases and
 // GET /api/releases/{id} return, and how the releases page names them.
 
+import { shortSHA } from "./format";
+
 export type StageStatus = { stage: string; status: string };
 
 export type ReleaseSummary = {
@@ -53,9 +55,6 @@ export type ReleaseDetail = ReleaseSummary & {
   cost_usd: number;
 };
 
-// shortSHA is a commit as people read it.
-export const shortSHA = (sha: string): string => sha.slice(0, 7);
-
 // releaseName is the release's version once it has one, else its commit.
 export const releaseName = (r: { version?: string; sha: string }): string => r.version || shortSHA(r.sha);
 
@@ -68,9 +67,14 @@ export function verificationText(v: Verification | undefined): string {
   return v.summary || "failed";
 }
 
-// verificationState is the chip a verification shows.
-export function verificationState(v: Verification): "succeeded" | "failed" | "inconclusive" {
-  if (v.passed) return "succeeded";
+// A stage without a verify step records a passing verification with this
+// summary (internal/workflow/activities/verify_stage.go).
+const NOT_VERIFIED = "not verified";
+
+// verificationState is the chip a verification shows; "skipped" for a stage
+// that has nothing to verify it, which passed without proving anything.
+export function verificationState(v: Verification): "succeeded" | "failed" | "inconclusive" | "skipped" {
+  if (v.passed) return v.summary === NOT_VERIFIED ? "skipped" : "succeeded";
   return v.inconclusive ? "inconclusive" : "failed";
 }
 
@@ -103,3 +107,12 @@ export function versionText(r: Pick<ReleaseDetail, "status" | "version" | "provi
 
 // isLive reports whether a release still moves through its stages.
 export const isLive = (status: string): boolean => status === "pending" || status === "in_progress";
+
+// pipelineStages is a release's stages as its pipeline shows them: the
+// stages its deployments reached, and a stage whose human gate waits (D139),
+// which has no deployment until someone approves, as waiting for a person.
+export function pipelineStages(stages: StageStatus[], waiting: string[]): StageStatus[] {
+  const out = stages.map((s) => (waiting.includes(s.stage) ? { ...s, status: "awaiting_human" } : s));
+  for (const w of waiting) if (!out.some((s) => s.stage === w)) out.push({ stage: w, status: "awaiting_human" });
+  return out;
+}

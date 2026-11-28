@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -214,6 +215,36 @@ func TestListRecentRuns(t *testing.T) {
 	if err != nil || len(runs) != 2 || runs[0].ID != rr.ID || runs[0].IssueKey != "" || runs[0].ReleaseID == nil ||
 		*runs[0].ReleaseID != rel.ID || runs[0].ReleaseSHA != "m1" || runs[0].ReleaseVersion != "" {
 		t.Fatalf("runs = %+v, %v; want the release run first", runs, err)
+	}
+}
+
+// D143: one run reads as the run list lists it; an unknown one is not found.
+func TestGetRunSummary(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	is := mustIssue(t, s, mustProject(t, s).ID, domain.IssueRunning)
+	r := mustRun(t, s, is.ID)
+	rel := mustRelease(t, s, is.ProjectID, "m1")
+	rr, err := s.CreateRun(ctx, NewRun{ReleaseID: rel.ID, WorkflowSnapshot: json.RawMessage(`{}`), WorkflowVersion: "release-agent",
+		TemporalWorkflowID: "release/" + releaseRepo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.ListRecentRuns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range listed {
+		got, err := s.GetRunSummary(ctx, want.ID)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("GetRunSummary(%s) = %+v, %v; want %+v", want.ID, got, err, want)
+		}
+	}
+	if len(listed) != 2 || listed[0].ID != rr.ID || listed[1].ID != r.ID {
+		t.Fatalf("listed = %+v; want the release run and the issue run", listed)
+	}
+	if _, err := s.GetRunSummary(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown run: err = %v, want ErrNotFound", err)
 	}
 }
 

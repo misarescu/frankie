@@ -5,9 +5,9 @@ FROM oven/bun:1.4.4-slim
 WORKDIR /app
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile --production
-COPY web/index.html web/server.ts web/tsconfig.json ./
+COPY web/index.html web/server.ts web/tsconfig.json web/bunfig.toml ./
 COPY web/src ./src
 USER 1000:1000
-ENV PORT=3000
+ENV PORT=3000 NODE_ENV=production
 EXPOSE 3000
 CMD ["bun", "server.ts"]

@@ -1,0 +1,3 @@
+# Bun.serve bundles index.html when server.ts starts; Tailwind runs as its plugin (M9, D141).
+[serve.static]
+plugins = ["bun-plugin-tailwind"]

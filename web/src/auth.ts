@@ -9,7 +9,7 @@ export type TokenStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const KEY = "frankie.apiToken";
 
-// Fired on window when the API rejects the token, so the token bar can ask again.
+// Fired on window when the API rejects the token, so the token dialog can ask again.
 export const TOKEN_REJECTED = "frankie:token-rejected";
 
 // Storage can be missing or throw (private windows, blocked site data); the
@@ -57,8 +57,8 @@ export function withToken(fetchFn: Fetch, token: () => string | null, onRejected
     const r = await fetchFn(input, { ...init, headers });
     if (r.status === 401) {
       onRejected();
-      throw new Error(t ? "the API token was rejected; set the right one at the top of the page"
-        : "this needs the API token; set it at the top of the page");
+      throw new Error(t ? "the API token was rejected; set the right one under API token, in the menu at the bottom of the sidebar"
+        : "this needs the API token; set it under API token, in the menu at the bottom of the sidebar");
     }
     return r;
   };

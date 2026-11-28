@@ -34,6 +34,8 @@ type issueSummaryJSON struct {
 	ChangeRequest *crRefJSON `json:"change_request,omitempty"`
 	// StartRequestedAt is set once someone asked to start the issue itself (D62).
 	StartRequestedAt *time.Time `json:"start_requested_at,omitempty"`
+	// TotalCostUSD is CostUSD plus what every issue under it spent (D142).
+	TotalCostUSD float64 `json:"total_cost_usd"`
 }
 
 type crRefJSON struct {
@@ -85,7 +87,7 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request) {
 	for i, is := range issues {
 		js := issueSummaryJSON{Key: is.Key, Number: is.Number, Type: string(is.Type), Title: is.Title, Status: string(is.Status),
 			Priority: is.Priority, DependsOn: []string{}, Labels: nonNilStrings(is.Labels),
-			SourceRef: is.SourceRef, CostUSD: is.CostUSD, StartRequestedAt: is.StartRequestedAt}
+			SourceRef: is.SourceRef, CostUSD: is.CostUSD, StartRequestedAt: is.StartRequestedAt, TotalCostUSD: is.TotalCostUSD}
 		deps := dependsOn[is.ID]
 		slices.SortFunc(deps, func(a, b store.IssueSummary) int { return a.Number - b.Number })
 		for _, d := range deps {
@@ -197,6 +199,8 @@ type issueDetailJSON struct {
 	FileHints    []string      `json:"file_hints"`
 	ChangedPaths []string      `json:"changed_paths"`
 	Overlaps     []overlapJSON `json:"overlaps"`
+	// TotalCostUSD is usage.cost_usd plus what every issue under it spent (D142).
+	TotalCostUSD float64 `json:"total_cost_usd"`
 }
 
 // getIssue returns one issue with its relations, runs and usage: GET /api/issues/{key}.
@@ -290,6 +294,9 @@ func (s *Server) issueDetail(ctx context.Context, is domain.Issue) (issueDetailJ
 		return out, err
 	}
 	out.Usage = usageJSON{CostUSD: u.CostUSD, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens}
+	if out.TotalCostUSD, err = s.Store.IssueTotalCost(ctx, is.ID); err != nil {
+		return out, err
+	}
 	crs, err := s.Store.ListChangeRequestsForIssue(ctx, is.ID)
 	if err != nil {
 		return out, err

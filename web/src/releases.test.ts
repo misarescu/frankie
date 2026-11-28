@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
-import { isLive, notesSourceText, releaseName, shortSHA, verificationState, verificationText, versionText } from "./releases";
+import { isLive, notesSourceText, pipelineStages, releaseName, verificationState, verificationText, versionText } from "./releases";
 
 const sha = "d48a6d6c0ffee0000000000000000000000000ab";
 
 // M7, D129, D130.
 test("a release is named by its version, else its commit", () => {
-  expect(shortSHA(sha)).toBe("d48a6d6");
   expect(releaseName({ sha })).toBe("d48a6d6");
   expect(releaseName({ sha, version: "" })).toBe("d48a6d6");
   expect(releaseName({ sha, version: "v0.1.0" })).toBe("v0.1.0");
@@ -21,6 +20,8 @@ test("a verification reads as its outcome", () => {
   expect(verificationState({ passed: true, summary: "" })).toBe("succeeded");
   expect(verificationState({ passed: false, summary: "" })).toBe("failed");
   expect(verificationState({ passed: false, inconclusive: true, summary: "" })).toBe("inconclusive");
+  // A stage with no verify step (production on Goodreads-Clone) proved nothing.
+  expect(verificationState({ passed: true, summary: "not verified" })).toBe("skipped");
 });
 
 test("the notes say who wrote them", () => {
@@ -39,4 +40,13 @@ test("the version says what became of it", () => {
   expect(versionText({ status: "rolled_back" })).toBe("no version: its issues are in the next release");
   expect(isLive("pending") && isLive("in_progress")).toBe(true);
   expect(isLive("succeeded") || isLive("failed") || isLive("rolled_back")).toBe(false);
+});
+
+// M9, D139: a stage waiting at its human gate shows in the pipeline as waiting for a person.
+test("the pipeline adds a stage whose gate waits", () => {
+  const staged = [{ stage: "staging", status: "succeeded" }];
+  expect(pipelineStages(staged, [])).toEqual(staged);
+  expect(pipelineStages(staged, ["production"])).toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
+  expect(pipelineStages([...staged, { stage: "production", status: "pending" }], ["production"]))
+    .toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
 });

@@ -63,11 +63,21 @@ SELECT * FROM issues
 WHERE id IN (SELECT issue_id FROM issue_dependencies WHERE depends_on_id = @depends_on_id)
 ORDER BY number;
 
--- A project's issues for the board: model spend across all runs and the latest run.
+-- A project's issues for the board: model spend across all runs, the total
+-- with every issue under it (D142), and the latest run. tree pairs each issue
+-- with itself and each issue under it; the depth bound stops a loop.
 -- name: ListProjectIssues :many
+WITH RECURSIVE tree (top_id, sub_id, depth) AS (
+  SELECT t.id, t.id, 0 FROM issues t WHERE t.project_id = @project_id
+  UNION
+  SELECT tree.top_id, c.id, tree.depth + 1 FROM issues c JOIN tree ON c.parent_id = tree.sub_id WHERE tree.depth < 10
+)
 SELECT sqlc.embed(i),
        (SELECT coalesce(sum(s.cost_usd), 0)::float8
           FROM step_runs s JOIN runs r ON r.id = s.run_id WHERE r.issue_id = i.id) AS cost_usd,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8
+          FROM tree JOIN runs r ON r.issue_id = tree.sub_id JOIN step_runs s ON s.run_id = r.id
+         WHERE tree.top_id = i.id) AS total_cost_usd,
        -- An issue without runs gets the nil UUID and an empty status.
        coalesce(lr.id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_run_id,
        coalesce(lr.status, '')::text AS latest_run_status,
@@ -182,6 +192,16 @@ WITH RECURSIVE sub (sub_id, depth) AS (
 )
 SELECT issues.* FROM issues JOIN sub ON sub.sub_id = issues.id
 ORDER BY sub.depth, issues.number;
+
+-- What an issue and every issue under it spent (D142), canceled ones included.
+-- name: IssueTotalCost :one
+WITH RECURSIVE sub (sub_id, depth) AS (
+  SELECT @issue_id::uuid, 0
+  UNION
+  SELECT c.id, sub.depth + 1 FROM issues c JOIN sub ON c.parent_id = sub.sub_id WHERE sub.depth < 10
+)
+SELECT coalesce(sum(s.cost_usd), 0)::float8 AS total_cost_usd
+FROM sub JOIN runs r ON r.issue_id = sub.sub_id JOIN step_runs s ON s.run_id = r.id;
 
 -- Issues a person completed or canceled whose provider issue is still to close
 -- (D71), oldest first.

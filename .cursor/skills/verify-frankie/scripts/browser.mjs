@@ -5,7 +5,7 @@
 // hash route, localStorage with the API token and name) carries between commands.
 //
 //   node browser.mjs start | status | stop
-//   node browser.mjs goto <#/route | url>
+//   node browser.mjs goto </path | #/route | url>
 //   node browser.mjs click  <locator> [--accept-dialog]
 //   node browser.mjs fill   <locator> --value <text>
 //   node browser.mjs check  <locator>                      tick a checkbox
@@ -142,9 +142,9 @@ async function main() {
   try {
     switch (cmd) {
       case "goto": {
-        const to = pos[0] ?? fail("goto needs a #/route or a URL");
+        const to = pos[0] ?? fail("goto needs a /path, a #/route or a URL");
         const base = `http://127.0.0.1:${st.env.WEB_PORT}/`;
-        const url = to.startsWith("#") ? base + to : to;
+        const url = to.startsWith("#") ? base + to : to.startsWith("/") ? base + to.slice(1) : to;
         await page.goto(url);
         if (to.startsWith("#")) await page.reload();
         log(`goto ${to}`);

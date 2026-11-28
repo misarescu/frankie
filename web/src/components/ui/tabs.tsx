@@ -7,7 +7,7 @@ export function Tabs({ className, ...props }: ComponentProps<typeof TabsPrimitiv
 }
 
 export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
-  return <TabsPrimitive.List data-slot="tabs-list" className={cn("scroll-thin flex gap-1 overflow-x-auto border-b border-line", className)} {...props} />;
+  return <TabsPrimitive.List data-slot="tabs-list" className={cn("scroll-thin flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line", className)} {...props} />;
 }
 
 export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Trigger>) {

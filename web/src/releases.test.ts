@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isLive, notesSourceText, releaseName, shortSHA, verificationState, verificationText, versionText } from "./releases";
+import { formatWhen, isLive, notesSourceText, pipelineStages, releaseName, shortSHA, verificationState, verificationText, versionText } from "./releases";
 
 const sha = "d48a6d6c0ffee0000000000000000000000000ab";
 
@@ -39,4 +39,20 @@ test("the version says what became of it", () => {
   expect(versionText({ status: "rolled_back" })).toBe("no version: its issues are in the next release");
   expect(isLive("pending") && isLive("in_progress")).toBe(true);
   expect(isLive("succeeded") || isLive("failed") || isLive("rolled_back")).toBe(false);
+});
+
+// M9, D139: a stage waiting at its human gate shows in the pipeline as waiting for a person.
+test("the pipeline adds a stage whose gate waits", () => {
+  const staged = [{ stage: "staging", status: "succeeded" }];
+  expect(pipelineStages(staged, [])).toEqual(staged);
+  expect(pipelineStages(staged, ["production"])).toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
+  expect(pipelineStages([...staged, { stage: "production", status: "pending" }], ["production"]))
+    .toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
+});
+
+test("a release time reads as a short date and time", () => {
+  const s = formatWhen("2026-11-28T13:05:00Z", "en-GB", "UTC");
+  expect(s).toContain("28 Nov 2026");
+  expect(s).toContain("13:05");
+  expect(s).not.toContain(":00 ");
 });

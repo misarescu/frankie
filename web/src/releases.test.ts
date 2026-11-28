@@ -21,6 +21,8 @@ test("a verification reads as its outcome", () => {
   expect(verificationState({ passed: true, summary: "" })).toBe("succeeded");
   expect(verificationState({ passed: false, summary: "" })).toBe("failed");
   expect(verificationState({ passed: false, inconclusive: true, summary: "" })).toBe("inconclusive");
+  // A stage with no verify step (production on Goodreads-Clone) proved nothing.
+  expect(verificationState({ passed: true, summary: "not verified" })).toBe("skipped");
 });
 
 test("the notes say who wrote them", () => {

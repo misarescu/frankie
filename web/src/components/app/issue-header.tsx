@@ -118,6 +118,8 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
   const start = useStartIssues();
   const retry = useRetryIssue();
   const [reply, setReply] = useState<StartReply | null>(null);
+  // What a cancel or complete closed besides the issue: the unfinished
+  // issues under a parent.
   const [closed, setClosed] = useState<CloseReply | null>(null);
   const [dialog, setDialog] = useState<"cancel" | "complete" | null>(null);
   const busy = start.isPending || retry.isPending;
@@ -166,7 +168,7 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
       {actions.note && <p className="text-[13px] text-muted-fg">{actions.note}.</p>}
       <WriteError error={start.error ?? retry.error} />
       {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
-      {closed && (
+      {closed && closed.closed.length > 1 && (
         <Alert tone="ok" className="items-center justify-between">
           <p>
             Closed: {closed.closed.map((c, n) => <span key={c.key}>{n > 0 && ", "}<IssueLink issueKey={c.key} /> ({c.status})</span>)}.

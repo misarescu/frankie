@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { issueChain, projectCrumb, projectTitle } from "./crumbs";
+import { issueChain, pageTitle, projectCrumb, projectTitle } from "./crumbs";
 import type { IssueSummary } from "./issues";
 
 const issue = (key: string, title: string, parent?: string): IssueSummary => ({
@@ -37,4 +37,16 @@ test("an issue not in the list (yet) still has its crumb, with the title the pag
     { label: "gc-99 New" },
   ]);
   expect(issueChain(undefined, [], "gc-99", { titles: true })).toEqual([{ label: "gc-99" }]);
+});
+
+test("M9: the page title names the page, and what it sits in when that is ambiguous", () => {
+  const p = { label: "demo", href: "/projects/vfy/board" };
+  expect(pageTitle([])).toBe("Frankie");
+  expect(pageTitle([p, { label: "vfy-8 Accounts" }])).toBe("vfy-8 Accounts · Frankie");
+  expect(pageTitle([p, { label: "Board" }])).toBe("Board · demo · Frankie");
+  expect(pageTitle([p, { label: "Approvals" }])).toBe("Approvals · Frankie");
+  expect(pageTitle([p, { label: "vfy-8", href: "/issues/vfy-8" }, { label: "Run 00002113", href: "/runs/x" }, { label: "fix" }])).toBe("fix · Run 00002113 · Frankie");
+  expect(pageTitle([p, { label: "vfy-8", href: "/issues/vfy-8" }, { label: "Run 00002113" }])).toBe("Run 00002113 · Frankie");
+  expect(pageTitle([p, { label: "Releases", href: "/projects/vfy/releases" }, { label: "v0.1.0" }])).toBe("v0.1.0 · Releases · Frankie");
+  expect(pageTitle([{ label: "Not found" }])).toBe("Not found · Frankie");
 });

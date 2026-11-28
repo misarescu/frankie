@@ -1,6 +1,7 @@
 import { XIcon } from "lucide-react";
 import { Dialog as SheetPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
+import { useReturnFocus } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export const Sheet = SheetPrimitive.Root;
@@ -14,8 +15,9 @@ const sides = {
   bottom: "inset-x-0 bottom-0 border-t",
 };
 
-export function SheetContent({ className, children, side = "left", showClose = true, ...props }:
+export function SheetContent({ className, children, side = "left", showClose = true, onOpenAutoFocus, onCloseAutoFocus, ...props }:
   ComponentProps<typeof SheetPrimitive.Content> & { side?: keyof typeof sides; showClose?: boolean }) {
+  const focus = useReturnFocus({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <SheetPrimitive.Portal>
       <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
@@ -23,6 +25,7 @@ export function SheetContent({ className, children, side = "left", showClose = t
         data-slot="sheet-content"
         className={cn("fixed z-50 flex flex-col border-line bg-card text-fg shadow-xl outline-none", sides[side], className)}
         {...props}
+        {...focus}
       >
         {children}
         {showClose && (

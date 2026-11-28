@@ -1,5 +1,5 @@
 import { ChevronsUpDownIcon, KeyRoundIcon, LogOutIcon, UserIcon } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -16,6 +16,9 @@ export function AccountMenu() {
   const [hasToken, setHasToken] = useState(() => loadToken() !== null);
   const [dialog, setDialog] = useState<"name" | "token" | null>(null);
   const [rejected, setRejected] = useState(false);
+  // A dialog opened from the menu gives focus back to the menu's button.
+  const trigger = useRef<HTMLButtonElement>(null);
+  const backToMenu = (e: Event) => { e.preventDefault(); trigger.current?.focus(); };
 
   useEffect(() => {
     const onRejected = () => { setRejected(true); setDialog("token"); };
@@ -26,7 +29,7 @@ export function AccountMenu() {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-hover" aria-label="Your name and API token">
+        <DropdownMenuTrigger ref={trigger} className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-hover" aria-label="Your name and API token">
           <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-muted-fg"><UserIcon className="size-3.5" /></span>
           <span className="min-w-0 flex-1 text-xs">
             <span className="block truncate font-medium">{name ?? "Set your name"}</span>
@@ -45,14 +48,16 @@ export function AccountMenu() {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <NameDialog open={dialog === "name"} name={name} onClose={() => setDialog(null)} onSaved={(n) => { setName(n); setDialog(null); }} />
-      <TokenDialog open={dialog === "token"} rejected={rejected} onClose={() => { setDialog(null); setRejected(false); }}
+      <NameDialog onCloseAutoFocus={backToMenu} open={dialog === "name"} name={name} onClose={() => setDialog(null)} onSaved={(n) => { setName(n); setDialog(null); }} />
+      <TokenDialog onCloseAutoFocus={backToMenu} open={dialog === "token"} rejected={rejected} onClose={() => { setDialog(null); setRejected(false); }}
         onSaved={() => { setHasToken(loadToken() !== null); setDialog(null); setRejected(false); toast("API token saved."); }} />
     </>
   );
 }
 
-function NameDialog({ open, name, onClose, onSaved }: { open: boolean; name: string | null; onClose: () => void; onSaved: (n: string | null) => void }) {
+function NameDialog({ open, name, onClose, onSaved, onCloseAutoFocus }: {
+  open: boolean; name: string | null; onClose: () => void; onSaved: (n: string | null) => void; onCloseAutoFocus: (e: Event) => void;
+}) {
   const [value, setValue] = useState(name ?? "");
   useEffect(() => { if (open) setValue(name ?? ""); }, [open, name]);
   const submit = (e: FormEvent) => {
@@ -62,7 +67,7 @@ function NameDialog({ open, name, onClose, onSaved }: { open: boolean; name: str
   };
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Your name</DialogTitle>
@@ -82,7 +87,9 @@ function NameDialog({ open, name, onClose, onSaved }: { open: boolean; name: str
   );
 }
 
-function TokenDialog({ open, rejected, onClose, onSaved }: { open: boolean; rejected: boolean; onClose: () => void; onSaved: () => void }) {
+function TokenDialog({ open, rejected, onClose, onSaved, onCloseAutoFocus }: {
+  open: boolean; rejected: boolean; onClose: () => void; onSaved: () => void; onCloseAutoFocus: (e: Event) => void;
+}) {
   const [value, setValue] = useState("");
   useEffect(() => { if (open) setValue(""); }, [open]);
   const submit = (e: FormEvent) => {
@@ -92,7 +99,7 @@ function TokenDialog({ open, rejected, onClose, onSaved }: { open: boolean; reje
   };
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>API token</DialogTitle>

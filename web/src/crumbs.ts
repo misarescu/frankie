@@ -26,3 +26,17 @@ export function issueChain(project: Pick<Project, "name" | "key_prefix"> | undef
     { label: name(key, self?.title ?? opts.title), ...(opts.linkLast ? { href: paths.issue(key) } : {}) },
   ];
 }
+
+// The pages a project has, whose crumb alone does not say which project.
+const projectPages = new Set(["Board", "Runs", "Releases"]);
+
+// pageTitle names the page in the browser's tab and history: its last
+// crumb, with what it sits in when that alone is ambiguous (the run of a
+// step, the releases of a release, the project of its board).
+export function pageTitle(crumbs: Crumb[]): string {
+  const last = crumbs.at(-1)?.label;
+  if (!last) return "Frankie";
+  const prev = crumbs.at(-2)?.label;
+  const within = prev && (prev.startsWith("Run ") || prev === "Releases" || projectPages.has(last)) ? [prev] : [];
+  return [last, ...within, "Frankie"].join(" · ");
+}

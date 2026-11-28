@@ -3,7 +3,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { issuesQuery, projectsQuery } from "@/api/queries";
 import { AppLink } from "@/components/app/AppLink";
-import { issueChain, type Crumb } from "@/crumbs";
+import { issueChain, pageTitle, type Crumb } from "@/crumbs";
 import { findProject, keyPrefix } from "@/issues";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +34,11 @@ export function useIssueCrumbs(key: string, opts: { title?: string; tail?: Crumb
   useCrumbs([...issueChain(project, issues, key, { titles: tail.length === 0, title: opts.title, linkLast: tail.length > 0 }), ...tail]);
 }
 
-// Breadcrumbs shows the page's crumbs; at phone width only the last two.
+// Breadcrumbs shows the page's crumbs, at phone width only the last two,
+// and names the page in the browser's tab from them.
 export function Breadcrumbs() {
   const { crumbs } = useContext(CrumbsContext);
+  useEffect(() => { document.title = pageTitle(crumbs); }, [crumbs]);
   return (
     <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
       <ol className="flex min-w-0 items-center gap-1 overflow-hidden text-[13px]">

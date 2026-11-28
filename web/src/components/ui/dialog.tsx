@@ -1,6 +1,6 @@
 import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import type { ComponentProps } from "react";
+import { useRef, type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 export const Dialog = DialogPrimitive.Root;
@@ -8,11 +8,35 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 export const DialogPortal = DialogPrimitive.Portal;
 
+type AutoFocus = { onOpenAutoFocus?: (e: Event) => void; onCloseAutoFocus?: (e: Event) => void };
+
+// useReturnFocus gives focus back to what had it when a dialog opened, as
+// Radix does only for a dialog opened by its own Trigger; ours open from
+// state (a button's onClick, a 401), and focus would otherwise fall to the
+// page. When that is gone (a menu item), the dialog's own onCloseAutoFocus
+// decides.
+export function useReturnFocus({ onOpenAutoFocus, onCloseAutoFocus }: AutoFocus): Required<AutoFocus> {
+  const opener = useRef<Element | null>(null);
+  return {
+    onOpenAutoFocus: (e) => { opener.current = document.activeElement; onOpenAutoFocus?.(e); },
+    onCloseAutoFocus: (e) => {
+      const el = opener.current;
+      if (el instanceof HTMLElement && el.isConnected && el !== document.body) {
+        e.preventDefault();
+        el.focus();
+        return;
+      }
+      onCloseAutoFocus?.(e);
+    },
+  };
+}
+
 export function DialogOverlay({ className, ...props }: ComponentProps<typeof DialogPrimitive.Overlay>) {
   return <DialogPrimitive.Overlay data-slot="dialog-overlay" className={cn("fixed inset-0 z-50 bg-black/40", className)} {...props} />;
 }
 
-export function DialogContent({ className, children, showClose = true, ...props }: ComponentProps<typeof DialogPrimitive.Content> & { showClose?: boolean }) {
+export function DialogContent({ className, children, showClose = true, onOpenAutoFocus, onCloseAutoFocus, ...props }: ComponentProps<typeof DialogPrimitive.Content> & { showClose?: boolean }) {
+  const focus = useReturnFocus({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -23,6 +47,7 @@ export function DialogContent({ className, children, showClose = true, ...props 
           className,
         )}
         {...props}
+        {...focus}
       >
         {children}
         {showClose && (

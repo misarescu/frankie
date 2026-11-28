@@ -62,12 +62,12 @@ export function IssuePage() {
   if (q.isError && !q.data) {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
-        <EmptyState icon={<FileQuestionIcon className="size-6" />} title={`No issue ${key}`}>
+        <EmptyState level={1} icon={<FileQuestionIcon className="size-6" />} title={`No issue ${key}`}>
           No project has an issue with this key. It may be mistyped, or from a project that is no longer configured.
         </EmptyState>
       );
     }
-    return <ErrorState error={q.error} what={`issue ${key}`} onRetry={() => void q.refetch()} />;
+    return <ErrorState level={1} error={q.error} what={`issue ${key}`} onRetry={() => void q.refetch()} />;
   }
   const issue = q.data;
   const parent = issue.children.length > 0;

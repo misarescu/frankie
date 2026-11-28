@@ -3,6 +3,7 @@ import { getRouteApi, Outlet, useRouterState } from "@tanstack/react-router";
 import { FolderXIcon } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
 import { getJSON, keys, projectsQuery, releaseQuery, runsQuery } from "@/api/queries";
+import { useCrumbs } from "@/components/app/Breadcrumbs";
 import { entityProject, pageEntity } from "@/components/app/nav";
 import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
 import type { RunSummary } from "@/events";
@@ -20,18 +21,21 @@ export function ProjectLayout() {
   const projects = useQuery(projectsQuery());
   const project = projects.data && findProject(projects.data, prefix);
   if (projects.isPending) return <LoadingState />;
-  if (projects.isError) return <ErrorState error={projects.error} what="the projects" onRetry={() => void projects.refetch()} />;
-  if (!project) {
-    return (
-      <EmptyState icon={<FolderXIcon className="size-6" />} title={`No project "${prefix}"`}>
-        No project has the key prefix {prefix}. Pick one in the sidebar.
-      </EmptyState>
-    );
-  }
+  if (projects.isError) return <ErrorState level={1} error={projects.error} what="the projects" onRetry={() => void projects.refetch()} />;
+  if (!project) return <UnknownProject prefix={prefix} />;
   return (
     <ProjectContext.Provider value={project}>
       <Outlet />
     </ProjectContext.Provider>
+  );
+}
+
+function UnknownProject({ prefix }: { prefix: string }) {
+  useCrumbs([{ label: `No project "${prefix}"` }]);
+  return (
+    <EmptyState level={1} icon={<FolderXIcon className="size-6" />} title={`No project "${prefix}"`}>
+      No project has the key prefix {prefix}. Pick one in the sidebar.
+    </EmptyState>
   );
 }
 
@@ -60,7 +64,7 @@ export function useRunSummary(id: string | undefined): RunSummary | undefined {
 // one of what the page shows (a project's page, an issue, a run, a release),
 // which becomes the remembered one, else the last one opened. Approvals
 // belong to no project and keep the last one.
-export function useCurrentProject(): { project: Project | undefined; projects: Project[]; failed: boolean } {
+export function useCurrentProject(): { project: Project | undefined; projects: Project[]; failed: boolean; loading: boolean } {
   const q = useQuery(projectsQuery());
   const projects = q.data ?? [];
   const path = useRouterState({ select: (s) => s.location.pathname });
@@ -71,5 +75,5 @@ export function useCurrentProject(): { project: Project | undefined; projects: P
   const shown = entityProject(entity, projects, { run, release });
   useEffect(() => { if (shown) saveLastProject(shown); }, [shown]);
   const prefix = shown ?? startProject(projects.map((p) => p.key_prefix), loadLastProject());
-  return { project: prefix ? findProject(projects, prefix) : undefined, projects, failed: q.isError };
+  return { project: prefix ? findProject(projects, prefix) : undefined, projects, failed: q.isError, loading: q.isPending };
 }

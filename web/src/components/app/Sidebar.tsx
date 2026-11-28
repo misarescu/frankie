@@ -19,7 +19,7 @@ export function useWaiting(): number {
 // Sidebar: the project switcher, the pages and, at its foot, the name and
 // API token. At phone width it is the drawer's content.
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { project, projects, failed } = useCurrentProject();
+  const { project, projects, failed, loading } = useCurrentProject();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const active = activeNav(path);
   const waiting = useWaiting();
@@ -29,7 +29,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <span className="grid size-7 place-items-center rounded-md bg-primary text-[13px] font-bold text-primary-fg">F</span>
         <span className="text-[15px] font-semibold tracking-tight">Frankie</span>
       </AppLink>
-      <ProjectSwitcher project={project} projects={projects} failed={failed} onNavigate={onNavigate} />
+      <ProjectSwitcher project={project} projects={projects} failed={failed} loading={loading} onNavigate={onNavigate} />
       <nav aria-label="Main">
         <ul className="space-y-0.5">
           {navItems.map((item) => (

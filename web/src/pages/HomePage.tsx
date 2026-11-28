@@ -8,9 +8,9 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
 export function HomePage() {
   const projects = useQuery(projectsQuery());
   if (projects.isPending) return <LoadingState />;
-  if (projects.isError) return <ErrorState error={projects.error} what="the projects" onRetry={() => void projects.refetch()} />;
+  if (projects.isError) return <ErrorState level={1} error={projects.error} what="the projects" onRetry={() => void projects.refetch()} />;
   return (
-    <EmptyState icon={<FolderGit2Icon className="size-6" />} title="No projects yet">
+    <EmptyState level={1} icon={<FolderGit2Icon className="size-6" />} title="No projects yet">
       Frankie works on the repositories its deployment lists. Add one there and its issues show up here.
     </EmptyState>
   );

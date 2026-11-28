@@ -8,7 +8,9 @@ import { saveLastProject } from "@/prefs";
 
 // ProjectSwitcher picks the project the board, runs and releases show; the
 // choice is remembered (frankie.project) for the next visit.
-export function ProjectSwitcher({ project, projects, failed, onNavigate }: { project: Project | undefined; projects: Project[]; failed: boolean; onNavigate?: () => void }) {
+export function ProjectSwitcher({ project, projects, failed, loading, onNavigate }: {
+  project: Project | undefined; projects: Project[]; failed: boolean; loading: boolean; onNavigate?: () => void;
+}) {
   const navigate = useNavigate();
   const href = useRouterState({ select: (s) => s.location.href });
   return (
@@ -19,8 +21,8 @@ export function ProjectSwitcher({ project, projects, failed, onNavigate }: { pro
       >
         <span className="mono grid h-6 min-w-7 place-items-center rounded bg-muted px-1 text-xs2 font-medium">{project?.key_prefix ?? "?"}</span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">{project ? projectTitle(project) : "No project"}</span>
-          <span className="block truncate text-xs2 text-muted-fg">{project?.name ?? (failed ? "projects did not load" : projects.length ? "pick one" : "none configured")}</span>
+          <span className="block truncate text-[13px] font-medium">{project ? projectTitle(project) : loading ? "Projects" : "No project"}</span>
+          <span className="block truncate text-xs2 text-muted-fg">{project?.name ?? (loading ? "loading" : failed ? "projects did not load" : projects.length ? "pick one" : "none configured")}</span>
         </span>
         <ChevronsUpDownIcon className="size-3.5 shrink-0 text-muted-fg" />
       </DropdownMenuTrigger>
@@ -40,7 +42,7 @@ export function ProjectSwitcher({ project, projects, failed, onNavigate }: { pro
             {p.key_prefix === project?.key_prefix && <CheckIcon className="size-3.5 text-primary" />}
           </DropdownMenuItem>
         ))}
-        {projects.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-fg">{failed ? "The projects did not load." : "No projects yet."}</div>}
+        {projects.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-fg">{loading ? "Loading the projects." : failed ? "The projects did not load." : "No projects yet."}</div>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

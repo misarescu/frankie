@@ -48,13 +48,13 @@ export function ReleasePage() {
   if (rel.isError && !rel.data) {
     if (rel.error instanceof ApiError && rel.error.status === 404) {
       return (
-        <EmptyState icon={<PackageXIcon className="size-6" />} title="No such release"
+        <EmptyState level={1} icon={<PackageXIcon className="size-6" />} title="No such release"
           action={project && <Button asChild variant="outline" size="sm"><AppLink href={paths.releases(project.key_prefix)}>Open the releases of {project.name}</AppLink></Button>}>
           No release has the id <span className="mono [overflow-wrap:anywhere]">{id}</span>.
         </EmptyState>
       );
     }
-    return <ErrorState error={rel.error} what="the release" onRetry={() => void rel.refetch()} />;
+    return <ErrorState level={1} error={rel.error} what="the release" onRetry={() => void rel.refetch()} />;
   }
   return <Release rel={rel.data} project={project} stale={rel.isError ? rel.error.message : undefined} />;
 }

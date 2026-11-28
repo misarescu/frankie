@@ -38,12 +38,12 @@ export function RunPage() {
     return (
       <Crumbs tail={runCrumbs(id, undefined)}>
         {missing ? (
-          <EmptyState icon={<SearchXIcon className="size-6" />} title="No such run"
+          <EmptyState level={1} icon={<SearchXIcon className="size-6" />} title="No such run"
             action={<AppLink href="/" className="text-[13px] text-primary hover:underline">Go to the board</AppLink>}>
             <span className="[overflow-wrap:anywhere]">Frankie has no run <span className="mono">{id}</span>. The link may be mistyped, or from another Frankie.</span>
           </EmptyState>
         ) : (
-          <ErrorState error={steps.error} what="the run" onRetry={() => void steps.refetch()} />
+          <ErrorState level={1} error={steps.error} what="the run" onRetry={() => void steps.refetch()} />
         )}
       </Crumbs>
     );

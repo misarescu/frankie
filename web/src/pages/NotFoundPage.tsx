@@ -9,6 +9,7 @@ export function NotFoundPage() {
   useCrumbs([{ label: "Not found" }]);
   return (
     <EmptyState
+      level={1}
       icon={<MapPinOffIcon className="size-6" />}
       title="No page here"
       action={<Button asChild variant="outline"><Link to="/">Go to the board</Link></Button>}

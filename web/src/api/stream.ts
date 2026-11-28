@@ -40,6 +40,25 @@ export const COALESCE_MS = 250;
 
 const open = new Map<string, Held>();
 
+// Invalidations wait in one batch per query client, shared by every stream:
+// a parent's page follows several runs, whose replays would each refresh the
+// same lists.
+type Batch = { keys: Map<string, QueryKey>; timer?: ReturnType<typeof setTimeout> };
+const batches = new WeakMap<QueryClient, Batch>();
+
+function invalidateSoon(qc: QueryClient, ks: QueryKey[], coalesceMs: number) {
+  const b: Batch = batches.get(qc) ?? { keys: new Map() };
+  batches.set(qc, b);
+  for (const k of ks) b.keys.set(JSON.stringify(k), k);
+  if (b.keys.size === 0 || b.timer) return;
+  b.timer = setTimeout(() => {
+    b.timer = undefined;
+    const due = [...b.keys.values()];
+    b.keys.clear();
+    for (const k of due) void qc.invalidateQueries({ queryKey: k });
+  }, coalesceMs);
+}
+
 // subscribeRun follows a run's stream until the returned function is called.
 // Subscribers of one run share one connection; the last one to leave closes
 // it. A new connection starts after the last event the cache already has,
@@ -53,18 +72,7 @@ export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFact
   const key = keys.runEvents(runID);
   if (qc.getQueryData<RunEvents>(key)?.end) return () => {};
   const update = (f: (prev: RunEvents) => RunEvents) => qc.setQueryData<RunEvents>(key, (prev) => f(prev ?? noEvents));
-  const pending = new Map<string, QueryKey>();
-  let flush: ReturnType<typeof setTimeout> | undefined;
-  const stale = (type: string) => {
-    for (const k of invalidations(runID, type)) pending.set(JSON.stringify(k), k);
-    if (pending.size === 0 || flush) return;
-    flush = setTimeout(() => {
-      flush = undefined;
-      const due = [...pending.values()];
-      pending.clear();
-      for (const k of due) void qc.invalidateQueries({ queryKey: k });
-    }, coalesceMs);
-  };
+  const stale = (type: string) => invalidateSoon(qc, invalidations(runID, type), coalesceMs);
   const current = (source: Source) => open.get(runID)?.source === source;
   const start = (): Source => {
     const after = qc.getQueryData<RunEvents>(key)?.events.at(-1)?.seq;

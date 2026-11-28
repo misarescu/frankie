@@ -142,3 +142,20 @@ test("a burst of state changes refreshes each query once", async () => {
   expect([steps, runs]).toEqual([3, 3]);
   for (const u of stop) u();
 });
+
+// A parent's page follows each live run under it: their replays share one
+// refresh of the lists they all touch.
+test("bursts from two runs' streams refresh a shared list once", async () => {
+  FakeSource.made = [];
+  const qc = new QueryClient();
+  let runs = 0;
+  const stop = new QueryObserver(qc, { queryKey: keys.runs, queryFn: () => ++runs, staleTime: Infinity }).subscribe(() => {});
+  await Bun.sleep(COALESCE);
+  subscribeRun(qc, "r6", connect, undefined, COALESCE);
+  subscribeRun(qc, "r7", connect, undefined, COALESCE);
+  const [a, b] = FakeSource.made;
+  for (let i = 1; i <= 10; i++) { a!.send("state_change", ev(i, "state_change")); b!.send("state_change", ev(i, "state_change")); }
+  await Bun.sleep(COALESCE * 6);
+  expect(runs).toBe(2);
+  stop();
+});

@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `issue-show` header, status chip, note, summary strip, spec, acceptance criteria and `Relations` (`Part of`, `Waits for`, `Needed by`).
-- `issue-live-run` the Overview's run card follows the latest run, live or finished: `Run <last 8> is live`, the workflow, duration and cost, its steps as chips linking to the run page, the running step's role, harness and model, the agent's latest activity, and `Open run`.
+- `issue-live-run` the Overview's run card follows the latest run, live or finished: `Run <last 8> is live` (a finished run shows its status chip instead), the workflow, duration and cost, its steps as chips linking to the run page (steps not started or skipped are plain text), the running step's role, harness and model, the agent's latest activity, and `Open run`. A parent shows a card per live run under it, each naming its issue (vfy-8: vfy-11 and vfy-12).
 - `issue-tabs` `Runs` lists runs (id link, workflow, status, started, duration, cost); `Issues` a parent's subtree with `Total, including <key> itself`; `Activity` what happened, oldest first.
 - `issue-waiting` banners `Gate <step> waits for your decision` (comment, `Approve`, `Request changes`, `Reject and close`, `Open in Approvals`), `The agent of <step> asks` (`Your answer`, `Answer`) and `A refined spec waits for approval` (`Feedback for the refiner`, `Approve spec`, `Send back with feedback`).
 - `issue-start` `Start` on a ready issue; the status panel and the note `Start requested by <name>: ...` replace it.
@@ -14,7 +14,7 @@
 - `issue-spec-reject` sending it back with feedback holds the issue as `draft` with `Refine again` and `Approve spec` in the Spec card.
 - `issue-retry` `Retry` on a failed issue moves it to `ready` with a start request.
 - `issue-complete` completes a parent whose sub-issues are all finished and not all canceled (confirm dialog); not reachable in the seed.
-- `issue-missing` `No issue <key>` for an unknown key.
+- `issue-missing` `No issue <key>` for an unknown key. Before the issue answers the page is a loading state (`role=status`, `Loading`); `?tab=issues` on a leaf shows `Overview`.
 
 ## How to get to it (user POV)
 
@@ -27,7 +27,7 @@ Preconditions: fresh launch, name and token set. `vfy-5` is refining with a prop
 
 - **Show.** `$B goto /issues/vfy-6`; `$B expect --role heading --name "Add a health endpoint"`; `$B expect --text "Its run waits for a person: decide or answer in the approvals inbox."`; `$B expect --role region --name "Gate approve waits for your decision"`; the run card shows `implement` `succeeded` and `approve` `waiting for you` with `decide it in Approvals`.
 - **Live run.** `$B goto /issues/vfy-4`; `$B expect --text "A run is in progress."`; `$B expect --text "Run 00000204 is live"`; `$B expect --text "investigator · claude-code · anthropic/claude-sonnet-5"`; `$B expect --text "Tool: Grep"`; `$B expect --role link --name "Open run"`.
-- **Relations.** `$B goto /issues/vfy-3`; `$B expect --text "Waits for" --exact`; `$B expect --role link --name "vfy-2 List todos endpoint"`; `$B expect --role link --name "vfy-1 Todo service"` (`Part of`). A parent: `$B goto /issues/vfy-8`; `$B expect --role button --name "Start all under it"` (vfy-8, since the board's journey starts vfy-1); `$B expect --text "Issues under it"`; `$B expect --role link --name "All issues and their cost"`.
+- **Relations.** `$B goto /issues/vfy-3`; `$B expect --text "Needed by" --exact` (not `Waits for`: the summary strip has that label too, and `expect` takes the first match); `$B expect --role link --name "vfy-2 List todos endpoint"`; `$B expect --role link --name "vfy-1 Todo service"` (`Part of`). A parent: `$B goto /issues/vfy-8`; `$B expect --role button --name "Start all under it"` (vfy-8, since the board's journey starts vfy-1); `$B expect --text "Issues under it"`; `$B expect --role link --name "All issues and their cost"`; `$B expect --role link --name "vfy-11 Sign-up form"` (a run card of an issue under it).
 - **Costs (D142).** `$B goto '/issues/vfy-8?tab=issues'`; `$B expect --text "Issues under vfy-8"`; `$B expect --role cell --name "Total, including vfy-8 itself ($0.35)"`; `$B expect --in-row "Total, including vfy-8" --text '$4.27'`; the summary strip reads `TOTAL COST $4.27` and `own $0.35`. A leaf: `/issues/vfy-11` shows `Cost $1.60`, `Change request #11`, `Overlaps with in-flight work` (`vfy-12 also touches web/src/signup`) and `Changed paths`.
 - **Tabs.** `$B goto /issues/vfy-14`; `$B click --role tab --name Runs` (`?tab=runs`); `$B expect --text "No runs yet"`; `$B click --role tab --name Activity`; `$B expect --role list --name Activity`. `$B goto '/issues/vfy-11?tab=runs'`; `$B click --role link --name 00002111` opens `/runs/…2111` (`$B expect --role heading --name "Run 00002111"`). A `walk.mjs --history` over `/issues/vfy-8` and the tabs `Issues`, `Runs`, `Activity` passes back, reload and forward.
 - **Approve a refined spec.** `$B goto /issues/vfy-5`; `$B expect --text "The refined spec waits for approval below."`; `$B click --in-section "A refined spec waits for approval" --role button --name "Approve spec"`. Result: toast `Approved the spec of vfy-5.`, the banner leaves (`$B expect --role region --name "A refined spec waits for approval" --absent`), the Spec card says `approved by verifier` and `$B expect --role heading --name "Todo tags ready"`; `$S/frankie-verify sql "select status, spec_approved_by from issues where key='vfy-5'"` prints `ready|verifier`; `curl -s $API/api/specs` is `[]`.
@@ -42,11 +42,13 @@ Preconditions: fresh launch, name and token set. `vfy-5` is refining with a prop
 
 ## Gotchas
 
-- The page's cards are `<section>`s; the waiting banners are regions named by their title, so scope their buttons with `--in-section "<title>"`. `Approve` prefix-matches `Approve spec`: use `--exact` for a gate.
-- `Cancel issue` and `Send back with feedback` stay disabled until their text is typed.
+- Only the waiting banners and the `Overlaps` box are `<section>` regions named by their title, so scope their buttons with `--in-section "<title>"`; the other cards (Spec, Relations, the run card) are not sections and `--in-section` cannot scope them. `Approve` prefix-matches `Approve spec`: use `--exact` for a gate.
+- `Cancel issue`, `Send back with feedback`, a gate's `Request changes` (a comment) and `Answer` stay disabled until their text is typed.
 - A cancel or complete that closes more than the issue (a parent's unfinished issues) adds `Closed: <keys> ... Frankie closes their GitHub issues within a minute.`. Intake is not running here, so `source_closed_at` stays null; that GitHub side effect is unverified.
 - `Complete` appears only on a parent whose sub-issues are all finished and at least one is not canceled. Only a merge makes a sub-issue `merged`, so `issue-complete` is unreachable here. Unverified.
 - `Retry` only writes Postgres (`failed` to `ready` plus a start request); the run that would follow needs the scheduler and Temporal. It mutates the seed.
 - Approve and send back both act on vfy-5's one proposal: run them in separate launches. The board's start of vfy-1 covers vfy-2, so the `Start` journey needs a launch where nothing asked for vfy-1 or vfy-2.
 - The `Issues` tab and the Runs tab render a table on desktop and a hidden list for phones (or the reverse): a plain `--text` can land on the hidden copy and time out. Use `--role cell` or `--in-row` on desktop.
-- The page refetches every 5 s (3 s while a run is live); a decided banner leaves when the write's refresh lands.
+- The issue refetches every 5 s (3 s while a run is live, under it too: vfy-8 polls at 3 s); approvals and questions every 5 s, the project's issues every 10 s, and each run card's steps every 3 s while live. A decided banner leaves when the write's refresh lands.
+- Each run card opens its run's stream, and each stream's replay refreshes the page's data once. vfy-8 has two live runs under it, so a cold load asks for `/api/approvals` and `/api/questions` 4 times, the walk's default request budget; one more live run under it would exceed it.
+- On a cold load the gate and question banners appear only once `/api/approvals` and `/api/questions` answer, and a parent's progress and `Issues` count first count its direct children, then the whole subtree (vfy-8: `0 / 2`, then `1 / 6`): wait with `expect` before a screenshot.

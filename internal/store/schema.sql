@@ -305,3 +305,73 @@ CREATE TABLE deployments (
 ALTER TABLE runs ADD CONSTRAINT runs_release_id_fkey FOREIGN KEY (release_id) REFERENCES releases (id);
 
 CREATE INDEX runs_release_id_idx ON runs (release_id);
+
+-- People who sign in to Frankie (D144, M10).
+CREATE TABLE users (
+  id            uuid        PRIMARY KEY,
+  username      text        NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  display_name  text        NOT NULL DEFAULT '',
+  email         text,
+  role          text        NOT NULL CHECK (role IN ('admin', 'member', 'viewer')),
+  password_hash text        NOT NULL DEFAULT '',
+  disabled_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX users_email_lower_idx ON users (lower(email)) WHERE email IS NOT NULL AND email <> '';
+
+-- External SSO identities linked to a user (D144, D145); one person can link several.
+CREATE TABLE user_identities (
+  id         uuid        PRIMARY KEY,
+  user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  provider   text        NOT NULL CHECK (provider IN ('google', 'gitlab', 'github')),
+  subject    text        NOT NULL,
+  email      text        NOT NULL DEFAULT '',
+  login      text        NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT user_identities_provider_subject_key UNIQUE (provider, subject)
+);
+
+CREATE INDEX user_identities_user_id_idx ON user_identities (user_id);
+
+-- Browser sessions carried in an HttpOnly cookie (D144); only SHA-256 hashes are stored.
+CREATE TABLE sessions (
+  id           uuid        PRIMARY KEY,
+  user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  token_hash   bytea       NOT NULL UNIQUE,
+  expires_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+CREATE INDEX sessions_expires_at_idx ON sessions (expires_at);
+
+-- Per-person API tokens replacing the single token (D144, D146); only SHA-256 hashes are stored.
+CREATE TABLE api_tokens (
+  id           uuid        PRIMARY KEY,
+  user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  name         text        NOT NULL,
+  token_prefix text        NOT NULL,
+  token_hash   bytea       NOT NULL UNIQUE,
+  last_used_at timestamptz,
+  expires_at   timestamptz,
+  revoked_at   timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX api_tokens_user_id_idx ON api_tokens (user_id);
+
+-- Administrator invitations to join Frankie (D145); single-use and expiring.
+CREATE TABLE user_invites (
+  id          uuid        PRIMARY KEY,
+  token_hash  bytea       NOT NULL UNIQUE,
+  email       text        NOT NULL DEFAULT '',
+  role        text        NOT NULL CHECK (role IN ('admin', 'member', 'viewer')),
+  invited_by  uuid        REFERENCES users (id) ON DELETE SET NULL,
+  expires_at  timestamptz NOT NULL,
+  accepted_at timestamptz,
+  accepted_by uuid        REFERENCES users (id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);

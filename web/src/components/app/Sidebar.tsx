@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { approvalsQuery, questionsQuery, specsQuery } from "@/api/queries";
+import { approvalsQuery, meQuery, questionsQuery, specsQuery } from "@/api/queries";
+import { isAdmin } from "@/auth";
 import { AccountMenu } from "@/components/app/AccountMenu";
 import { AppLink } from "@/components/app/AppLink";
-import { activeNav, navItems } from "@/components/app/nav";
+import { activeNav, navItems, settingsNavItems } from "@/components/app/nav";
 import { useCurrentProject } from "@/components/app/project";
 import { ProjectSwitcher } from "@/components/app/ProjectSwitcher";
 import { cn } from "@/lib/utils";
@@ -16,13 +17,17 @@ export function useWaiting(): number {
   return gates + questions + specs;
 }
 
-// Sidebar: the project switcher, the pages and, at its foot, the name and
-// API token. At phone width it is the drawer's content.
+// Sidebar: the project switcher, the pages, settings links and, at its foot,
+// the signed-in user menu. At phone width it is the drawer's content.
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { project, projects, failed, loading } = useCurrentProject();
+  const me = useQuery(meQuery());
+  const admin = isAdmin(me.data?.role);
   const path = useRouterState({ select: (s) => s.location.pathname });
   const active = activeNav(path);
   const waiting = useWaiting();
+  const settings = settingsNavItems.filter((item) => !item.adminOnly || admin);
+
   return (
     <div className="flex h-full flex-col gap-4 bg-sidebar px-3 py-4" style={{ paddingLeft: "max(12px, env(safe-area-inset-left, 0px))" }}>
       <AppLink href="/" onClick={onNavigate} className="flex w-fit items-center gap-2 px-2">
@@ -51,8 +56,27 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </ul>
       </nav>
+      <nav aria-label="Settings" className="border-t border-line pt-3">
+        <div className="px-2.5 pb-1 text-xs2 font-medium tracking-wide text-muted-fg uppercase">Settings</div>
+        <ul className="space-y-0.5">
+          {settings.map((item) => (
+            <li key={item.id}>
+              <AppLink
+                href={item.href}
+                onClick={onNavigate}
+                aria-current={active === item.id ? "page" : undefined}
+                className={cn("flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+                  active === item.id ? "bg-primary-soft text-primary" : "text-muted-fg hover:bg-hover hover:text-fg")}
+              >
+                <item.icon className="size-4 shrink-0" />
+                {item.label}
+              </AppLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
       <div className="mt-auto">
-        <AccountMenu />
+        <AccountMenu onNavigate={onNavigate} />
       </div>
     </div>
   );

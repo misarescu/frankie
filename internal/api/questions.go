@@ -72,18 +72,16 @@ func (s *Server) answerQuestion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	text, by := strings.TrimSpace(req.Text), strings.TrimSpace(req.By)
+	text := strings.TrimSpace(req.Text)
 	switch {
 	case text == "":
 		http.Error(w, "text is required", http.StatusBadRequest)
 		return
-	case len(text) > maxInterventionText || len(by) > maxBy:
-		http.Error(w, "text or by is too long", http.StatusBadRequest)
+	case len(text) > maxInterventionText:
+		http.Error(w, "text is too long", http.StatusBadRequest)
 		return
 	}
-	if by == "" {
-		by = "web"
-	}
+	by := actorName(r)
 	if s.Signaler == nil {
 		http.Error(w, "workflows are not running", http.StatusServiceUnavailable)
 		return

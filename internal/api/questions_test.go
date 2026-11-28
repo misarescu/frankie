@@ -47,7 +47,7 @@ func TestQuestionsInboxAndAnswer(t *testing.T) {
 		t.Fatalf("answer: %d", code)
 	}
 	want := signal{run.TemporalWorkflowID, run.TemporalRunID, workflow.AnswerSignal,
-		workflow.StepIntervention{StepRunID: step.ID.String(), QuestionID: "q1", By: "ana", Text: "8080"}}
+		workflow.StepIntervention{StepRunID: step.ID.String(), QuestionID: "q1", By: testActorName, Text: "8080"}}
 	if len(sig.sent) != 1 || sig.sent[0] != want {
 		t.Errorf("signals = %+v, want %+v", sig.sent, want)
 	}

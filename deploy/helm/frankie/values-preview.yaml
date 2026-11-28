@@ -14,6 +14,11 @@ persistence:
 web:
   enabled: false
 
+# Preview-only service mode for the M7.1 preview judge (D146). Never set in production.
+controlPlane:
+  auth:
+    previewMode: true
+
 # One issue per preview (D132).
 scheduler:
   maxConcurrentIssues: 1

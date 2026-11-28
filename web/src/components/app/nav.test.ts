@@ -9,6 +9,8 @@ test("the sidebar marks the section a page belongs to", () => {
   expect(activeNav("/projects/gc/releases")).toBe("releases");
   expect(activeNav("/releases/x")).toBe("releases");
   expect(activeNav("/approvals")).toBe("approvals");
+  expect(activeNav("/settings/account")).toBe("account");
+  expect(activeNav("/settings/users")).toBe("users");
   expect(activeNav("/no/such")).toBeUndefined();
 });
 

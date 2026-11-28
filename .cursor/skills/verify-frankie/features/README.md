@@ -52,7 +52,8 @@ The maintained source for verifying what an operator sees in Frankie's web UI. R
 
 - Fixed ids: run `…02NN` belongs to `vfy-NN` for NN = 04, 06, 07 and `…21NN` for NN = 11 to 17; `…22NN` is vfy-NN's refinement; `…0208`, `…2303` and `…2304` are release runs. A step run id ends in `3` + issue number + step number + attempt: `00000000-0000-7000-8000-000000311032` is vfy-11's step 03 (`implement`), attempt 2.
 - `frankie-verify api stop` and `api start` take the control plane down and back for the API-error states (see `../SKILL.md`).
-- Set your name and the API token first, from the sidebar's footer menu `Your name and API token` (the `setup` block in `../SKILL.md`). Reads work without them. Every write needs the token; a write without a name succeeds but is recorded as `web` instead of `verifier`, which breaks the recipes' `sql` checks.
+- Sign in first via `/login` using `$ADMIN_USER` / `$ADMIN_PASSWORD` from `frankie-verify env` (the `setup` block in `../SKILL.md`). Every `/api/*` read and write requires authentication (D146); writes automatically record the signed-in person (`verifier`).
+- For `scripts/walk.mjs`, include `"auth": {"username": "$ADMIN_USER", "password": "$ADMIN_PASSWORD"}` in the paths/steps JSON (use `"auth": null` on a path entry to verify unauthenticated redirect to `/login`).
 - Set `FRANKIE_VERIFY_FEATURE=<feature id>` and write artifacts to `$EVIDENCE_DIR/<feature id>/` (`frankie-verify env` prints `EVIDENCE_DIR`).
 - Shorthand in the recipes: `S=.cursor/skills/verify-frankie/scripts`, `B="node $S/browser.mjs"`.
 - There is no Temporal, Kubernetes or GitHub behind this instance: nothing advances on its own, and anything that signals a workflow answers `workflows are not running`.
@@ -79,6 +80,7 @@ Each feature file starts with an H1 and one paragraph of user-visible behavior, 
 
 ## Features
 
+- [Sign-in, roles, tokens and users](./auth.md): `/login`, `/invite/<token>`, `/settings/account`, `/settings/users`; session sign-in, personal API tokens, user/invite management and viewer read-only enforcement (M10, D144-D147).
 - [Issues board](./issues-board.md): `/projects/<prefix>/board`, the project's issues as a tree or a dependency graph, with rolled-up costs; select and start.
 - [Issue page](./issue-page.md): `/issues/<key>`, one issue's header and actions, what waits for a person on it, its live run, and the Overview, Runs, Issues and Activity tabs; start, cancel, retry and spec decisions.
 - [Approvals inbox](./approvals-inbox.md): `/approvals`, pending human gates (on issues and before release stages), agent questions and refined specs waiting for a person.

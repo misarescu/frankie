@@ -59,6 +59,7 @@ func getJSON(t *testing.T, url string, out any) int {
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -204,8 +205,8 @@ func TestSteerAndAbortSignalTheWorkflow(t *testing.T) {
 		t.Fatalf("abort: %d", code)
 	}
 	want := []signal{
-		{run.TemporalWorkflowID, run.TemporalRunID, workflow.SteerSignal, workflow.StepIntervention{StepRunID: step.ID.String(), By: "ana", Text: "use the helper"}},
-		{run.TemporalWorkflowID, run.TemporalRunID, workflow.AbortSignal, workflow.StepIntervention{StepRunID: step.ID.String(), By: "web", Text: "wrong approach"}},
+		{run.TemporalWorkflowID, run.TemporalRunID, workflow.SteerSignal, workflow.StepIntervention{StepRunID: step.ID.String(), By: testActorName, Text: "use the helper"}},
+		{run.TemporalWorkflowID, run.TemporalRunID, workflow.AbortSignal, workflow.StepIntervention{StepRunID: step.ID.String(), By: testActorName, Text: "wrong approach"}},
 	}
 	if len(sig.sent) != len(want) {
 		t.Fatalf("signals = %+v", sig.sent)

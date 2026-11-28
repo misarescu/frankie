@@ -77,7 +77,7 @@ func TestSpecApprovalInbox(t *testing.T) {
 	}
 	var detail issueDetailJSON
 	getJSON(t, srv.URL+"/api/issues/"+is["api"].Key, &detail)
-	if detail.Spec != "Refined api" || detail.SpecApprovedBy != "ana" || detail.SpecProposal != nil ||
+	if detail.Spec != "Refined api" || detail.SpecApprovedBy != testActorName || detail.SpecProposal != nil ||
 		!slices.Equal(detail.AcceptanceCriteria, []string{"api works"}) || !slices.Equal(detail.FileHints, []string{"src/api/"}) {
 		t.Errorf("approved detail = %+v", detail)
 	}
@@ -89,7 +89,7 @@ func TestSpecApprovalInbox(t *testing.T) {
 		t.Fatalf("reject = %d, %+v", code, got)
 	}
 	getJSON(t, srv.URL+"/api/issues/"+is["ui"].Key, &detail)
-	if detail.SpecFeedback != "which page? (ana)" || detail.SpecProposal != nil {
+	if detail.SpecFeedback != "which page? ("+testActorName+")" || detail.SpecProposal != nil {
 		t.Errorf("rejected detail: feedback %q, proposal %+v", detail.SpecFeedback, detail.SpecProposal)
 	}
 	// M5.2: the page sees the draft is held, so it can offer to refine again.

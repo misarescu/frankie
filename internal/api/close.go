@@ -44,11 +44,7 @@ func (s *Server) closeIssue(w http.ResponseWriter, r *http.Request, close func(i
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	by, ok := cleanBy(req.By)
-	if !ok {
-		http.Error(w, "by is too long", http.StatusBadRequest)
-		return
-	}
+	by := actorName(r)
 	is, err := s.Store.GetIssueByKey(r.Context(), r.PathValue("key"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "no such issue", http.StatusNotFound)

@@ -1,11 +1,23 @@
 // Serves the web UI and proxies /api to the control plane, so the browser
-// talks to one origin (no CORS) and server-sent events stream through. Every
-// other path is the app (M9, D141): the router reads the URL in the browser.
+// talks to one origin (no CORS), cookies and OAuth redirects pass through
+// untouched (D147), and server-sent events stream through. Every other path
+// is the app (M9, D141): the router reads the URL in the browser.
 import index from "./index.html";
+
+function rightmostHeaderValue(raw: string | null): string {
+  if (!raw) return "";
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
 
 // Bun closes connections idle for idleTimeout seconds (default 10). Event
 // streams are quiet for minutes while a toolchain builds, so they are exempt.
-export function createServer(controlplaneURL: string, port: number, opts: { idleTimeout?: number } = {}) {
+export function createServer(
+  controlplaneURL: string,
+  port: number,
+  opts: { idleTimeout?: number; trustProxy?: boolean } = {},
+) {
+  const trustProxy = opts.trustProxy ?? (process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1");
   return Bun.serve({
     port,
     idleTimeout: opts.idleTimeout,
@@ -18,12 +30,42 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
       "/healthz": () => new Response("ok\n"),
       "/api/*": async (req, server) => {
         const url = new URL(req.url);
+        const headers = new Headers(req.headers);
+        const peerIP = server.requestIP(req)?.address ?? "";
+        // Never forward client-spoofable alternate IP headers (e.g. when behind
+        // a non-Cloudflare Ingress that passes CF-Connecting-IP through).
+        headers.delete("cf-connecting-ip");
+        headers.delete("true-client-ip");
+        headers.delete("x-real-ip");
+        if (trustProxy) {
+          const proto = rightmostHeaderValue(headers.get("x-forwarded-proto")) || url.protocol.replace(/:$/, "");
+          headers.set("x-forwarded-proto", proto);
+          const host = rightmostHeaderValue(headers.get("x-forwarded-host")) || req.headers.get("host") || url.host;
+          headers.set("x-forwarded-host", host);
+          const clientIP = rightmostHeaderValue(headers.get("x-forwarded-for")) || peerIP;
+          if (clientIP) {
+            headers.set("x-forwarded-for", clientIP);
+          } else {
+            headers.delete("x-forwarded-for");
+          }
+        } else {
+          // Direct connection: never trust client-supplied forwarding headers so
+          // rate limits and origin/scheme checks cannot be spoofed.
+          headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
+          headers.set("x-forwarded-host", req.headers.get("host") || url.host);
+          if (peerIP) {
+            headers.set("x-forwarded-for", peerIP);
+          } else {
+            headers.delete("x-forwarded-for");
+          }
+        }
         let upstream: Response;
         try {
           upstream = await fetch(controlplaneURL + url.pathname + url.search, {
             method: req.method,
-            headers: req.headers,
+            headers,
             body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
+            redirect: "manual",
             signal: req.signal,
           });
         } catch (e) {
@@ -31,7 +73,7 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
           return new Response(`the control plane is not reachable: ${(e as Error).message}\n`, { status: 502 });
         }
         if (upstream.headers.get("content-type")?.startsWith("text/event-stream")) server.timeout(req, 0);
-        // Pass the body through as a stream so SSE events arrive as they are sent.
+        // Pass the body and headers (including Set-Cookie and Location) straight through.
         return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
       },
       "/*": index,

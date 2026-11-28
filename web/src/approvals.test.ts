@@ -29,15 +29,14 @@ test("expiresIn", () => {
   expect(expiresIn("2026-11-13T11:00:00Z", now)).toBe("expired");
 });
 
-test("M5.1: decide sends the person's name as by", async () => {
+test("D146: decide posts decision and trimmed comment without client-supplied by", async () => {
   const bodies: unknown[] = [];
   const fetchFn = async (_url: string, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)));
     return new Response(null, { status: 202 });
   };
-  await decide(fetchFn, "g1", "approve", "", "Ana");
-  await decide(fetchFn, "g1", "approve", "", null);
-  expect(bodies).toEqual([{ decision: "approve", comment: "", by: "Ana" }, { decision: "approve", comment: "" }]);
+  await decide(fetchFn, "g1", "approve", " ok ");
+  expect(bodies).toEqual([{ decision: "approve", comment: "ok" }]);
 });
 
 test("M6: a gate before a merge offers request changes and says what reject does", () => {
@@ -53,6 +52,6 @@ test("M6: request-changes is sent as such", async () => {
     bodies.push(JSON.parse(String(init?.body)));
     return new Response(null, { status: 202 });
   };
-  await decide(fetchFn, "g1", "request-changes", " keep both routes ", null);
+  await decide(fetchFn, "g1", "request-changes", " keep both routes ");
   expect(bodies).toEqual([{ decision: "request-changes", comment: "keep both routes" }]);
 });

@@ -23,4 +23,8 @@ export const paths = {
   run: (id: string, step?: string) => `/runs/${enc(id)}${query({ step })}`,
   release: (id: string) => `/releases/${enc(id)}`,
   approvals: (kind?: ApprovalKind) => `/approvals${query({ kind })}`,
+  login: (s: { next?: string; error?: string } = {}) => `/login${query({ next: s.next, error: s.error })}`,
+  invite: (token: string) => `/invite/${enc(token)}`,
+  account: () => `/settings/account`,
+  users: () => `/settings/users`,
 };

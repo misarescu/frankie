@@ -37,6 +37,10 @@ spec:
           env:
             - name: CONTROLPLANE_URL
               value: http://{{ include "frankie.fullname" . }}-controlplane:{{ .Values.controlPlane.apiPort }}
+            {{- if or .Values.web.trustProxy .Values.web.ingress.enabled }}
+            - name: TRUST_PROXY
+              value: "true"
+            {{- end }}
           ports:
             - { name: http, containerPort: 3000 }
           readinessProbe:
@@ -91,4 +95,38 @@ spec:
               {{- include "frankie.componentLabels" (list . "controlplane") | nindent 14 }}
       ports:
         - { port: {{ .Values.controlPlane.apiPort }}, protocol: TCP }
+{{- if .Values.web.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "frankie.labels" . | nindent 4 }}
+  {{- with .Values.web.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.web.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.web.ingress.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ required "web.ingress.host is required when web.ingress.enabled is true" .Values.web.ingress.host | quote }}
+      secretName: {{ .Values.web.ingress.tlsSecretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ required "web.ingress.host is required when web.ingress.enabled is true" .Values.web.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
 {{- end }}

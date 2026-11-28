@@ -65,7 +65,7 @@ func TestCompleteAndCancelIssues(t *testing.T) {
 	}
 	var epic issueDetailJSON
 	getJSON(t, srv.URL+"/api/issues/"+is["epic"].Key, &epic)
-	if epic.Status != "canceled" || epic.ClosedBy != "ana" || epic.CloseReason != "replaced by a new plan" || epic.ClosedAt == nil {
+	if epic.Status != "canceled" || epic.ClosedBy != testActorName || epic.CloseReason != "replaced by a new plan" || epic.ClosedAt == nil {
 		t.Errorf("epic = %+v", epic)
 	}
 

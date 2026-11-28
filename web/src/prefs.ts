@@ -1,7 +1,6 @@
-// What the UI remembers in this browser besides the token and the name
-// (auth.ts, identity.ts): the theme and the last project opened (D141).
+// What the UI remembers in this browser: the theme and the last project opened (D141).
 
-import type { TokenStorage } from "./auth";
+export type TokenStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type Theme = "light" | "dark";
 

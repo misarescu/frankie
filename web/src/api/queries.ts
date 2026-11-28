@@ -4,6 +4,7 @@
 
 import { queryOptions } from "@tanstack/react-query";
 import type { Approval } from "@/approvals";
+import { notifyUnauthorized, type APIToken, type AuthProviders, type Invite, type InvitePreview, type User } from "@/auth";
 import type { RunEvent, RunSummary } from "@/events";
 import { detailWithTotal, summaryWithTotal, type IssueDetail, type IssueSummary, type Project } from "@/issues";
 import type { Question } from "@/questions";
@@ -13,6 +14,12 @@ import type { Spec } from "@/specs";
 import type { PlanStep, Step } from "@/steps";
 
 export const keys = {
+  me: ["auth", "me"] as const,
+  providers: ["auth", "providers"] as const,
+  invitePreview: (token: string) => ["auth", "invite", token] as const,
+  tokens: ["tokens"] as const,
+  users: ["users"] as const,
+  invites: ["invites"] as const,
   projects: ["projects"] as const,
   issues: (project: string) => ["issues", project] as const,
   issue: (key: string) => ["issue", key] as const,
@@ -38,19 +45,66 @@ export class ApiError extends Error {
 // getJSON reads one API resource. A failed request says why in words a
 // person can act on: the control plane down (the web server answers 502), the
 // web server gone, or what the API answered.
-export async function getJSON<T>(url: string, fetchFn: typeof fetch = fetch): Promise<T> {
+export async function getJSON<T>(url: string, fetchFn: typeof fetch = fetch, opts: { notify401?: boolean } = {}): Promise<T> {
   let r: Response;
   try {
-    r = await fetchFn(url);
+    r = await fetchFn(url, { credentials: "same-origin" });
   } catch {
     throw new ApiError(0, "the web server did not answer; check your connection");
   }
   if (r.status === 502) throw new ApiError(502, "the control plane is not reachable");
+  if (r.status === 401 && opts.notify401 !== false) notifyUnauthorized();
   if (!r.ok) throw new ApiError(r.status, (await r.text()).trim() || `status ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 const enc = encodeURIComponent;
+
+// meQuery resolves the signed-in user or null when unauthenticated (401).
+export const meQuery = () => queryOptions({
+  queryKey: keys.me,
+  queryFn: async (): Promise<User | null> => {
+    let r: Response;
+    try {
+      r = await fetch("/api/auth/me", { credentials: "same-origin" });
+    } catch {
+      throw new ApiError(0, "the web server did not answer; check your connection");
+    }
+    if (r.status === 401) return null;
+    if (r.status === 502) throw new ApiError(502, "the control plane is not reachable");
+    if (!r.ok) throw new ApiError(r.status, (await r.text()).trim() || `status ${r.status}`);
+    const body = await r.json() as { user: User };
+    return body.user;
+  },
+  staleTime: 60_000,
+});
+
+export const providersQuery = () => queryOptions({
+  queryKey: keys.providers,
+  queryFn: () => getJSON<AuthProviders>("/api/auth/providers", fetch, { notify401: false }),
+  staleTime: 5 * 60_000,
+});
+
+export const invitePreviewQuery = (token: string) => queryOptions({
+  queryKey: keys.invitePreview(token),
+  queryFn: () => getJSON<InvitePreview>(`/api/auth/invites/${enc(token)}`, fetch, { notify401: false }),
+  retry: false,
+});
+
+export const tokensQuery = () => queryOptions({
+  queryKey: keys.tokens,
+  queryFn: () => getJSON<APIToken[]>("/api/tokens"),
+});
+
+export const usersQuery = () => queryOptions({
+  queryKey: keys.users,
+  queryFn: () => getJSON<User[]>("/api/users"),
+});
+
+export const invitesQuery = () => queryOptions({
+  queryKey: keys.invites,
+  queryFn: () => getJSON<Invite[]>("/api/invites"),
+});
 
 export const projectsQuery = () => queryOptions({
   queryKey: keys.projects,

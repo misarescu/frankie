@@ -206,18 +206,15 @@ func (s *Server) intervene(w http.ResponseWriter, r *http.Request, signal string
 	if signal == workflow.AbortSignal {
 		text, field = strings.TrimSpace(req.Reason), "reason"
 	}
-	by := strings.TrimSpace(req.By)
 	switch {
 	case text == "":
 		http.Error(w, field+" is required", http.StatusBadRequest)
 		return
-	case len(text) > maxInterventionText || len(by) > maxBy:
-		http.Error(w, field+" or by is too long", http.StatusBadRequest)
+	case len(text) > maxInterventionText:
+		http.Error(w, field+" is too long", http.StatusBadRequest)
 		return
 	}
-	if by == "" {
-		by = "web"
-	}
+	by := actorName(r)
 	if s.Signaler == nil {
 		http.Error(w, "workflows are not running", http.StatusServiceUnavailable)
 		return

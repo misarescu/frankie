@@ -13,7 +13,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/misarescu/frankie/internal/auth"
 	"github.com/misarescu/frankie/internal/config"
+	"github.com/misarescu/frankie/internal/domain"
 	"github.com/misarescu/frankie/internal/images"
 	"github.com/misarescu/frankie/internal/sandbox"
 	"github.com/misarescu/frankie/internal/workflow/activities"
@@ -126,6 +128,32 @@ type fileConfig struct {
 	} `json:"toolchains"`
 	// EgressProjectAllow is egressProxy.projectAllow (D80).
 	EgressProjectAllow bool `json:"egressProjectAllow"`
+	// Auth configures M10 sign-in, sessions, allowlist and SSO (D144-D147).
+	Auth struct {
+		PublicURL      string   `json:"publicURL"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+		SessionTTL     string   `json:"sessionTTL"`
+		SecureCookie   *bool    `json:"secureCookie"`
+		PreviewMode    bool     `json:"previewMode"`
+		Allowlist      struct {
+			EmailDomains []string `json:"emailDomains"`
+			GitHubOrgs   []string `json:"githubOrgs"`
+			DefaultRole  string   `json:"defaultRole"`
+		} `json:"allowlist"`
+		SSO struct {
+			Google struct {
+				Enabled   bool   `json:"enabled"`
+				IssuerURL string `json:"issuerURL"`
+			} `json:"google"`
+			GitLab struct {
+				Enabled   bool   `json:"enabled"`
+				IssuerURL string `json:"issuerURL"`
+			} `json:"gitlab"`
+			GitHub struct {
+				Enabled bool `json:"enabled"`
+			} `json:"github"`
+		} `json:"sso"`
+	} `json:"auth"`
 }
 
 // gate parses the command gate settings; without them gates use the agent's
@@ -437,6 +465,42 @@ func LoadConfigFile(path string, cfg *Config) error {
 		return err
 	}
 	cfg.Agent.ModelAPIs = cfg.Models.Providers.GatewayAPIs()
+	if err := fc.loadAuth(&cfg.Auth); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (fc fileConfig) loadAuth(out *AuthConfig) error {
+	a := fc.Auth
+	out.PublicURL = strings.TrimRight(strings.TrimSpace(a.PublicURL), "/")
+	out.AllowedOrigins = a.AllowedOrigins
+	out.SecureCookie = a.SecureCookie
+	out.PreviewMode = a.PreviewMode
+	if out.PreviewMode && out.PublicURL != "" {
+		return errors.New("controlplane: config: auth.previewMode cannot be enabled with auth.publicURL")
+	}
+	if a.SessionTTL != "" {
+		d, err := time.ParseDuration(a.SessionTTL)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("controlplane: config: auth.sessionTTL %q invalid", a.SessionTTL)
+		}
+		out.SessionTTL = d
+	}
+	role := domain.Role(strings.TrimSpace(a.Allowlist.DefaultRole))
+	if role != "" && role != domain.RoleViewer && role != domain.RoleMember {
+		return fmt.Errorf("controlplane: config: auth.allowlist.defaultRole %q must be viewer or member", role)
+	}
+	out.Allowlist = auth.Allowlist{
+		EmailDomains: a.Allowlist.EmailDomains,
+		GitHubOrgs:   a.Allowlist.GitHubOrgs,
+		DefaultRole:  role,
+	}
+	out.GoogleEnabled = a.SSO.Google.Enabled
+	out.GoogleIssuerURL = strings.TrimSpace(a.SSO.Google.IssuerURL)
+	out.GitLabEnabled = a.SSO.GitLab.Enabled
+	out.GitLabIssuerURL = strings.TrimSpace(a.SSO.GitLab.IssuerURL)
+	out.GitHubEnabled = a.SSO.GitHub.Enabled
 	return nil
 }
 

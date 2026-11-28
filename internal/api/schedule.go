@@ -65,18 +65,6 @@ func (s *Server) overlaps(ctx context.Context, keys map[string]bool) ([]overlapJ
 	return out, nil
 }
 
-// cleanBy checks the "by" field of the scheduling writes; empty means the web UI.
-func cleanBy(by string) (string, bool) {
-	by = strings.TrimSpace(by)
-	if len(by) > maxBy {
-		return "", false
-	}
-	if by == "" {
-		by = "web"
-	}
-	return by, true
-}
-
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct != "application/json" {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
@@ -95,15 +83,11 @@ func (s *Server) startIssues(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	by, ok := cleanBy(req.By)
-	switch {
-	case !ok:
-		http.Error(w, "by is too long", http.StatusBadRequest)
-		return
-	case len(req.Keys) == 0 || len(req.Keys) > maxStartKeys:
+	if len(req.Keys) == 0 || len(req.Keys) > maxStartKeys {
 		http.Error(w, fmt.Sprintf("keys must name 1 to %d issues", maxStartKeys), http.StatusBadRequest)
 		return
 	}
+	by := actorName(r)
 	ctx := r.Context()
 	ids := make([]uuid.UUID, 0, len(req.Keys))
 	for _, key := range req.Keys {
@@ -199,11 +183,7 @@ func (s *Server) retryIssue(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	by, ok := cleanBy(req.By)
-	if !ok {
-		http.Error(w, "by is too long", http.StatusBadRequest)
-		return
-	}
+	by := actorName(r)
 	ctx := r.Context()
 	is, err := s.Store.GetIssueByKey(ctx, r.PathValue("key"))
 	if errors.Is(err, store.ErrNotFound) {

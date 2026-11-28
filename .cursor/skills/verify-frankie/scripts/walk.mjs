@@ -9,9 +9,10 @@
 //   node walk.mjs --history <base-url> <steps.json> [--out <dir>] [--viewport desktop] [--theme light]
 //
 // paths.json is an array of paths, or an object:
-//   { "storage": {"frankie.apiToken": "..."},          localStorage set before every load
-//     "expect":  [{"url": "/api/gates/", "status": 503}], /api failures allowed on every page
-//     "ignoreConsole": ["regex"],                        console errors to ignore
+//   { "auth":    {"username": "verifier", "password": "..."},  sign in via /api/auth/login before loading (M10); per-path "auth": null skips
+//     "storage": {"frankie.project": "vfy"},                   localStorage set before every load
+//     "expect":  [{"url": "/api/gates/", "status": 503}],      /api failures allowed on every page
+//     "ignoreConsole": ["regex"],                              console errors to ignore
 //     "paths": ["/projects/vfy/board",
 //               {"path": "/issues/nope", "name": "issue-missing", "expect": [{"url": "/api/issues/nope", "status": 404}]}] }
 // An expect entry's url is a substring of the request URL, or /regex/; status
@@ -144,7 +145,27 @@ function watch(page, expect, ignoreConsole) {
   return { seen, idle, gets };
 }
 
-async function context(browser, viewport, theme, storage) {
+const authCookieCache = new Map();
+
+async function authCookies(browser, base, auth) {
+  if (!auth || !auth.username || !auth.password) return [];
+  const key = base + "\0" + auth.username;
+  if (authCookieCache.has(key)) return authCookieCache.get(key);
+  const tmp = await browser.newContext();
+  try {
+    const resp = await tmp.request.post(new URL("/api/auth/login", base).href, {
+      data: { username: auth.username, password: auth.password },
+    });
+    if (!resp.ok()) die("auth login failed with status " + resp.status());
+    const state = await tmp.storageState();
+    authCookieCache.set(key, state.cookies);
+    return state.cookies;
+  } finally {
+    await tmp.close();
+  }
+}
+
+async function context(browser, viewport, theme, storage, base, auth) {
   const ctx = await browser.newContext({ viewport: VIEWPORTS[viewport] ?? die("unknown viewport " + viewport), colorScheme: theme === "dark" ? "dark" : "light" });
   await ctx.addInitScript(({ theme, storage }) => {
     try {
@@ -154,6 +175,8 @@ async function context(browser, viewport, theme, storage) {
       // about:blank has no storage
     }
   }, { theme, storage });
+  const cookies = await authCookies(browser, base, auth);
+  if (cookies.length > 0) await ctx.addCookies(cookies);
   return ctx;
 }
 
@@ -173,7 +196,8 @@ async function walkPaths(browser, base, spec, out, flags) {
     const name = p.name ?? slug(p.path);
     for (const viewport of viewports.filter((v) => !p.viewports || p.viewports.includes(v))) {
       for (const theme of themes) {
-        const ctx = await context(browser, viewport, theme, { ...(spec.storage ?? {}), ...(p.storage ?? {}) });
+        const auth = p.auth !== undefined ? p.auth : spec.auth;
+        const ctx = await context(browser, viewport, theme, { ...(spec.storage ?? {}), ...(p.storage ?? {}) }, base, auth);
         const page = await ctx.newPage();
         const { seen, idle, gets } = watch(page, [...(spec.expect ?? []), ...(p.expect ?? [])], spec.ignoreConsole ?? []);
         for (const s of p.slow ?? []) {
@@ -259,7 +283,7 @@ function locate(page, l, all = false) {
 
 async function walkHistory(browser, base, spec, out, flags) {
   const viewport = flags.viewport ?? "desktop", theme = flags.theme ?? "light";
-  const ctx = await context(browser, viewport, theme, spec.storage ?? {});
+  const ctx = await context(browser, viewport, theme, spec.storage ?? {}, base, spec.auth);
   const page = await ctx.newPage();
   const { seen, idle } = watch(page, spec.expect ?? [], spec.ignoreConsole ?? []);
   const problems = [], visited = [], checks = [];

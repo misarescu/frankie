@@ -62,7 +62,13 @@ func TestRunMigratesAndServes(t *testing.T) {
 	if code := get(t, apiURL+"/healthz"); code != http.StatusOK {
 		t.Errorf("healthz = %d", code)
 	}
-	// D58: the API is wired with the configured token.
+	if code := get(t, apiURL+"/version"); code != http.StatusOK {
+		t.Errorf("version = %d", code)
+	}
+	// D146: both reads and writes under /api/* require authentication.
+	if code := get(t, apiURL+"/api/runs"); code != http.StatusUnauthorized {
+		t.Errorf("GET /api/runs without auth = %d, want 401", code)
+	}
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, apiURL+"/api/gates/00000000-0000-0000-0000-000000000000/decision", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +80,7 @@ func TestRunMigratesAndServes(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("write without token = %d, want 401", resp.StatusCode)
+		t.Errorf("write without auth = %d, want 401", resp.StatusCode)
 	}
 
 	// Migrations ran: the schema exists.
@@ -129,8 +135,12 @@ func TestRunRejectsBadConfig(t *testing.T) {
 	if err := Run(t.Context(), Config{GitProxyKey: []byte("short")}, Listeners{}, quiet); err == nil {
 		t.Error("short signing key accepted")
 	}
-	if err := Run(t.Context(), Config{GitProxyKey: []byte("0123456789abcdef0123456789abcdef"), APIToken: "short"}, Listeners{}, quiet); err == nil {
-		t.Error("short API token accepted")
+	if err := Run(t.Context(), Config{GitProxyKey: []byte("0123456789abcdef0123456789abcdef"), APIToken: "short", Auth: AuthConfig{PreviewMode: true}}, Listeners{}, quiet); err == nil {
+		t.Error("short preview API token accepted")
+	}
+	if err := Run(t.Context(), Config{GitProxyKey: []byte("0123456789abcdef0123456789abcdef"), APIToken: testAPIToken,
+		Auth: AuthConfig{PreviewMode: true, PublicURL: "https://frankie.example.com"}}, Listeners{}, quiet); err == nil {
+		t.Error("previewMode with publicURL accepted")
 	}
 	if err := Run(t.Context(), Config{GitProxyKey: []byte("0123456789abcdef0123456789abcdef"), APIToken: testAPIToken,
 		Repos: []RepoConfig{{Name: "a/b", Upstream: "git@github.com:a/b.git", KeyPrefix: "ab"}}}, Listeners{}, quiet); err == nil {

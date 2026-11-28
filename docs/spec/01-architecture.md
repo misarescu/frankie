@@ -33,7 +33,7 @@
 ### Control plane (Go)
 Single deployable with these internal modules:
 
-- **api**: HTTP/JSON (and SSE/WebSocket for live streams) for the UI and CLI. Auth: a single-user token for writes (D58); sign-in with sessions, single sign-on and roles in M10 (open question 7).
+- **api**: HTTP/JSON (and SSE/WebSocket for live streams) for the UI and CLI. Auth: Postgres-backed users, sessions (cookie + `Origin` check), SSO (Google, GitLab, GitHub), roles (`admin`, `member`, `viewer`) and per-person API tokens (D144-D147, M10).
 - **domain/store**: entities and Postgres repositories (see `02-domain-model.md`).
 - **scheduler**: decides which ready issues start, honoring the DAG, concurrency limits, budgets and the "likely file overlap" warning.
 - **workflow**: the Temporal workflow interpreter and Activities (see `03-workflows-and-gates.md`).

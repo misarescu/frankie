@@ -65,7 +65,7 @@ func TestStartIssues(t *testing.T) {
 	}
 	var epic issueDetailJSON
 	getJSON(t, srv.URL+"/api/issues/"+is["epic"].Key, &epic)
-	if epic.StartRequestedAt == nil || epic.StartRequestedBy != "ana" {
+	if epic.StartRequestedAt == nil || epic.StartRequestedBy != testActorName {
 		t.Errorf("epic request = %v by %q", epic.StartRequestedAt, epic.StartRequestedBy)
 	}
 	var list []issueSummaryJSON
@@ -82,7 +82,6 @@ func TestStartIssues(t *testing.T) {
 	}{
 		{"no keys", `{"keys":[]}`, http.StatusBadRequest},
 		{"unknown key", `{"keys":["gc-999"]}`, http.StatusNotFound},
-		{"by too long", `{"keys":["gc-1"],"by":"` + strings.Repeat("x", 101) + `"}`, http.StatusBadRequest},
 	} {
 		if code := postDecode(t, srv.URL+"/api/issues/start", tt.body, nil); code != tt.want {
 			t.Errorf("%s: status = %d, want %d", tt.name, code, tt.want)
@@ -113,7 +112,7 @@ func TestRetryIssue(t *testing.T) {
 		t.Fatalf("retry = %d, %+v; want 202 and ready", code, got)
 	}
 	is, _ := st.GetIssue(ctx, running.ID)
-	if is.StartRequestedAt == nil || is.StartRequestedBy != "ana" {
+	if is.StartRequestedAt == nil || is.StartRequestedBy != testActorName {
 		t.Errorf("retry did not request a start: %+v", is)
 	}
 	if code := postDecode(t, srv.URL+"/api/issues/gc-999/retry", `{}`, nil); code != http.StatusNotFound {

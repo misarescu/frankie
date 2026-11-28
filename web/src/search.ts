@@ -28,3 +28,15 @@ export const runSearch = (s: Raw): RunSearch => ({
 
 export type ApprovalsSearch = { kind?: ApprovalKind };
 export const approvalsSearch = (s: Raw): ApprovalsSearch => ({ kind: oneOf(s.kind, ["gate", "question", "spec"] as const) });
+
+export type LoginSearch = { next?: string; error?: string };
+export const loginSearch = (s: Raw): LoginSearch => ({
+  next: typeof s.next === "string" && s.next !== "" ? s.next : undefined,
+  error: typeof s.error === "string" && s.error !== "" ? s.error : undefined,
+});
+
+export type AccountSearch = { linked?: string; error?: string };
+export const accountSearch = (s: Raw): AccountSearch => ({
+  linked: typeof s.linked === "string" && s.linked !== "" ? s.linked : undefined,
+  error: typeof s.error === "string" && s.error !== "" ? s.error : undefined,
+});

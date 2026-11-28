@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { CheckIcon, ExternalLinkIcon, GitPullRequestIcon, PlayIcon, RotateCwIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { useCancelIssue, useCompleteIssue, useRetryIssue, useStartIssues } from "@/api/mutations";
+import { meQuery } from "@/api/queries";
+import { canOperate } from "@/auth";
 import { sourceLabel } from "@/activity";
 import { IssueLink } from "@/components/app/IssueLink";
 import { StartReplyPanel } from "@/components/app/StartReplyPanel";
@@ -82,6 +85,8 @@ function CompleteDialog({ issue, open, onOpenChange, onClosed }: {
 // title and status, and only the actions that do something now (D72), with
 // what the issue waits for when there is nothing to do.
 export function IssueHeader({ issue }: { issue: IssueDetail }) {
+  const me = useQuery(meQuery());
+  const writable = canOperate(me.data?.role);
   const actions = issueActions(issue);
   const start = useStartIssues();
   const retry = useRetryIssue();
@@ -114,23 +119,23 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {actions.start && (
+          {writable && actions.start && (
             <Button disabled={busy} onClick={() => start.mutate([issue.key], { onSuccess: (r) => { setReply(r); toast(`Start requested: ${issue.key}.`); } })}>
               <PlayIcon className="size-3.5" />{actions.start}
             </Button>
           )}
-          {actions.retry && (
+          {writable && actions.retry && (
             <Button disabled={busy} onClick={() => retry.mutate(issue.key, { onSuccess: () => toast(`Retrying ${issue.key}.`) })}>
               <RotateCwIcon className="size-3.5" />Retry
             </Button>
           )}
-          {actions.complete && <Button variant="outline" onClick={() => setDialog("complete")}><CheckIcon className="size-3.5" />Complete</Button>}
+          {writable && actions.complete && <Button variant="outline" onClick={() => setDialog("complete")}><CheckIcon className="size-3.5" />Complete</Button>}
           {actions.changeRequest && (
             <Button asChild variant="outline">
               <a href={actions.changeRequest} target="_blank" rel="noreferrer"><GitPullRequestIcon className="size-3.5" />Review change request</a>
             </Button>
           )}
-          {actions.cancel && <Button variant="destructive" onClick={() => setDialog("cancel")}><XIcon className="size-3.5" />Cancel…</Button>}
+          {writable && actions.cancel && <Button variant="destructive" onClick={() => setDialog("cancel")}><XIcon className="size-3.5" />Cancel…</Button>}
         </div>
       </div>
       {actions.note && <p className="text-[13px] text-muted-fg">{actions.note}.</p>}

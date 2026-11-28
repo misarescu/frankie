@@ -1,7 +1,6 @@
 // Issues as the control plane API returns them (internal/api/issues.go, D59),
 // starting them (D62), and the board's tree and dependency graph.
 
-import { signed } from "./identity";
 import type { LiveRunRef } from "./live";
 
 export type Project = { id: string; name: string; key_prefix: string };
@@ -104,26 +103,26 @@ async function post<T>(fetchFn: Fetch, url: string, body: unknown): Promise<T> {
 
 // startIssues asks the scheduler to start issues; a parent covers everything
 // under it. The reply is the scheduler's plan for them.
-export const startIssues = (fetchFn: Fetch, keys: string[], by?: string | null): Promise<StartReply> =>
-  post<StartReply>(fetchFn, "/api/issues/start", signed({ keys }, by));
+export const startIssues = (fetchFn: Fetch, keys: string[]): Promise<StartReply> =>
+  post<StartReply>(fetchFn, "/api/issues/start", { keys });
 
 // retryIssue re-arms a failed issue and asks to start it.
-export const retryIssue = (fetchFn: Fetch, key: string, by?: string | null): Promise<IssueRef> =>
-  post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, signed({}, by));
+export const retryIssue = (fetchFn: Fetch, key: string): Promise<IssueRef> =>
+  post<IssueRef>(fetchFn, `/api/issues/${encodeURIComponent(key)}/retry`, {});
 
 export type CloseReply = { closed: IssueRef[] };
 
 // completeIssue moves a parent whose sub-issues are all finished to merged
 // (D70); Frankie then closes its provider issue as completed (D71).
-export const completeIssue = (fetchFn: Fetch, key: string, by?: string | null): Promise<CloseReply> =>
-  post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/complete`, signed({}, by));
+export const completeIssue = (fetchFn: Fetch, key: string): Promise<CloseReply> =>
+  post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/complete`, {});
 
 // cancelIssue cancels an issue and everything unfinished under it, saying why
 // (D70); Frankie then closes their provider issues as not planned (D71).
-export async function cancelIssue(fetchFn: Fetch, key: string, reason: string, by?: string | null): Promise<CloseReply> {
+export async function cancelIssue(fetchFn: Fetch, key: string, reason: string): Promise<CloseReply> {
   const r = reason.trim();
   if (r === "") throw new Error("say why it is canceled");
-  return post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/cancel`, signed({ reason: r }, by));
+  return post<CloseReply>(fetchFn, `/api/issues/${encodeURIComponent(key)}/cancel`, { reason: r });
 }
 
 export type Progress = { merged: number; canceled: number; total: number };

@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// D131: GET /api/version reports the build commit without a token, and
-// "unknown" when the build stamped none.
+// D131, D146: GET /version reports the build commit without auth (cluster probe)
+// and GET /api/version reports it with auth (or in PreviewMode).
 func TestGetVersion(t *testing.T) {
 	tests := []struct {
 		name, version, want string
@@ -21,11 +21,12 @@ func TestGetVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mux := http.NewServeMux()
-			(&Server{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: tt.version}).Register(mux)
+			srvObj := &Server{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: tt.version}
+			mux.HandleFunc("GET /version", srvObj.GetVersion)
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
 
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/version", nil)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/version", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

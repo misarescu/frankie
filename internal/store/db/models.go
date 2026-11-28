@@ -10,6 +10,18 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	Name        string
+	TokenPrefix string
+	TokenHash   []byte
+	LastUsedAt  *time.Time
+	ExpiresAt   *time.Time
+	RevokedAt   *time.Time
+	CreatedAt   time.Time
+}
+
 type Approval struct {
 	ID                uuid.UUID
 	StepRunID         uuid.UUID
@@ -185,6 +197,15 @@ type Run struct {
 	ReleaseID          *uuid.UUID
 }
 
+type Session struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TokenHash  []byte
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	CreatedAt  time.Time
+}
+
 type StepRun struct {
 	ID           uuid.UUID
 	RunID        uuid.UUID
@@ -208,4 +229,38 @@ type ToolchainImage struct {
 	Tag        string
 	Digest     string
 	BuiltAt    time.Time
+}
+
+type User struct {
+	ID           uuid.UUID
+	Username     string
+	DisplayName  string
+	Email        *string
+	Role         string
+	PasswordHash string
+	DisabledAt   *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type UserIdentity struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Provider  string
+	Subject   string
+	Email     string
+	Login     string
+	CreatedAt time.Time
+}
+
+type UserInvite struct {
+	ID         uuid.UUID
+	TokenHash  []byte
+	Email      string
+	Role       string
+	InvitedBy  *uuid.UUID
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time
+	AcceptedBy *uuid.UUID
+	CreatedAt  time.Time
 }

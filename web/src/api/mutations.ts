@@ -1,12 +1,10 @@
-// Writes (D141): one hook per write the UI makes, each sending the API token
-// (apiFetch, D58) and the person's name (signed, M5.1) through the domain
-// modules, and invalidating what it changes. A failed write's error is the
-// API's message, shown next to the control that made it; a 401 also opens the
-// token dialog (auth.ts fires TOKEN_REJECTED).
+// Writes (D141, D146): one hook per write the UI makes, each sending the
+// browser session cookie (apiFetch) and invalidating what it changes. The
+// control plane records the authenticated user's identity from the session.
 
 import { useMutation, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { decide, type Decision } from "@/approvals";
-import { apiFetch } from "@/auth";
+import { apiFetch, type APIToken, type Invite, type Role, type User } from "@/auth";
 import { cancelIssue, completeIssue, retryIssue, startIssues } from "@/issues";
 import { answer } from "@/questions";
 import { decideSpec, type SpecDecision } from "@/specs";
@@ -45,6 +43,172 @@ function refresh(qc: QueryClient, stale: QueryKey[], again = false) {
   run();
   if (again) setTimeout(run, SETTLE_MS);
 }
+
+async function jsonRequest<T>(fetchFn: typeof apiFetch, url: string, method: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method, credentials: "same-origin" };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const r = await fetchFn(url, init);
+  if (!r.ok) throw new Error((await r.text()).trim() || `status ${r.status}`);
+  if (r.status === 204) return undefined as T;
+  return r.json() as Promise<T>;
+}
+
+// ---- Auth & self-service account ----
+
+export function useLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { username: string; password: string }) => {
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `status ${r.status}`);
+      return (await r.json()) as { user: User };
+    },
+    onSuccess: ({ user }) => {
+      qc.setQueryData(keys.me, user);
+    },
+  });
+}
+
+export function useLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const r = await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+      if (!r.ok && r.status !== 204) throw new Error((await r.text()).trim() || `status ${r.status}`);
+    },
+    onSuccess: () => {
+      qc.clear();
+      qc.setQueryData(keys.me, null);
+    },
+  });
+}
+
+export function useAcceptInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { token: string; username: string; display_name: string; email: string; password: string }) => {
+      const r = await fetch("/api/auth/invites/accept", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      if (!r.ok) throw new Error((await r.text()).trim() || `status ${r.status}`);
+      return (await r.json()) as { user: User };
+    },
+    onSuccess: ({ user }) => {
+      qc.setQueryData(keys.me, user);
+    },
+  });
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { display_name: string; email: string }) =>
+      jsonRequest<{ user: User }>(apiFetch, "/api/auth/me", "PATCH", v),
+    onSuccess: ({ user }) => {
+      qc.setQueryData(keys.me, user);
+    },
+  });
+}
+
+export function useChangePassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { current_password: string; new_password: string }) =>
+      jsonRequest<void>(apiFetch, "/api/auth/password", "POST", v),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+export function useUnlinkIdentity() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      jsonRequest<void>(apiFetch, `/api/auth/identities/${encodeURIComponent(id)}`, "DELETE"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+export function useCreateToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { name: string; expires_in_days?: number }) =>
+      jsonRequest<{ token: APIToken; secret: string }>(apiFetch, "/api/tokens", "POST", v),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.tokens }),
+  });
+}
+
+export function useRevokeToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      jsonRequest<void>(apiFetch, `/api/tokens/${encodeURIComponent(id)}`, "DELETE"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.tokens }),
+  });
+}
+
+// ---- Admin users & invites ----
+
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { username: string; display_name: string; email: string; role: Role; password: string }) =>
+      jsonRequest<User>(apiFetch, "/api/users", "POST", v),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.users }),
+  });
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; role?: Role; disabled?: boolean }) =>
+      jsonRequest<User>(apiFetch, `/api/users/${encodeURIComponent(v.id)}`, "PATCH", {
+        ...(v.role !== undefined ? { role: v.role } : {}),
+        ...(v.disabled !== undefined ? { disabled: v.disabled } : {}),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.users });
+      void qc.invalidateQueries({ queryKey: keys.me });
+    },
+  });
+}
+
+export function useRevokeUserSessions() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      jsonRequest<void>(apiFetch, `/api/users/${encodeURIComponent(id)}/sessions`, "DELETE"),
+  });
+}
+
+export function useCreateInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { email?: string; role: Role; expires_in_hours?: number }) =>
+      jsonRequest<{ invite: Invite; token: string; path: string }>(apiFetch, "/api/invites", "POST", v),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.invites }),
+  });
+}
+
+export function useDeleteInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      jsonRequest<void>(apiFetch, `/api/invites/${encodeURIComponent(id)}`, "DELETE"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.invites }),
+  });
+}
+
+// ---- Operational writes (member+) ----
 
 export function useStartIssues() {
   const qc = useQueryClient();

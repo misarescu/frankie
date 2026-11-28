@@ -4,9 +4,12 @@
 // API's error next to its buttons, and leaves the item to disappear when the
 // queries refresh.
 
+import { useQuery } from "@tanstack/react-query";
 import { CheckIcon, SendIcon, Undo2Icon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useAnswerQuestion, useDecideGate, useDecideSpec } from "@/api/mutations";
+import { meQuery } from "@/api/queries";
+import { canOperate } from "@/auth";
 import { WriteError } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +23,8 @@ const decided: Record<Decision, string> = { approve: "Approved", reject: "Reject
 // the gate takes it; a comment goes with the decision, and requesting
 // changes needs one (the coder gets it).
 export function GateDecision({ approval, children }: { approval: Pick<Approval, "step_run_id" | "can_request_changes" | "step" | "issue_key">; children?: ReactNode }) {
+  const me = useQuery(meQuery());
+  const writable = canOperate(me.data?.role);
   const help = approvalHelp(approval);
   const [comment, setComment] = useState("");
   const m = useDecideGate();
@@ -27,6 +32,14 @@ export function GateDecision({ approval, children }: { approval: Pick<Approval, 
     m.mutate({ gateID: approval.step_run_id, decision, comment }, {
       onSuccess: () => toast(`${decided[decision]}: ${approval.issue_key ? `${approval.issue_key} · ` : ""}${approval.step}.`),
     });
+  if (!writable) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-fg">
+        <span>Viewer role is read-only; ask a member or admin to decide this gate.</span>
+        {children}
+      </div>
+    );
+  }
   const busy = m.isPending || m.isSuccess;
   return (
     <div className="grid gap-2">
@@ -48,8 +61,18 @@ export function GateDecision({ approval, children }: { approval: Pick<Approval, 
 // QuestionAnswer answers an agent's question; the agent gets the answer as
 // its tool's result, and later steps of the issue see it (D56).
 export function QuestionAnswer({ question, children }: { question: Pick<Question, "id" | "issue_key">; children?: ReactNode }) {
+  const me = useQuery(meQuery());
+  const writable = canOperate(me.data?.role);
   const [text, setText] = useState("");
   const m = useAnswerQuestion();
+  if (!writable) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-fg">
+        <span>Viewer role is read-only; ask a member or admin to answer this question.</span>
+        {children}
+      </div>
+    );
+  }
   const busy = m.isPending || m.isSuccess;
   return (
     <div className="grid gap-2">
@@ -74,8 +97,18 @@ export function QuestionAnswer({ question, children }: { question: Pick<Question
 // starts once its dependencies are done) or sends it back to the refiner,
 // which needs feedback saying what to change.
 export function SpecDecision({ issueKey, children }: { issueKey: string; children?: ReactNode }) {
+  const me = useQuery(meQuery());
+  const writable = canOperate(me.data?.role);
   const [comment, setComment] = useState("");
   const m = useDecideSpec();
+  if (!writable) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-fg">
+        <span>Viewer role is read-only; ask a member or admin to decide this spec.</span>
+        {children}
+      </div>
+    );
+  }
   const busy = m.isPending || m.isSuccess;
   return (
     <div className="grid gap-2">

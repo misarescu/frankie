@@ -270,3 +270,54 @@ func TestGatewayExtraPeers(t *testing.T) {
 		t.Errorf("production gateway admits %d peers, want 2 (agents, control plane)", len(from))
 	}
 }
+
+// D146, D147: production keeps previewMode off and omits FRANKIE_API_TOKEN;
+// previews enable previewMode; optional web.ingress routes only to frankie-web.
+func TestAuthAndPublicAccessChart(t *testing.T) {
+	findEnv := func(objs []object, envName string) bool {
+		for _, o := range objs {
+			if o.Kind != "Deployment" || !strings.HasSuffix(o.Name, "-controlplane") {
+				continue
+			}
+			b, _ := yaml.Marshal(o.Doc["spec"])
+			return strings.Contains(string(b), "name: "+envName+"\n")
+		}
+		return false
+	}
+
+	prod := production(t)
+	if findEnv(prod, "FRANKIE_API_TOKEN") {
+		t.Error("production mounts FRANKIE_API_TOKEN; only previews should")
+	}
+	if !findEnv(prod, "FRANKIE_AUTH_STATE_KEY") {
+		t.Error("production lacks FRANKIE_AUTH_STATE_KEY")
+	}
+
+	pre := preview(t)
+	if !findEnv(pre, "FRANKIE_API_TOKEN") {
+		t.Error("preview lacks FRANKIE_API_TOKEN for previewMode")
+	}
+
+	withIngress := render(t, "frankie", "frankie", "-f", "frankie/values-concrete.yaml",
+		"--set", "web.ingress.enabled=true",
+		"--set", "web.ingress.host=frankie.example.com",
+		"--set", "web.ingress.tlsSecretName=frankie-tls")
+	i := slices.IndexFunc(withIngress, func(o object) bool { return o.Kind == "Ingress" && o.Name == "frankie-web" })
+	if i < 0 {
+		t.Fatal("no Ingress frankie-web when web.ingress.enabled=true")
+	}
+	b, _ := yaml.Marshal(withIngress[i].Doc["spec"])
+	spec := string(b)
+	if !strings.Contains(spec, "name: frankie-web") || strings.Contains(spec, "controlplane") {
+		t.Errorf("Ingress should target only frankie-web:\n%s", spec)
+	}
+
+	// Refuses previewMode + publicURL at render time.
+	if _, err := exec.LookPath("helm"); err == nil {
+		cmd := exec.CommandContext(t.Context(), "helm", "template", "frankie", "frankie", "--set", "images.tag=sha-test",
+			"--set", "controlPlane.auth.previewMode=true", "--set", "controlPlane.auth.publicURL=https://frankie.example.com")
+		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "previewMode") {
+			t.Errorf("expected helm failure for previewMode + publicURL, got %v:\n%s", err, out)
+		}
+	}
+}

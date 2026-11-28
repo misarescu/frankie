@@ -14,6 +14,8 @@ import (
 type IssueSummary struct {
 	domain.Issue
 	CostUSD float64
+	// TotalCostUSD is CostUSD plus what every issue under it spent (D142).
+	TotalCostUSD float64
 	// LatestRunID is uuid.Nil when the issue has never run.
 	LatestRunID     uuid.UUID
 	LatestRunStatus domain.ExecStatus
@@ -51,7 +53,7 @@ func (s *Store) ListProjectIssues(ctx context.Context, projectID uuid.UUID) ([]I
 	}
 	out := make([]IssueSummary, len(rows))
 	for i, r := range rows {
-		out[i] = IssueSummary{Issue: issueFromRow(r.Issue), CostUSD: r.CostUsd,
+		out[i] = IssueSummary{Issue: issueFromRow(r.Issue), CostUSD: r.CostUsd, TotalCostUSD: r.TotalCostUsd,
 			LatestRunID: r.LatestRunID, LatestRunStatus: domain.ExecStatus(r.LatestRunStatus),
 			LatestChangeRequest: ChangeRequestRef{Number: int(r.LatestCrNumber), URL: r.LatestCrUrl, Status: r.LatestCrStatus}}
 	}
@@ -129,4 +131,14 @@ func (s *Store) IssueUsage(ctx context.Context, issueID uuid.UUID) (domain.Usage
 		return domain.Usage{}, mapErr("issue usage", err)
 	}
 	return domain.Usage{CostUSD: r.CostUsd, InputTokens: r.InputTokens, OutputTokens: r.OutputTokens}, nil
+}
+
+// IssueTotalCost is what an issue and every issue under it spent, canceled
+// ones included (D142).
+func (s *Store) IssueTotalCost(ctx context.Context, issueID uuid.UUID) (float64, error) {
+	cost, err := s.q.IssueTotalCost(ctx, issueID)
+	if err != nil {
+		return 0, mapErr("issue total cost", err)
+	}
+	return cost, nil
 }

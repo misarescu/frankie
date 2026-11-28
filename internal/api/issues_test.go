@@ -200,6 +200,73 @@ func TestGetIssue(t *testing.T) {
 	}
 }
 
+// D142: both issue endpoints carry the total of the issue and everything under
+// it, canceled issues included; a leaf's total equals its own cost.
+func TestIssueTotalCost(t *testing.T) {
+	st, srv, run, _ := testServer(t)
+	ctx := t.Context()
+	running, err := st.GetIssue(ctx, run.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(typ domain.IssueType, status domain.IssueStatus, parent *domain.Issue) domain.Issue {
+		in := store.NewIssue{ProjectID: running.ProjectID, Type: typ, Title: string(typ), Status: status, CreatedBy: "t"}
+		if parent != nil {
+			in.ParentID = &parent.ID
+		}
+		is, err := st.CreateIssue(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return is
+	}
+	epic := mk(domain.IssueEpic, domain.IssueDraft, nil)
+	story := mk(domain.IssueStory, domain.IssueDraft, &epic)
+	task := mk(domain.IssueTask, domain.IssueDraft, &story)
+	canceled := mk(domain.IssueTask, domain.IssueCanceled, &story)
+	for _, c := range []struct {
+		issue domain.Issue
+		cost  float64
+	}{{epic, 0.5}, {story, 0.25}, {task, 1}, {canceled, 2}, {running, 4}} {
+		r := run // the running issue's active run; the others get one each
+		if c.issue.ID != running.ID {
+			if r, err = st.CreateRun(ctx, store.NewRun{IssueID: c.issue.ID, WorkflowSnapshot: []byte(`{}`), WorkflowVersion: "1", TemporalWorkflowID: "wf-" + c.issue.Key}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sr, err := st.CreateStepRun(ctx, store.NewStepRun{RunID: r.ID, StepID: "implement", Attempt: 1, Kind: domain.StepAgent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AddStepRunUsage(ctx, sr.ID, domain.Usage{CostUSD: c.cost}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type costs struct{ own, total float64 }
+	want := map[string]costs{
+		epic.Key: {0.5, 3.75}, story.Key: {0.25, 3.25}, task.Key: {1, 1}, canceled.Key: {2, 2}, running.Key: {4, 4},
+	}
+	var list []issueSummaryJSON
+	if code := getJSON(t, srv.URL+"/api/issues?project=misarescu/Goodreads-Clone", &list); code != http.StatusOK || len(list) != len(want) {
+		t.Fatalf("GET /api/issues = %d, %d issues; want 200, %d", code, len(list), len(want))
+	}
+	for _, x := range list {
+		if got := (costs{x.CostUSD, x.TotalCostUSD}); got != want[x.Key] {
+			t.Errorf("listed %s: cost %v, total %v; want %+v", x.Key, got.own, got.total, want[x.Key])
+		}
+	}
+	for key, w := range want {
+		var d issueDetailJSON
+		if code := getJSON(t, srv.URL+"/api/issues/"+key, &d); code != http.StatusOK {
+			t.Fatalf("GET %s = %d", key, code)
+		}
+		if got := (costs{d.Usage.CostUSD, d.TotalCostUSD}); got != w {
+			t.Errorf("%s page: cost %v, total %v; want %+v", key, got.own, got.total, w)
+		}
+	}
+}
+
 func refKeys(refs []issueRefJSON) []string {
 	out := make([]string, len(refs))
 	for i, r := range refs {

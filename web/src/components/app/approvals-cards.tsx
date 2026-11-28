@@ -28,9 +28,12 @@ function InboxCard({ label, icon, tone = "warn", kind, meta, title, links, child
       <div className="flex items-start gap-3 px-4 py-3">
         <span className={cn("mt-0.5 shrink-0 rounded-md p-1.5 [&_svg]:size-4", tone === "bad" ? "bg-bad-soft text-bad" : "bg-warn-soft text-warn")}>{icon}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-fg">
-            <span className="font-medium uppercase tracking-wider">{kind}</span>
-            {meta.map((m, n) => <span key={n} className="flex items-center gap-2"><span aria-hidden="true">·</span>{m}</span>)}
+          {/* Each part has its dot before it; the one starting a line sits outside the box, so a wrapped line starts with words. */}
+          <div className="overflow-hidden text-xs text-muted-fg">
+            <div className="-ml-4 flex flex-wrap items-center gap-y-1 [&>*]:relative [&>*]:pl-4 [&>*]:before:absolute [&>*]:before:left-1.5 [&>*]:before:content-['·']">
+              <span className="font-medium uppercase tracking-wider">{kind}</span>
+              {meta.map((m, n) => <span key={n}>{m}</span>)}
+            </div>
           </div>
           <h3 className="mt-0.5 text-[14px] font-semibold [overflow-wrap:anywhere]">{title}</h3>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] [overflow-wrap:anywhere]">{links}</div>

@@ -32,7 +32,7 @@ export function ReleasesPage() {
   const approvals = useQuery(approvalsQuery()).data ?? [];
   const runs = useQuery(runsQuery()).data ?? [];
 
-  const header = <PageHeader title="Releases" sub="Every merge from the merge queue asks for a release; its stages come from .factory/config.yaml." />;
+  const header = <PageHeader title="Releases" sub="every merge from the merge queue asks for a release; its stages come from .factory/config.yaml" />;
   if (releases.isPending) return <div className="space-y-5">{header}<LoadingState rows={4} /></div>;
   if (releases.isError && !releases.data) {
     return <div className="space-y-5">{header}<ErrorState error={releases.error} what="the releases" onRetry={() => void releases.refetch()} /></div>;

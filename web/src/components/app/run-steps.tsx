@@ -116,7 +116,7 @@ export function StepPills({ runID, timeline, selected, runEvents }: { runID: str
     const nav = box.current;
     const el = nav?.querySelector<HTMLElement>('[aria-current="true"]');
     if (nav && el) nav.scrollLeft = el.offsetLeft - (nav.clientWidth - el.offsetWidth) / 2;
-  }, [selected]);
+  }, [selected, timeline.length, runEvents]);
   return (
     <nav ref={box} aria-label="Steps" className="relative -mx-1 flex gap-1.5 overflow-x-auto px-1 py-1 scroll-thin lg:hidden">
       {runEvents > 0 && (

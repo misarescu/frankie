@@ -59,7 +59,7 @@ export function ApprovalsPage() {
   const header = (
     <PageHeader
       title="Approvals"
-      sub="Everything that waits for a person, across all projects."
+      sub="everything that waits for a person, across all projects"
       actions={
         <Segmented<Filter>
           label="Show"

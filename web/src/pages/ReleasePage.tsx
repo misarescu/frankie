@@ -201,7 +201,7 @@ function GateBanner({ gate }: { gate: Approval }) {
       <div className="flex items-start gap-3 px-4 py-3 text-[13px]">
         <ShieldCheckIcon className="mt-0.5 size-4 shrink-0 text-warn" />
         <div className="min-w-0">
-          <h2 className="font-semibold">{gate.step} waits for you</h2>
+          <h2 className="font-semibold">{gate.step.charAt(0).toUpperCase() + gate.step.slice(1)} waits for you</h2>
           <p className="text-muted-fg [overflow-wrap:anywhere]">{gate.reason}</p>
           <p className="mt-1 text-xs text-muted-fg">
             {expiry === "expired" ? "The gate has expired." : `The gate expires in ${expiry}.`}

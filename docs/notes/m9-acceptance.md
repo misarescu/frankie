@@ -21,7 +21,7 @@ The new UI ran locally against Kapsule's control plane (61316b0) through a port-
 
 ## Found in review
 
-Cursor Bugbot found that a cold load of a finished run's page read "Live" until the run list answered. Reproduced on the real factory by slowing `GET /api/runs`. The same repro found that the stream's replay refetched the run's queries once per stored state change (42 steps requests on one load). Both are fixed. `walk.mjs` can now slow chosen API routes, check text that must never show during a load, and fails a page that requests one URL more than 4 times while it loads. Each check failed on the code before the fix.
+Cursor Bugbot found that a cold load of a finished run's page read "Live" until the run list answered. Reproduced on the real factory by slowing `GET /api/runs`. The same repro found that the stream's replay refetched the run's queries once per stored state change (42 steps requests on one load). Both are fixed. `walk.mjs` can now slow chosen API routes, check text that must never show during a load, and fails a page that requests one URL more than 4 times while it loads. Each check failed on the code before the fix. Bugbot's second finding, that a run older than the newest 200 lost its issue and project on its page, led to `GET /api/runs/{id}` (D143); a walk with the run list mocked empty checks it. Loading and failure states were added for gates and the inbox.
 
 ## Not verified
 

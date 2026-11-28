@@ -51,10 +51,25 @@ test("streams SSE through without buffering, and outlives the idle timeout", asy
   expect(rest).toContain("event: end");
 }, 10_000);
 
-test("serves health and the app, 404 elsewhere", async () => {
-  expect((await fetch(new URL("/healthz", web.url))).status).toBe(200);
-  const page = await fetch(new URL("/", web.url));
-  expect(page.status).toBe(200);
-  expect(await page.text()).toContain('<div id="root">');
-  expect((await fetch(new URL("/nope", web.url))).status).toBe(404);
+test("serves health", async () => {
+  const r = await fetch(new URL("/healthz", web.url));
+  expect(r.status).toBe(200);
+  expect(await r.text()).toBe("ok\n");
+});
+
+// M9, D141: path URLs. Every path outside /api/ and /healthz is the app, so a
+// deep link or a reload of /issues/gc-83?tab=runs loads it and its router.
+test("serves the app on every page path", async () => {
+  for (const path of ["/", "/issues/gc-83?tab=runs", "/projects/gc/board", "/runs/r1", "/no/such/page"]) {
+    const page = await fetch(new URL(path, web.url));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain('<div id="root">');
+  }
+});
+
+test("leaves unknown API paths to the control plane", async () => {
+  const r = await fetch(new URL("/api/nope", web.url));
+  expect(r.status).toBe(404);
+  expect(await r.text()).toBe("nope");
 });

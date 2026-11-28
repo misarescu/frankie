@@ -1,0 +1,68 @@
+/* Frankie's UI theme (M9, D141): the palette and type scale of the approved
+   mockup (docs/notes/m9-ui-mockup), as CSS variables for light and dark. Dark
+   is the .dark class on <html>, set before first paint by main.tsx. */
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #ffffff; --fg: #18171c; --card: #ffffff; --muted: #f4f3f7; --muted-fg: #6b6879; --border: #e6e4ec; --hover: #efeef4;
+  --primary: #5b4bdb; --primary-fg: #ffffff; --primary-soft: #eeebfd;
+  --ok: #1d7f49; --ok-soft: #e5f4eb; --warn: #a15c07; --warn-soft: #fdf1dc; --bad: #c4314b; --bad-soft: #fbe8eb;
+  --sidebar: #faf9fc; --ring: #8f84ec; --code: #f7f6fa;
+  color-scheme: light;
+}
+.dark {
+  --bg: #111015; --fg: #ecebf2; --card: #17161c; --muted: #1f1e26; --muted-fg: #9a97a8; --border: #2a2932; --hover: #222129;
+  --primary: #a99cff; --primary-fg: #15121f; --primary-soft: #2a2546;
+  --ok: #5fcf8f; --ok-soft: #173325; --warn: #f0b45a; --warn-soft: #3a2a12; --bad: #ff7a8f; --bad-soft: #3d1a22;
+  --sidebar: #141319; --ring: #a99cff; --code: #1a1920;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-fg);
+  --color-line: var(--border);
+  --color-hover: var(--hover);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-sidebar: var(--sidebar);
+  --color-code: var(--code);
+  --color-ring: var(--ring);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-xs2: 11px;
+  --text-xs2--line-height: 16px;
+}
+
+@layer base {
+  *, ::before, ::after { border-color: var(--border); }
+  html, body, #root { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); font-size: 14px; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { text-wrap: balance; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+}
+
+@utility mono { font-family: var(--font-mono); }
+@utility tnum { font-variant-numeric: tabular-nums; }
+@utility scroll-thin {
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+}
+
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@utility pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }

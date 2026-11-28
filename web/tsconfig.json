@@ -8,8 +8,21 @@
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["bun"],
-    "lib": ["ES2022", "DOM"]
+    "types": [
+      "bun"
+    ],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "include": ["server.ts", "src"]
+  "include": [
+    "server.ts",
+    "src"
+  ]
 }

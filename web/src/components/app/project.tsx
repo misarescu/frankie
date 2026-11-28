@@ -53,14 +53,11 @@ function pathPrefix(path: string): string | undefined {
 // useCurrentProject is the project the shell shows (sidebar, palette): the
 // page's, else the one of the issue in the path, else the last one opened.
 // Pages under no project (a run, a release, approvals) keep the last one.
-export function useCurrentProject(): { project: Project | undefined; projects: Project[] } {
-  const projects = useQuery(projectsQuery()).data ?? [];
+export function useCurrentProject(): { project: Project | undefined; projects: Project[]; failed: boolean } {
+  const q = useQuery(projectsQuery());
+  const projects = q.data ?? [];
   const path = useRouterState({ select: (s) => s.location.pathname });
   const fromPath = pathPrefix(path);
   const prefix = (fromPath && findProject(projects, fromPath)?.key_prefix) ?? startProject(projects.map((p) => p.key_prefix), loadLastProject());
-  return { project: prefix ? findProject(projects, prefix) : undefined, projects };
+  return { project: prefix ? findProject(projects, prefix) : undefined, projects, failed: q.isError };
 }
-
-// projectTitle is how the shell names a project: its repository's name,
-// without the owner.
-export const projectTitle = (p: Project): string => p.name.split("/").at(-1) || p.name;

@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { MapPinOffIcon } from "lucide-react";
+import { useCrumbs } from "@/components/app/Breadcrumbs";
 import { EmptyState } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 
 // NotFoundPage answers a path the UI has no page for, inside the shell.
 export function NotFoundPage() {
+  useCrumbs([{ label: "Not found" }]);
   return (
     <EmptyState
       icon={<MapPinOffIcon className="size-6" />}

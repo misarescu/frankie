@@ -13,7 +13,7 @@ const queryClient = new QueryClient({
     queries: {
       // A missing issue or run will not appear by asking again; a control
       // plane that is down or restarting may.
-      retry: (n, e) => n < 2 && !(e instanceof ApiError && e.status >= 400 && e.status < 500),
+      retry: (n, e) => n < 1 && !(e instanceof ApiError && e.status >= 400 && e.status < 500),
     },
   },
 });

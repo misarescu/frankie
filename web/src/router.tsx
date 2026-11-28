@@ -25,7 +25,7 @@ export type RouterContext = { queryClient: QueryClient };
 // homeProject is the project / opens: the last one opened, else the first.
 async function homeProject(qc: QueryClient): Promise<string | undefined> {
   try {
-    const projects = await qc.ensureQueryData(projectsQuery());
+    const projects = await qc.ensureQueryData({ ...projectsQuery(), retry: false });
     return startProject(projects.map((p) => p.key_prefix), loadLastProject());
   } catch {
     return undefined; // the home page shows why

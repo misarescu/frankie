@@ -77,7 +77,7 @@ export function IssueOverview({ issue }: { issue: IssueDetail }) {
               <p className="text-xs text-muted-fg">
                 {issue.spec_rejected_at ? "Held: approve the spec as written, or ask again (Refine again) to have it refined." : "Approve the spec as written, or send it back with what to change."}
               </p>
-              <SpecDecision issueKey={issue.key} />
+              <SpecDecision key={issue.spec_rejected_at ?? "draft"} issueKey={issue.key} />
             </div>
           )}
         >

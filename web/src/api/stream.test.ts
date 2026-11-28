@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { RunEvent } from "@/events";
 import { keys, noEvents, type RunEvents } from "./queries";
 import { invalidations, mergeEvent, subscribeRun } from "./stream";
 
 const ev = (seq: number, type = "assistant_message"): RunEvent => ({ seq, time: "2026-11-28T10:00:00Z", type, payload: {} });
 const seqs = (r: RunEvents) => r.events.map((e) => e.seq);
+const COALESCE = 5;
 
 test("mergeEvent appends in order and drops an event it already has", () => {
   let r = mergeEvent(noEvents, ev(1));
@@ -83,9 +84,10 @@ test("the end records the outcome, closes the stream and refreshes the run's ste
   await qc.prefetchQuery({ queryKey: keys.runSteps("r3"), queryFn: () => ++fetched });
   const observer = qc.getQueryCache().find({ queryKey: keys.runSteps("r3") })!;
   expect(observer.state.isInvalidated).toBe(false);
-  subscribeRun(qc, "r3", connect);
+  subscribeRun(qc, "r3", connect, undefined, 1);
   const s = FakeSource.made[0]!;
   s.send("state_change", ev(1, "state_change"));
+  await Bun.sleep(COALESCE);
   expect(observer.state.isInvalidated).toBe(true);
   s.send("end", { status: "succeeded" });
   expect(s.closed).toBe(true);
@@ -114,4 +116,29 @@ test("a stream the browser gave up on opens again after the last event", async (
   await Bun.sleep(20);
   expect(FakeSource.made.length).toBe(2);
   expect(FakeSource.made[1]!.closed).toBe(true);
+});
+
+// A stream starts by replaying the run's stored events: a finished run's
+// dozens of state changes refreshed its steps, runs and issues once each, a
+// burst of requests on every cold load of a run page.
+test("a burst of state changes refreshes each query once", async () => {
+  FakeSource.made = [];
+  const qc = new QueryClient();
+  let steps = 0;
+  let runs = 0;
+  const watch = (queryKey: readonly unknown[], fn: () => number) =>
+    new QueryObserver(qc, { queryKey, queryFn: fn, staleTime: Infinity }).subscribe(() => {});
+  const stop = [watch(keys.runSteps("r5"), () => ++steps), watch(keys.runs, () => ++runs)];
+  await Bun.sleep(COALESCE);
+  expect([steps, runs]).toEqual([1, 1]);
+  subscribeRun(qc, "r5", connect, undefined, COALESCE);
+  const s = FakeSource.made[0]!;
+  for (let i = 1; i <= 40; i++) s.send("state_change", ev(i, "state_change"));
+  await Bun.sleep(COALESCE * 6);
+  expect([steps, runs]).toEqual([2, 2]);
+  // A later state change, after the burst, refreshes them again.
+  s.send("state_change", ev(41, "state_change"));
+  await Bun.sleep(COALESCE * 6);
+  expect([steps, runs]).toEqual([3, 3]);
+  for (const u of stop) u();
 });

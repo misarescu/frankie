@@ -237,10 +237,6 @@ export function specDecidable(is: Pick<IssueDetail, "status" | "type" | "childre
   return is.status === "draft" || (is.status === "refining" && !!is.spec_proposal);
 }
 
-// shortID shortens a run's ID for lists. IDs are UUIDv7, whose leading digits
-// are a timestamp shared by runs started close together, so it keeps the end.
-export const shortID = (id: string): string => id.slice(-8);
-
 // Finished issues: on main, released, or dropped.
 const finished = new Set(["merged", "released", "canceled"]);
 export const isFinished = (status: string): boolean => finished.has(status);

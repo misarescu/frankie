@@ -3,7 +3,8 @@
 // run starting and ending, and its closing (D70). Fields without a time (a
 // spec sent back earlier, a change request) are shown elsewhere on the page.
 
-import { shortID, type IssueDetail } from "./issues";
+import { shortID } from "./format";
+import type { IssueDetail } from "./issues";
 
 // sourceLabel names an issue's source briefly: "owner/repo#13" for a
 // provider issue URL (.../owner/repo/issues/13), else the address itself.

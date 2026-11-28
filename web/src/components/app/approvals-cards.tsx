@@ -6,7 +6,8 @@ import { IssueLink } from "@/components/app/IssueLink";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { expiresIn, type Approval } from "@/approvals";
-import { gateTitle, isProtected, releaseGateSHA, waitingFor } from "@/inbox";
+import { ago, shortSHA } from "@/format";
+import { gateTitle, isProtected, releaseGateSHA } from "@/inbox";
 import { cn } from "@/lib/utils";
 import { paths } from "@/paths";
 import type { Question } from "@/questions";
@@ -58,7 +59,7 @@ export function GateCard({ approval: a, release }: { approval: Approval; release
       icon={sha ? <RocketIcon /> : prot ? <ShieldAlertIcon /> : <GavelIcon />}
       tone={prot ? "bad" : "warn"}
       kind={sha ? "Release gate" : prot ? "Protected paths" : "Human gate"}
-      meta={[<span title={a.created_at}>waiting {waitingFor(a.created_at)}</span>, <span className={cn(expiry === "expired" && "text-bad")} title={a.expires_at}>{expiry === "expired" ? "expired" : `expires in ${expiry}`}</span>]}
+      meta={[<span title={a.created_at}>waiting {ago(a.created_at)}</span>, <span className={cn(expiry === "expired" && "text-bad")} title={a.expires_at}>{expiry === "expired" ? "expired" : `expires in ${expiry}`}</span>]}
       title={gateTitle(a, release?.name)}
       links={
         <>
@@ -73,7 +74,7 @@ export function GateCard({ approval: a, release }: { approval: Approval; release
               <GitPullRequestIcon className="size-3.5" />Review the change request<ExternalLinkIcon className="size-3" />
             </a>
           )}
-          {a.commit_sha && <span className="text-xs text-muted-fg">at <span className="mono" title={a.commit_sha}>{a.commit_sha.slice(0, 7)}</span></span>}
+          {a.commit_sha && <span className="text-xs text-muted-fg">at <span className="mono" title={a.commit_sha}>{shortSHA(a.commit_sha)}</span></span>}
         </>
       }
       footer={<GateDecision approval={a} />}
@@ -90,7 +91,7 @@ export function QuestionCard({ question: q }: { question: Question }) {
       label={q.issue_key}
       icon={<MessageCircleQuestionIcon />}
       kind="Question from an agent"
-      meta={[<span title={q.created_at}>asked {waitingFor(q.created_at)}</span>, <span>the agent is paused until you answer</span>]}
+      meta={[<span title={q.created_at}>asked {ago(q.created_at)}</span>, <span>the agent is paused until you answer</span>]}
       title={`The ${q.step} step of ${q.issue_key} asks`}
       links={
         <>

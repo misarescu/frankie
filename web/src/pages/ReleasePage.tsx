@@ -20,8 +20,9 @@ import { expiresIn } from "@/approvals";
 import { projectCrumb, type Crumb } from "@/crumbs";
 import type { Project } from "@/issues";
 import { paths } from "@/paths";
+import { formatWhen, shortSHA } from "@/format";
 import {
-  formatWhen, isLive, notesSourceText, pipelineStages, releaseName, shortSHA, verificationState, verificationText, versionText,
+  isLive, notesSourceText, pipelineStages, releaseName, verificationState, verificationText, versionText,
   type Deployment, type ReleaseDetail,
 } from "@/releases";
 import { usd } from "@/steps";

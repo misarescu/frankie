@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { RunSummary } from "./events";
-import { ago, filterRuns, isActiveRun, projectRuns } from "./runs";
+import { filterRuns, isActiveRun, projectRuns } from "./runs";
 
 const run = (id: string, over: Partial<RunSummary> = {}): RunSummary => ({
   ID: id, Status: "succeeded", IssueKey: "", IssueTitle: "", CreatedAt: "2026-11-28T10:00:00Z", CostUSD: 0, ...over,
@@ -28,13 +28,4 @@ test("filterRuns keeps all, the active ones or the failed ones", () => {
 
 test("isActiveRun: pending and running move on; finished runs do not", () => {
   expect(["pending", "running", "succeeded", "failed", "canceled"].map(isActiveRun)).toEqual([true, true, false, false, false]);
-});
-
-test("ago reads a time as minutes, hours or days ago", () => {
-  const now = new Date("2026-11-28T12:00:00Z");
-  expect(ago("2026-11-28T11:59:30Z", now)).toBe("just now");
-  expect(ago("2026-11-28T11:15:00Z", now)).toBe("45 min ago");
-  expect(ago("2026-11-27T12:00:00Z", now)).toBe("24 h ago");
-  expect(ago("2026-11-20T12:00:00Z", now)).toBe("8 days ago");
-  expect(ago("not a time", now)).toBe("");
 });

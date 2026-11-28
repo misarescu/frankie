@@ -15,10 +15,10 @@ import { Card } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/segmented";
 import { projectCrumb } from "@/crumbs";
 import type { RunSummary } from "@/events";
-import { shortID } from "@/issues";
+import { ago, formatWhen, shortID } from "@/format";
 import { paths, type RunsFilter } from "@/paths";
 import { releaseName } from "@/releases";
-import { ago, filterRuns, projectRuns } from "@/runs";
+import { filterRuns, projectRuns } from "@/runs";
 import { usd } from "@/steps";
 import { cn } from "@/lib/utils";
 
@@ -136,7 +136,7 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
                 )}
               </td>
               <td className={cn(cell, "max-md:order-2")}><StatusBadge status={r.Status} /></td>
-              <td className={cn(cell, "tnum whitespace-nowrap text-muted-fg max-md:order-3")} title={new Date(r.CreatedAt).toLocaleString()}>
+              <td className={cn(cell, "tnum whitespace-nowrap text-muted-fg max-md:order-3")} title={formatWhen(r.CreatedAt)}>
                 {ago(r.CreatedAt, now)}
               </td>
               <td className={cn(cell, "tnum pr-4 text-right max-md:order-4 max-md:ml-auto max-md:pr-0")}>{usd(r.CostUSD ?? 0)}</td>

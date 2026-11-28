@@ -4,16 +4,14 @@
 
 import type { Crumb } from "./crumbs";
 import type { RunEvent } from "./events";
-import { shortID } from "./issues";
+import { shortID } from "./format";
 import { paths } from "./paths";
+import { isActiveRun } from "./runs";
 import { stepName, type Step } from "./steps";
 
 // RUN_SECTION is the selection that shows the run's own events: those no
 // step produced (the run's and its issue's status, a run-level error).
 export const RUN_SECTION = "run";
-
-// isLiveRun: the run still goes, so its steps refresh and its stream stays open.
-export const isLiveRun = (status: string | undefined): boolean => status === "pending" || status === "running";
 
 // selectedStepID is the step the page shows: the one the URL names when the
 // run has it, else the running step (the latest, for a parallel group), else
@@ -104,7 +102,7 @@ export function diffLine(line: string): "add" | "del" | "hunk" | "context" {
 export type Connection = "live" | "reconnecting" | "finished";
 
 export function connection(runStatus: string | undefined, stream: { end: string | null; reconnecting: boolean }): Connection {
-  if (stream.end || (runStatus && !isLiveRun(runStatus))) return "finished";
+  if (stream.end || (runStatus && !isActiveRun(runStatus))) return "finished";
   return stream.reconnecting ? "reconnecting" : "live";
 }
 

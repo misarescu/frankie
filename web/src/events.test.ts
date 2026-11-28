@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isConnectionError, label, parseStreamEvent, segments, summary, type RunEvent } from "./events";
+import { isConnectionError, label, parseStreamEvent, summary, type RunEvent } from "./events";
 
 const ev = (type: string, payload: Record<string, unknown>): RunEvent => ({ seq: 1, time: "", type, payload });
 
@@ -68,15 +68,6 @@ test("M5.1: summarizes gate results by command and by reviewer", () => {
   expect(summary(ev("gate_result", { type: "provider-checks", verdict: "pass", details: { sha: "abc", state: "none" } })))
     .toBe("provider-checks gate passed\nthe repo has no CI checks on this commit");
   expect(summary(ev("gate_result", { type: "human", verdict: "escalated" }))).toBe("human gate escalated to a person");
-});
-
-test("M5.1: groups consecutive events by step execution", () => {
-  const at = (seq: number, step?: string): RunEvent => ({ seq, time: "", type: "tool_call", payload: {}, ...(step ? { step_run_id: step } : {}) });
-  const got = segments([at(1), at(2, "a"), at(3, "a"), at(4, "b"), at(5, "a"), at(6)]);
-  expect(got.map((s) => [s.stepRunID ?? "run", s.events.map((e) => e.seq)])).toEqual([
-    ["run", [1]], ["a", [2, 3]], ["b", [4]], ["a", [5]], ["run", [6]],
-  ]);
-  expect(segments([])).toEqual([]);
 });
 
 test("M6: image builds and their logs read as such", () => {

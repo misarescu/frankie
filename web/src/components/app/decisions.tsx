@@ -7,15 +7,12 @@
 import { CheckIcon, SendIcon, Undo2Icon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useAnswerQuestion, useDecideGate, useDecideSpec } from "@/api/mutations";
+import { WriteError } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { approvalHelp, type Approval, type Decision } from "@/approvals";
 import type { Question } from "@/questions";
-
-function WriteError({ error }: { error: Error | null }) {
-  return error ? <p role="alert" className="text-xs text-bad">{error.message}</p> : null;
-}
 
 const decided: Record<Decision, string> = { approve: "Approved", reject: "Rejected", "request-changes": "Changes requested" };
 

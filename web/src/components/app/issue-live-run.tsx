@@ -9,11 +9,11 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { label, summary, type RunEvent } from "@/events";
-import { shortID } from "@/issues";
+import { formatWhen, shortID } from "@/format";
 import { cn } from "@/lib/utils";
 import { clip, duration, keepLatest, LATEST, type LiveRunRef } from "@/live";
 import { paths } from "@/paths";
-import { isActive, statusTone } from "@/status";
+import { isActive, statusLabel, statusTone } from "@/status";
 import { shownStatus, stepName, timeline, totals, usd, waitNote, who, type Step } from "@/steps";
 
 const ring: Record<string, string> = { ok: "border-ok", bad: "border-bad", primary: "border-primary", warn: "border-warn" };
@@ -24,14 +24,14 @@ function StepPill({ step, runID, now }: { step: Step; runID: string; now: Date }
   const status = shownStatus(step);
   const unrun = step.status === "not started" || step.status === "skipped";
   const Icon = step.kind === "agent" ? BotIcon : step.kind === "gate" ? ShieldCheckIcon : ListOrderedIcon;
-  const title = [stepName(step), status.replaceAll("_", " "), who(step), duration(step.started_at, step.finished_at, now), step.skipped_because]
+  const title = [stepName(step), statusLabel(status), who(step), duration(step.started_at, step.finished_at, now), step.skipped_because]
     .filter(Boolean).join(" · ");
   const body = (
     <>
       <Icon className="size-3.5 text-muted-fg" aria-hidden="true" />
       <span className="mono">{step.step_id}{step.attempt > 1 ? ` #${step.attempt}` : ""}</span>
       {isActive(status) && <span aria-hidden="true" className="pulse-dot size-1.5 rounded-full bg-primary" />}
-      <span className="sr-only">{status.replaceAll("_", " ")}</span>
+      <span className="sr-only">{statusLabel(status)}</span>
     </>
   );
   const cls = cn("relative flex shrink-0 items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs", ring[statusTone(status)] ?? "border-line",
@@ -112,7 +112,7 @@ export function LiveRunCard({ run, showIssue }: { run: LiveRunRef; showIssue: bo
           {latest.map((e) => (
             <li key={e.seq} className="px-4 py-2 text-[13px]">
               <span className={cn("text-xs font-medium text-muted-fg", e.type === "error" && "text-bad", e.type === "question" && "text-warn")}
-                title={new Date(e.time).toLocaleString()}>{label(e)}</span>
+                title={formatWhen(e.time)}>{label(e)}</span>
               <p className={cn("mt-0.5 line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere]", e.type === "tool_call" && "mono text-xs")}>{clip(summary(e))}</p>
             </li>
           ))}

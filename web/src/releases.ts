@@ -1,6 +1,8 @@
 // Releases (D114, D129, D130): what GET /api/releases and
 // GET /api/releases/{id} return, and how the releases page names them.
 
+import { shortSHA } from "./format";
+
 export type StageStatus = { stage: string; status: string };
 
 export type ReleaseSummary = {
@@ -52,9 +54,6 @@ export type ReleaseDetail = ReleaseSummary & {
   runs: ReleaseRun[];
   cost_usd: number;
 };
-
-// shortSHA is a commit as people read it.
-export const shortSHA = (sha: string): string => sha.slice(0, 7);
 
 // releaseName is the release's version once it has one, else its commit.
 export const releaseName = (r: { version?: string; sha: string }): string => r.version || shortSHA(r.sha);
@@ -112,7 +111,3 @@ export function pipelineStages(stages: StageStatus[], waiting: string[]): StageS
   for (const w of waiting) if (!out.some((s) => s.stage === w)) out.push({ stage: w, status: "awaiting_human" });
   return out;
 }
-
-// formatWhen is a time as the releases pages show it: date and time, short.
-export const formatWhen = (iso: string, locale?: string, timeZone?: string): string =>
-  new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone });

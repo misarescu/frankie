@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
-import { formatWhen, isLive, notesSourceText, pipelineStages, releaseName, shortSHA, verificationState, verificationText, versionText } from "./releases";
+import { isLive, notesSourceText, pipelineStages, releaseName, verificationState, verificationText, versionText } from "./releases";
 
 const sha = "d48a6d6c0ffee0000000000000000000000000ab";
 
 // M7, D129, D130.
 test("a release is named by its version, else its commit", () => {
-  expect(shortSHA(sha)).toBe("d48a6d6");
   expect(releaseName({ sha })).toBe("d48a6d6");
   expect(releaseName({ sha, version: "" })).toBe("d48a6d6");
   expect(releaseName({ sha, version: "v0.1.0" })).toBe("v0.1.0");
@@ -48,11 +47,4 @@ test("the pipeline adds a stage whose gate waits", () => {
   expect(pipelineStages(staged, ["production"])).toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
   expect(pipelineStages([...staged, { stage: "production", status: "pending" }], ["production"]))
     .toEqual([...staged, { stage: "production", status: "awaiting_human" }]);
-});
-
-test("a release time reads as a short date and time", () => {
-  const s = formatWhen("2026-11-28T13:05:00Z", "en-GB", "UTC");
-  expect(s).toContain("28 Nov 2026");
-  expect(s).toContain("13:05");
-  expect(s).not.toContain(":00 ");
 });

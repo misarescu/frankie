@@ -6,6 +6,7 @@ import { LiveRunCard } from "@/components/app/issue-live-run";
 import { IssueLink } from "@/components/app/IssueLink";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatWhen } from "@/format";
 import { specDecidable, type IssueDetail, type IssueRef } from "@/issues";
 import { latestRun, watch, type LiveRunRef } from "@/live";
 
@@ -55,8 +56,6 @@ function Paths({ paths }: { paths: string[] }) {
     </ul>
   );
 }
-
-const at = (t: string) => new Date(t).toLocaleString();
 
 // IssueOverview is the Overview tab: the live run card, the spec and its
 // acceptance criteria, the issues under a parent, and beside them relations,
@@ -154,12 +153,12 @@ export function IssueOverview({ issue }: { issue: IssueDetail }) {
                 <dd className="flex flex-wrap gap-1">{issue.labels.map((l) => <span key={l} className="rounded bg-muted px-1.5 text-xs2">{l}</span>)}</dd>
               </>
             )}
-            <dt className="text-muted-fg">Created</dt><dd>{at(issue.created_at)}{issue.created_by && <span className="text-muted-fg"> by {issue.created_by}</span>}</dd>
+            <dt className="text-muted-fg">Created</dt><dd>{formatWhen(issue.created_at)}{issue.created_by && <span className="text-muted-fg"> by {issue.created_by}</span>}</dd>
             <dt className="text-muted-fg">Start request</dt>
             <dd>
               {issue.start_requested_by
                 ? <>{issue.start_requested_by}{issue.start_requested_via && <> through <IssueLink issueKey={issue.start_requested_via} /></>}
-                  {issue.start_requested_at && <span className="text-muted-fg">, {at(issue.start_requested_at)}</span>}</>
+                  {issue.start_requested_at && <span className="text-muted-fg">, {formatWhen(issue.start_requested_at)}</span>}</>
                 : <span className="text-muted-fg">none</span>}
             </dd>
             {(issue.spec_approved_by || issue.spec_rejected_at) && (
@@ -167,15 +166,15 @@ export function IssueOverview({ issue }: { issue: IssueDetail }) {
                 <dt className="text-muted-fg">Spec</dt>
                 <dd>
                   {issue.spec_approved_by
-                    ? <>approved by {issue.spec_approved_by}{issue.spec_approved_at && <span className="text-muted-fg">, {at(issue.spec_approved_at)}</span>}</>
-                    : <>held since {at(issue.spec_rejected_at!)}</>}
+                    ? <>approved by {issue.spec_approved_by}{issue.spec_approved_at && <span className="text-muted-fg">, {formatWhen(issue.spec_approved_at)}</span>}</>
+                    : <>held since {formatWhen(issue.spec_rejected_at!)}</>}
                 </dd>
               </>
             )}
             {issue.closed_at && (
               <>
                 <dt className="text-muted-fg">Closed</dt>
-                <dd>{at(issue.closed_at)}{issue.closed_by && <span className="text-muted-fg"> by {issue.closed_by}</span>}</dd>
+                <dd>{formatWhen(issue.closed_at)}{issue.closed_by && <span className="text-muted-fg"> by {issue.closed_by}</span>}</dd>
               </>
             )}
             <dt className="text-muted-fg">Tokens</dt>

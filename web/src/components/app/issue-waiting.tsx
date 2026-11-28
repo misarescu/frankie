@@ -5,6 +5,7 @@ import { approvalsQuery, questionsQuery } from "@/api/queries";
 import { AppLink } from "@/components/app/AppLink";
 import { GateDecision, QuestionAnswer, SpecDecision } from "@/components/app/decisions";
 import { Button } from "@/components/ui/button";
+import { formatWhen, shortSHA } from "@/format";
 import type { IssueDetail } from "@/issues";
 import { paths, type ApprovalKind } from "@/paths";
 
@@ -40,7 +41,7 @@ export function IssueWaiting({ issue }: { issue: IssueDetail }) {
         <Banner key={a.step_run_id} icon={<ShieldAlertIcon className="size-4" />} title={`Gate ${a.step} waits for your decision`}>
           <p className="text-[13px] text-muted-fg [overflow-wrap:anywhere]">{a.reason}</p>
           <p className="flex flex-wrap gap-x-3 text-xs text-muted-fg">
-            {a.commit_sha && <span>at <span className="mono">{a.commit_sha.slice(0, 7)}</span></span>}
+            {a.commit_sha && <span>at <span className="mono">{shortSHA(a.commit_sha)}</span></span>}
             <AppLink href={paths.run(a.run_id, a.step_run_id)} className="text-primary hover:underline">its run</AppLink>
             {a.change_request_url && (
               <a href={a.change_request_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -55,7 +56,7 @@ export function IssueWaiting({ issue }: { issue: IssueDetail }) {
         <Banner key={q.id} icon={<MessageCircleQuestionIcon className="size-4" />} title={`The agent of ${q.step} asks`}>
           <p className="text-[13.5px] whitespace-pre-wrap [overflow-wrap:anywhere]">{q.question}</p>
           <p className="text-xs text-muted-fg">
-            asked {new Date(q.created_at).toLocaleString()} · <AppLink href={paths.run(q.run_id, q.step_run_id)} className="text-primary hover:underline">its run</AppLink>
+            asked {formatWhen(q.created_at)} · <AppLink href={paths.run(q.run_id, q.step_run_id)} className="text-primary hover:underline">its run</AppLink>
           </p>
           <div className="pt-1"><QuestionAnswer question={q}>{openInbox("question")}</QuestionAnswer></div>
         </Banner>

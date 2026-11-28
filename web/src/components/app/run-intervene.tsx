@@ -1,6 +1,7 @@
 import { OctagonXIcon, SendIcon } from "lucide-react";
 import { useState } from "react";
 import { useAbort, useSteer } from "@/api/mutations";
+import { WriteError } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -31,7 +32,7 @@ export function Intervene({ step }: { step: Step }) {
         <AbortStep step={step} />
         {m.isSuccess && <span className="text-xs text-muted-fg">Sent; the agent gets it at its next model call.</span>}
       </div>
-      {m.error && <p role="alert" className="mt-2 text-xs text-bad">Could not steer: {m.error.message}</p>}
+      <WriteError error={m.error} what="steer" className="mt-2" />
     </div>
   );
 }
@@ -57,7 +58,7 @@ function AbortStep({ step }: { step: Step }) {
           <label htmlFor="abort-reason" className="text-xs font-medium text-muted-fg">Reason (required; it goes in the run's failure)</label>
           <Textarea id="abort-reason" rows={3} maxLength={4000} placeholder="Wrong approach: register the PNG decoder instead"
             value={reason} disabled={m.isPending} onChange={(e) => { setReason(e.target.value); m.reset(); }} />
-          {m.error && <p role="alert" className="text-xs text-bad">Could not abort: {m.error.message}</p>}
+          <WriteError error={m.error} what="abort" />
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep running</AlertDialogCancel>

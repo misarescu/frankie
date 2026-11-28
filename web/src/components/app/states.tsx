@@ -37,6 +37,13 @@ export function ErrorState({ error, what, onRetry, className }: { error: unknown
   );
 }
 
+// WriteError says why a write failed, next to the control that sent it,
+// in the API's words.
+export function WriteError({ error, what, className }: { error: Error | null; what?: string; className?: string }) {
+  if (!error) return null;
+  return <p role="alert" className={cn("text-xs text-bad [overflow-wrap:anywhere]", className)}>{what && `Could not ${what}: `}{error.message}</p>;
+}
+
 // LoadingState holds a page's place while its data loads.
 export function LoadingState({ rows = 4, className }: { rows?: number; className?: string }) {
   return (

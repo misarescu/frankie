@@ -5,7 +5,7 @@ import { useState } from "react";
 import { approvalsQuery, issuesQuery, questionsQuery, releasesQuery, runsQuery, specsQuery } from "@/api/queries";
 import { useStartIssues } from "@/api/mutations";
 import { BoardGraph } from "@/components/app/board-graph";
-import { StartReplyPanel } from "@/components/app/board-start";
+import { StartReplyPanel } from "@/components/app/StartReplyPanel";
 import { BoardTree } from "@/components/app/board-tree";
 import { AppLink } from "@/components/app/AppLink";
 import { useCrumbs } from "@/components/app/Breadcrumbs";

@@ -3,6 +3,8 @@ import { useState } from "react";
 import { useCancelIssue, useCompleteIssue, useRetryIssue, useStartIssues } from "@/api/mutations";
 import { sourceLabel } from "@/activity";
 import { IssueLink } from "@/components/app/IssueLink";
+import { StartReplyPanel } from "@/components/app/StartReplyPanel";
+import { WriteError } from "@/components/app/states";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { TypeIcon } from "@/components/app/TypeIcon";
 import { Alert } from "@/components/ui/alert";
@@ -12,43 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { formatWhen } from "@/format";
 import { toast } from "@/components/ui/toast";
 import { issueActions, type CloseReply, type IssueDetail, type StartReply } from "@/issues";
-
-function WriteError({ error }: { error: Error | null }) {
-  return error ? <p role="alert" className="text-xs text-bad [overflow-wrap:anywhere]">{error.message}</p> : null;
-}
-
-const keyList = (keys: string[]) => keys.map((k, n) => <span key={k}>{n > 0 && ", "}<IssueLink issueKey={k} /></span>);
-
-// StartReplyPanel is the scheduler's plan for a start request (D62, D63):
-// what starts on its next pass, what waits and why, and likely overlaps.
-function StartReplyPanel({ reply, onClose }: { reply: StartReply; onClose: () => void }) {
-  return (
-    <Alert tone="primary" className="flex-col gap-1.5">
-      <div className="flex w-full items-start justify-between gap-2">
-        <p className="font-medium">Start requested: {keyList(reply.requested)}</p>
-        <Button variant="ghost" size="icon-sm" aria-label="Dismiss" onClick={onClose}><XIcon className="size-3.5" /></Button>
-      </div>
-      {reply.starting.length > 0 && <p>Starting on the scheduler's next pass: {keyList(reply.starting)}</p>}
-      {reply.waiting.length > 0 && (
-        <ul className="list-disc pl-5">
-          {reply.waiting.map((w) => <li key={w.key}><IssueLink issueKey={w.key} /> waits: {w.reason}</li>)}
-        </ul>
-      )}
-      {reply.overlaps.length > 0 && (
-        <div>
-          <p className="text-warn">Likely overlap with work in flight (a warning; nothing is held back):</p>
-          <ul className="list-disc pl-5">
-            {reply.overlaps.map((o) => (
-              <li key={o.key + o.with}>{o.key} and <IssueLink issueKey={o.with} /> both touch <span className="mono text-xs [overflow-wrap:anywhere]">{o.paths.join(", ")}</span></li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </Alert>
-  );
-}
 
 // CancelDialog cancels the issue and everything unfinished under it, with a
 // reason that is also posted on the provider issues (D70, D71).
@@ -167,7 +135,7 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
       </div>
       {actions.note && <p className="text-[13px] text-muted-fg">{actions.note}.</p>}
       <WriteError error={start.error ?? retry.error} />
-      {reply && <StartReplyPanel reply={reply} onClose={() => setReply(null)} />}
+      {reply && <StartReplyPanel reply={reply} onDismiss={() => setReply(null)} />}
       {closed && closed.closed.length > 1 && (
         <Alert tone="ok" className="items-center justify-between">
           <p>
@@ -180,7 +148,7 @@ export function IssueHeader({ issue }: { issue: IssueDetail }) {
       {issue.closed_at && (
         <Alert tone={issue.status === "canceled" ? "default" : "ok"}>
           <p className="[overflow-wrap:anywhere]">
-            {issue.status === "canceled" ? "Canceled" : "Completed"} by {issue.closed_by || "someone"} on {new Date(issue.closed_at).toLocaleString()}
+            {issue.status === "canceled" ? "Canceled" : "Completed"} by {issue.closed_by || "someone"} on {formatWhen(issue.closed_at)}
             {issue.close_reason && <>: {issue.close_reason}</>}
           </p>
         </Alert>

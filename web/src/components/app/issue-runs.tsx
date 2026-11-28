@@ -4,7 +4,8 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { EmptyState } from "@/components/app/states";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { shortID, type IssueDetail } from "@/issues";
+import { formatWhen, shortID } from "@/format";
+import type { IssueDetail } from "@/issues";
 import { duration } from "@/live";
 import { paths } from "@/paths";
 import { usd } from "@/steps";
@@ -30,7 +31,7 @@ export function IssueRuns({ issue }: { issue: IssueDetail }) {
             <div className="min-w-0 space-y-1">
               <AppLink href={paths.run(r.id)} className="mono text-primary hover:underline" title={r.id}>{shortID(r.id)}</AppLink>
               <span className="mono ml-2 text-xs text-muted-fg [overflow-wrap:anywhere]">{r.workflow}</span>
-              <p className="text-xs text-muted-fg">{new Date(r.started_at ?? r.created_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-fg">{formatWhen(r.started_at ?? r.created_at)}</p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
               <StatusBadge status={r.status} />
@@ -57,7 +58,7 @@ export function IssueRuns({ issue }: { issue: IssueDetail }) {
                 <TableCell><AppLink href={paths.run(r.id)} className="mono text-primary hover:underline" title={r.id}>{shortID(r.id)}</AppLink></TableCell>
                 <TableCell className="mono text-xs">{r.workflow}</TableCell>
                 <TableCell><StatusBadge status={r.status} /></TableCell>
-                <TableCell className="text-xs whitespace-nowrap text-muted-fg">{new Date(r.started_at ?? r.created_at).toLocaleString()}</TableCell>
+                <TableCell className="text-xs whitespace-nowrap text-muted-fg">{formatWhen(r.started_at ?? r.created_at)}</TableCell>
                 <TableCell className="tnum text-xs">{r.finished_at || r.status === "running" ? duration(r.started_at ?? r.created_at, r.finished_at) : "-"}</TableCell>
                 <TableCell className="tnum text-right">{usd(r.cost_usd)}</TableCell>
               </TableRow>

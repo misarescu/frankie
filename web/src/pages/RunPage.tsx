@@ -17,7 +17,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { projectTitle, type Crumb } from "@/crumbs";
 import type { RunSummary } from "@/events";
-import { shortID } from "@/issues";
+import { formatWhen, shortID, shortSHA } from "@/format";
 import { duration } from "@/live";
 import { cn } from "@/lib/utils";
 import { paths } from "@/paths";
@@ -98,8 +98,6 @@ function ConnectionChip({ state }: { state: Connection }) {
   );
 }
 
-const when = (t: string): string => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
 function RunView({ id }: { id: string }) {
   const { step: requested } = route.useSearch();
   const run = useRunSummary(id);
@@ -138,7 +136,7 @@ function RunView({ id }: { id: string }) {
         sub={
           <span className="[overflow-wrap:anywhere]">
             {what}{what && started && " · "}
-            {started && <>started {when(started)} · {duration(started, run?.FinishedAt ?? undefined, now)}</>}
+            {started && <>started {formatWhen(started)} · {duration(started, run?.FinishedAt ?? undefined, now)}</>}
           </span>
         }
         actions={
@@ -208,7 +206,7 @@ function SelectedHead({ step, timeline, index, now }: { step?: Step; timeline: S
         <div className="min-w-0">
           <h2 className="mono text-[13px] font-semibold [overflow-wrap:anywhere]">{stepName(step)}</h2>
           <p className="text-xs text-muted-fg [overflow-wrap:anywhere]">
-            {[facts || step.kind, tokens, step.commit_sha ? `at ${step.commit_sha.slice(0, 7)}` : ""].filter(Boolean).join(" · ")}
+            {[facts || step.kind, tokens, step.commit_sha ? `at ${shortSHA(step.commit_sha)}` : ""].filter(Boolean).join(" · ")}
           </p>
           <StepNotes timeline={timeline} index={index} />
         </div>

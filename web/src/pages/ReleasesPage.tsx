@@ -19,7 +19,8 @@ import { projectCrumb } from "@/crumbs";
 import { cn } from "@/lib/utils";
 import { releaseOf } from "@/inbox";
 import { paths } from "@/paths";
-import { formatWhen, pipelineStages, releaseName, shortSHA, type ReleaseSummary, type StageStatus } from "@/releases";
+import { formatWhen, shortSHA } from "@/format";
+import { pipelineStages, releaseName, type ReleaseSummary, type StageStatus } from "@/releases";
 
 // ReleasesPage lists a project's releases newest first (D130): each one's
 // version or commit, status, its stages as a pipeline (a stage waiting at its

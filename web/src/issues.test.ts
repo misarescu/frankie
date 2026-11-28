@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  ancestors, canComplete, cancelIssue, findProject, keyPrefix, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, shortID, startIssues, subtree, tree,
+  ancestors, canComplete, cancelIssue, findProject, keyPrefix, completeIssue, dependencyGraph, isFinished, issueActions, leafStatuses, specDecidable, progress, progressText, retryIssue, startIssues, subtree, tree,
   type IssueDetail, type IssueRef, type IssueSummary,
 } from "./issues";
 
@@ -70,10 +70,6 @@ test("startIssues posts the keys and returns the plan", async () => {
 test("retryIssue reports the server's reason", async () => {
   const conflict = async () => new Response("gc-1 is running; only a failed issue can be retried\n", { status: 409 });
   await expect(retryIssue(conflict, "gc-1")).rejects.toThrow("only a failed issue");
-});
-
-test("M5.1: shortID keeps the end of a run ID", () => {
-  expect(shortID("0198f2a4-1111-7000-8000-00000000abcd")).toBe("0000abcd");
 });
 
 test("M5.1: startIssues and retryIssue send the person's name as by", async () => {

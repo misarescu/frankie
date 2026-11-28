@@ -69,16 +69,6 @@ export function gateTitle(a: Pick<Approval, "issue_key" | "step" | "reason">, re
   return `The ${a.step} gate of ${a.issue_key}`;
 }
 
-// waitingFor says how long something has waited, in a word or two.
-export function waitingFor(since: string, now: Date = new Date()): string {
-  const minutes = Math.floor((now.getTime() - new Date(since).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} days ago`;
-}
-
 const emptyText: Record<ApprovalKind | "all", { title: string; body: string }> = {
   all: { title: "Nothing waits for you", body: "Human gates, agents' questions and refined specs show up here, and as a count in the sidebar." },
   gate: { title: "No gates wait for a decision", body: "A run stops at a human gate (protected changes, a merge approval, a bug-fix decision or a release stage) and waits here." },

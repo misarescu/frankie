@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Approval } from "./approvals";
-import { emptyInbox, gateTitle, inboxCounts, inboxItems, isProtected, ofKind, releaseGateSHA, releaseOf, waitingFor } from "./inbox";
+import { emptyInbox, gateTitle, inboxCounts, inboxItems, isProtected, ofKind, releaseGateSHA, releaseOf } from "./inbox";
 import type { Question } from "./questions";
 import type { Spec } from "./specs";
 
@@ -55,14 +55,6 @@ test("a gate's title says what it asks", () => {
   expect(gateTitle(gate({ reason: "Merge approval required", step: "merge-approval" }))).toBe("The merge-approval gate of vfy-6");
   expect(gateTitle(gate({ issue_key: "release-fedcba9", step: "production" }))).toBe("Deploy fedcba9 to production");
   expect(gateTitle(gate({ issue_key: "release-fedcba9", step: "production" }), "v0.2.0")).toBe("Deploy v0.2.0 to production");
-});
-
-test("waiting time reads in minutes, hours or days", () => {
-  const now = new Date("2026-11-28T12:00:00Z");
-  expect(waitingFor("2026-11-28T11:59:40Z", now)).toBe("just now");
-  expect(waitingFor("2026-11-28T11:35:00Z", now)).toBe("25 min ago");
-  expect(waitingFor("2026-11-28T09:00:00Z", now)).toBe("3 h ago");
-  expect(waitingFor("2026-11-25T12:00:00Z", now)).toBe("3 days ago");
 });
 
 test("an empty inbox says what would appear, per kind", () => {

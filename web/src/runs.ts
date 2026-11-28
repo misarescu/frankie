@@ -19,15 +19,3 @@ export const isActiveRun = (status: string): boolean => status === "pending" || 
 
 export const filterRuns = (runs: RunSummary[], f: RunsFilter | undefined): RunSummary[] =>
   f === "active" ? runs.filter((r) => isActiveRun(r.Status)) : f === "failed" ? runs.filter((r) => r.Status === "failed") : runs;
-
-// ago says how long ago a time was, as people read it in a list.
-export function ago(iso: string, now: Date = new Date()): string {
-  const s = Math.round((now.getTime() - Date.parse(iso)) / 1000);
-  if (!Number.isFinite(s)) return "";
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `${h} h ago`;
-  return `${Math.floor(h / 24)} days ago`;
-}

@@ -32,6 +32,7 @@ class FakeSource {
   static made: FakeSource[] = [];
   listeners = new Map<string, ((m: Event) => void)[]>();
   closed = false;
+  readyState = 1;
   constructor(readonly url: string) { FakeSource.made.push(this); }
   addEventListener(t: string, f: (m: Event) => void) { this.listeners.set(t, [...(this.listeners.get(t) ?? []), f]); }
   close() { this.closed = true; }
@@ -39,6 +40,7 @@ class FakeSource {
     for (const f of this.listeners.get(type) ?? []) f(new MessageEvent(type, { data: JSON.stringify(data) }));
   }
   drop() { for (const f of this.listeners.get("error") ?? []) f(new Event("error")); }
+  refuse() { this.readyState = 2; this.drop(); }
 }
 const connect = (u: string) => new FakeSource(u);
 
@@ -91,4 +93,25 @@ test("the end records the outcome, closes the stream and refreshes the run's ste
   // A run that ended opens no new stream.
   subscribeRun(qc, "r3", connect)();
   expect(FakeSource.made.length).toBe(1);
+});
+
+test("a stream the browser gave up on opens again after the last event", async () => {
+  FakeSource.made = [];
+  const qc = new QueryClient();
+  const stop = subscribeRun(qc, "r4", connect, 5);
+  FakeSource.made[0]!.send("assistant_message", ev(7));
+  FakeSource.made[0]!.drop(); // the browser retries this one itself
+  await Bun.sleep(20);
+  expect(FakeSource.made.length).toBe(1);
+  FakeSource.made[0]!.refuse(); // the server answered with an error: the browser gave up
+  expect(qc.getQueryData<RunEvents>(keys.runEvents("r4"))!.reconnecting).toBe(true);
+  await Bun.sleep(20);
+  expect(FakeSource.made.map((s) => s.url)).toEqual(["/api/runs/r4/stream", "/api/runs/r4/stream?after=7"]);
+  for (const f of FakeSource.made[1]!.listeners.get("open") ?? []) f(new Event("open"));
+  expect(qc.getQueryData<RunEvents>(keys.runEvents("r4"))!.reconnecting).toBe(false); // connected, no new event yet
+  FakeSource.made[1]!.refuse();
+  stop(); // leaving cancels the retry
+  await Bun.sleep(20);
+  expect(FakeSource.made.length).toBe(2);
+  expect(FakeSource.made[1]!.closed).toBe(true);
 });

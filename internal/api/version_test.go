@@ -9,14 +9,14 @@ import (
 	"testing"
 )
 
-// D131: GET /api/version reports the build commit without a token, and
-// "unknown" when the build stamped none.
+// frk-4: GET /api/version answers 200 without a token and always reports an
+// empty commit, stamped or not.
 func TestGetVersion(t *testing.T) {
 	tests := []struct {
 		name, version, want string
 	}{
-		{"stamped", "6bb0a0bd6fb5c906f81536cad97ad65c3e72a773", "6bb0a0bd6fb5c906f81536cad97ad65c3e72a773"},
-		{"unstamped", "", "unknown"},
+		{"stamped", "6bb0a0bd6fb5c906f81536cad97ad65c3e72a773", ""},
+		{"unstamped", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

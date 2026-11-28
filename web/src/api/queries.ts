@@ -8,6 +8,7 @@ import type { RunEvent, RunSummary } from "@/events";
 import { detailWithTotal, summaryWithTotal, type IssueDetail, type IssueSummary, type Project } from "@/issues";
 import type { Question } from "@/questions";
 import { isLive, type ReleaseDetail, type ReleaseSummary } from "@/releases";
+import { isActiveRun } from "@/runs";
 import type { Spec } from "@/specs";
 import type { PlanStep, Step } from "@/steps";
 
@@ -16,6 +17,7 @@ export const keys = {
   issues: (project: string) => ["issues", project] as const,
   issue: (key: string) => ["issue", key] as const,
   runs: ["runs"] as const,
+  run: (id: string) => ["run", id, "summary"] as const,
   runSteps: (id: string) => ["run", id, "steps"] as const,
   runPlan: (id: string) => ["run", id, "plan"] as const,
   runEvents: (id: string) => ["run", id, "events"] as const,
@@ -72,6 +74,14 @@ export const runsQuery = () => queryOptions({
   queryKey: keys.runs,
   queryFn: () => getJSON<RunSummary[]>("/api/runs"),
   refetchInterval: 5_000,
+});
+
+// runQuery is one run as the run list has it (D143), also one older than the
+// newest the list returns. It polls while the run goes, like its steps.
+export const runQuery = (id: string) => queryOptions({
+  queryKey: keys.run(id),
+  queryFn: () => getJSON<RunSummary>(`/api/runs/${enc(id)}`),
+  refetchInterval: (q) => (q.state.data && isActiveRun(q.state.data.Status) ? 3_000 : false),
 });
 
 // runStepsQuery polls a run's steps while it goes (live), and stops once it

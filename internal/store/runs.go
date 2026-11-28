@@ -395,8 +395,21 @@ func (s *Store) ListRecentRuns(ctx context.Context, limit int) ([]RunSummary, er
 	}
 	out := make([]RunSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, RunSummary{ID: r.ID, Status: domain.ExecStatus(r.Status), IssueKey: r.IssueKey, IssueTitle: r.IssueTitle,
-			ReleaseID: r.ReleaseID, ReleaseSHA: r.ReleaseSha, ReleaseVersion: r.ReleaseVersion, CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd})
+		out = append(out, runSummary(r))
 	}
 	return out, nil
+}
+
+// GetRunSummary returns one run as ListRecentRuns lists it (D143).
+func (s *Store) GetRunSummary(ctx context.Context, id uuid.UUID) (RunSummary, error) {
+	r, err := s.q.GetRunSummary(ctx, id)
+	if err != nil {
+		return RunSummary{}, mapErr("get run summary", err)
+	}
+	return runSummary(db.ListRecentRunsRow(r)), nil
+}
+
+func runSummary(r db.ListRecentRunsRow) RunSummary {
+	return RunSummary{ID: r.ID, Status: domain.ExecStatus(r.Status), IssueKey: r.IssueKey, IssueTitle: r.IssueTitle,
+		ReleaseID: r.ReleaseID, ReleaseSHA: r.ReleaseSha, ReleaseVersion: r.ReleaseVersion, CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, CostUSD: r.CostUsd}
 }

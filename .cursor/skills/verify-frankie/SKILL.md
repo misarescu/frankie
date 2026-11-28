@@ -96,9 +96,10 @@ A path entry can also slow chosen requests and check what the page says while th
 
 - `"slow": [{"url": "<substring or /regex/>", "ms": 6000}]` holds each matching request that long before sending it (a busy control plane, a cold cache). The load settles only after they answer.
 - `"absent": ["Live"]` must never be visible: sampled every 100 ms from navigation until the load settles, and once after. The first sighting is screenshotted as `<name>.<viewport>.<theme>.absent.png`. `"present": ["Finished"]` must be visible once it has settled. A string is an exact text match; an object is a locator as in `--history` (`{"role": "status", "name": "..."}`).
+- `"mock": [{"url": "<substring or /regex/>", "json": <body>}]` answers matching requests with that JSON (status 200, or `"status"`) instead of sending them, to show the page when the API leaves something out, such as a run older than the newest runs `GET /api/runs` returns. A mock wins over a `slow` entry for the same URL. It is the only stand-in a walk puts in front of the app: say in the report which paths used one.
 - The request budget: a load fails when one GET `/api` URL (path and query) is asked for more than 4 times between navigation and settling. A page asks once, again when its first answers or an event stream's replay make the data stale, and maybe once more on a poll; the default leaves one spare. Set `"budget": <n>` on a path or at the top of the file, `--budget <n>` on the command line, or `"budget": null` to turn it off. `report.json` lists every URL asked for more than once under `requests`, and over-budget ones under `overBudget`.
 
-`features/runs.md` has the cold-load and budget checks of the run page (a finished run never reads `Live` while `/api/runs` is slow; a cold load does not refetch per replayed event).
+`features/runs.md` has the cold-load, outside-the-list and budget checks of the run page (a finished run never reads `Live` while its read is slow; a run missing from `/api/runs` keeps its issue and project; a cold load does not refetch per replayed event). A path can also name its `"viewports"` (`["desktop"]` for a check of the sidebar, a closed sheet at phone width).
 
 `--history` takes `{"steps": [{"goto": "/projects/vfy/board"}, {"click": {"role": "link", "name": "vfy-11"}}, ...]}`, runs the steps recording each URL and the page's first `h1`, then goes back step by step (reloading at each) and forward again, and fails when a URL or `h1` does not come back or a click did not change the URL (`"sameUrl": true` allows it). The file header of `walk.mjs` is the reference for both formats; `"storage"` sets more localStorage keys (`frankie.apiToken`, `frankie.project`) before every load.
 
@@ -145,7 +146,7 @@ Environment overrides: `FRANKIE_VERIFY_STATE`, `FRANKIE_VERIFY_EVIDENCE`, `FRANK
 
 ## Other surfaces
 
-- API: the same control plane. `curl $API/api/...`: reads are open (`/api/projects`, `/api/runs`, `/api/runs/<id>/steps`, `/plan`, `/events`, `/api/issues?project=verify/demo`, `/api/issues/<key>`, `/api/approvals`, `/api/questions`, `/api/specs`, `/api/releases?project=verify/demo` (400 without `project`), `/api/version`), writes need `Authorization: Bearer $API_TOKEN` and JSON bodies. Use it for second views, not as a replacement for the UI path.
+- API: the same control plane. `curl $API/api/...`: reads are open (`/api/projects`, `/api/runs`, `/api/runs/<id>`, `/api/runs/<id>/steps`, `/plan`, `/events`, `/api/issues?project=verify/demo`, `/api/issues/<key>`, `/api/approvals`, `/api/questions`, `/api/specs`, `/api/releases?project=verify/demo` (400 without `project`), `/api/version`), writes need `Authorization: Bearer $API_TOKEN` and JSON bodies. Use it for second views, not as a replacement for the UI path.
 - `go test ./...` and `bun test` in `web/` (`mise run test`, `mise run lint`) are the code-level checks; this skill is the end-to-end check on top.
 - The real factory (port-forward `svc/frankie-web`, token from `mise run api-token`) is for looking, not driving; it is shared and runs real agents.
 - `cmd/factoryctl` and the cluster `e2e/` suite need the cluster and are out of scope here.

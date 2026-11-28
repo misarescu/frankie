@@ -221,6 +221,52 @@ func (q *Queries) GetRunByTemporalRunID(ctx context.Context, temporalRunID *stri
 	return i, err
 }
 
+const getRunSummary = `-- name: GetRunSummary :one
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+       coalesce(i.key, '')::text AS issue_key, coalesce(i.title, '')::text AS issue_title,
+       r.release_id, coalesce(rel.sha, '')::text AS release_sha, coalesce(rel.version, '')::text AS release_version,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
+FROM runs r
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
+WHERE r.id = $1
+`
+
+type GetRunSummaryRow struct {
+	ID             uuid.UUID
+	Status         string
+	CreatedAt      time.Time
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
+	IssueKey       string
+	IssueTitle     string
+	ReleaseID      *uuid.UUID
+	ReleaseSha     string
+	ReleaseVersion string
+	CostUsd        float64
+}
+
+// One run as ListRecentRuns lists it (D143): a run page shows a run older
+// than the newest the list returns.
+func (q *Queries) GetRunSummary(ctx context.Context, id uuid.UUID) (GetRunSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getRunSummary, id)
+	var i GetRunSummaryRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.IssueKey,
+		&i.IssueTitle,
+		&i.ReleaseID,
+		&i.ReleaseSha,
+		&i.ReleaseVersion,
+		&i.CostUsd,
+	)
+	return i, err
+}
+
 const getStepRun = `-- name: GetStepRun :one
 SELECT id, run_id, step_id, attempt, kind, status, pod_name, commit_sha, started_at, finished_at, created_at, updated_at, cost_usd, input_tokens, output_tokens FROM step_runs WHERE id = $1
 `

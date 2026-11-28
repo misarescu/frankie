@@ -22,7 +22,7 @@ export function mergeEvent(prev: RunEvents, e: RunEvent): RunEvents {
 // a step, a run, an issue or a release, and the run's end settles all of them.
 export function invalidations(runID: string, type: string): QueryKey[] {
   if (type !== "state_change" && type !== "end") return [];
-  return [keys.runSteps(runID), ["issue"], ["issues"], keys.runs, ["release"], ["releases"], keys.approvals, keys.questions];
+  return [keys.run(runID), keys.runSteps(runID), ["issue"], ["issues"], keys.runs, ["release"], ["releases"], keys.approvals, keys.questions];
 }
 
 type Source = { addEventListener(type: string, listener: (m: Event) => void): void; close(): void; readyState?: number };

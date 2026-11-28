@@ -20,9 +20,10 @@ test("an event clears the reconnecting note", () => {
   expect(mergeEvent({ ...noEvents, reconnecting: true }, ev(1)).reconnecting).toBe(false);
 });
 
-test("a state change and the end make steps, runs, issues and releases stale; other events nothing", () => {
+test("a state change and the end make the run, its steps, runs, issues and releases stale; other events nothing", () => {
   expect(invalidations("r1", "assistant_message")).toEqual([]);
   const k = invalidations("r1", "state_change");
+  expect(k).toContainEqual(["run", "r1", "summary"]);
   expect(k).toContainEqual(["run", "r1", "steps"]);
   for (const prefix of [["issue"], ["issues"], ["runs"], ["release"], ["releases"]]) expect(k).toContainEqual(prefix);
   expect(invalidations("r1", "end")).toEqual(k);

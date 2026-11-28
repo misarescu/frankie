@@ -61,6 +61,15 @@ type Server struct {
 	// MaxConcurrentIssues is the scheduler's limit, for the plans the start
 	// endpoint returns (D62).
 	MaxConcurrentIssues int
+	// hashPasswordFn overrides auth.HashPassword in unit tests.
+	hashPasswordFn func(string) (string, error)
+}
+
+func (s *Server) hashPassword(password string) (string, error) {
+	if s.hashPasswordFn != nil {
+		return s.hashPasswordFn(password)
+	}
+	return auth.HashPassword(password)
 }
 
 // Register adds the API routes to mux.

@@ -315,17 +315,54 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	userKey := strings.ToLower(strings.TrimSpace(req.Username))
+	if userKey != "" {
+		if ok, retry := s.Auth.LoginUserLimiter.Allow(userKey); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(max(int(retry.Seconds()), 1)))
+			http.Error(w, "too many attempts; try again later", http.StatusTooManyRequests)
+			return
+		}
+	}
 	tok := strings.TrimSpace(req.Token)
 	if tok == "" {
 		http.Error(w, "invite token is required", http.StatusBadRequest)
 		return
 	}
-	hash, err := auth.HashPassword(req.Password)
+	tokHash := auth.HashToken(tok)
+	inv, err := s.Store.GetInviteByHash(r.Context(), tokHash)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "invite is invalid, expired, or does not match the email", http.StatusGone)
+		return
+	}
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	if !inv.Usable(time.Now().UTC()) {
+		http.Error(w, "invite is invalid, expired, or does not match the email", http.StatusGone)
+		return
+	}
+	if inv.Email != "" && strings.TrimSpace(req.Email) != "" {
+		email, err := domain.NormalizeEmail(req.Email)
+		if err != nil || email != strings.ToLower(inv.Email) {
+			http.Error(w, "invite is invalid, expired, or does not match the email", http.StatusGone)
+			return
+		}
+	}
+	if _, err := domain.NormalizeUsername(req.Username); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := domain.NormalizeEmail(req.Email); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	hash, err := s.hashPassword(req.Password)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	u, err := s.Store.AcceptInvite(r.Context(), auth.HashToken(tok), store.NewUser{
+	u, err := s.Store.AcceptInvite(r.Context(), tokHash, store.NewUser{
 		Username:     req.Username,
 		DisplayName:  req.DisplayName,
 		Email:        req.Email,
@@ -341,6 +378,9 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if userKey != "" {
+		s.Auth.LoginUserLimiter.Reset(userKey)
 	}
 
 	raw, sessHash, err := auth.GenerateSessionToken()

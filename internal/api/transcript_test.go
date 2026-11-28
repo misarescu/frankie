@@ -196,6 +196,46 @@ func TestListRunsLimit(t *testing.T) {
 	}
 }
 
+// D143: GET /api/runs/{id} answers a run as GET /api/runs lists it, also one
+// older than the newest the list returns; 404 for an unknown run, 400 for a
+// malformed id.
+func TestGetRun(t *testing.T) {
+	st, srv, run, _ := testServer(t)
+	is, err := st.GetIssue(t.Context(), run.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range defaultRunsLimit {
+		ni, err := st.CreateIssue(t.Context(), store.NewIssue{ProjectID: is.ProjectID, Type: domain.IssueTask, Title: "t", Status: domain.IssueRunning, CreatedBy: "t"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateRun(t.Context(), store.NewRun{IssueID: ni.ID, WorkflowSnapshot: []byte(`{}`), WorkflowVersion: "1", TemporalWorkflowID: "issue-gc-later" + strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, list := get(t, srv.URL+"/api/runs")
+	if strings.Contains(list, run.ID.String()) {
+		t.Fatalf("the first run is still among the newest %d", defaultRunsLimit)
+	}
+	_, all := get(t, srv.URL+"/api/runs?limit=200")
+	var listed []json.RawMessage
+	if err := json.Unmarshal([]byte(all), &listed); err != nil {
+		t.Fatal(err)
+	}
+	want := string(listed[len(listed)-1])
+	code, body := get(t, srv.URL+"/api/runs/"+run.ID.String())
+	if code != http.StatusOK || strings.TrimSpace(body) != want {
+		t.Fatalf("GET /api/runs/{id} = %d %s; want %s", code, body, want)
+	}
+	if code, _ := get(t, srv.URL+"/api/runs/"+domain.NewID().String()); code != http.StatusNotFound {
+		t.Errorf("unknown run = %d, want 404", code)
+	}
+	if code, _ := get(t, srv.URL+"/api/runs/not-a-uuid"); code != http.StatusBadRequest {
+		t.Errorf("malformed id = %d, want 400", code)
+	}
+}
+
 // D53: the runs list shows what each run's sessions spent.
 func TestListRunsIncludesCost(t *testing.T) {
 	st, srv, run, _ := testServer(t)

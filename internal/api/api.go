@@ -38,6 +38,7 @@ type Server struct {
 // Register adds the API routes to mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs", s.listRuns)
+	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
 	mux.HandleFunc("GET /api/runs/{id}/events", s.listEvents)
 	mux.HandleFunc("GET /api/runs/{id}/stream", s.streamEvents)
 	mux.HandleFunc("GET /api/approvals", s.listApprovals)

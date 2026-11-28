@@ -91,6 +91,18 @@ LEFT JOIN releases rel ON rel.id = r.release_id
 ORDER BY r.created_at DESC
 LIMIT @max_runs;
 
+-- One run as ListRecentRuns lists it (D143): a run page shows a run older
+-- than the newest the list returns.
+-- name: GetRunSummary :one
+SELECT r.id, r.status, r.created_at, r.started_at, r.finished_at,
+       coalesce(i.key, '')::text AS issue_key, coalesce(i.title, '')::text AS issue_title,
+       r.release_id, coalesce(rel.sha, '')::text AS release_sha, coalesce(rel.version, '')::text AS release_version,
+       (SELECT coalesce(sum(s.cost_usd), 0)::float8 FROM step_runs s WHERE s.run_id = r.id) AS cost_usd
+FROM runs r
+LEFT JOIN issues i ON i.id = r.issue_id
+LEFT JOIN releases rel ON rel.id = r.release_id
+WHERE r.id = @id;
+
 -- Records how many times a gate has looped back (docs/spec/03: loop counts are recorded per issue).
 -- name: SetRunLoopCount :one
 UPDATE runs

@@ -105,11 +105,10 @@ func (s *Server) decideSpec(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	by, ok := cleanBy(req.By)
 	comment := strings.TrimSpace(req.Comment)
 	switch {
-	case !ok || len(comment) > maxComment:
-		http.Error(w, "comment or by is too long", http.StatusBadRequest)
+	case len(comment) > maxComment:
+		http.Error(w, "comment is too long", http.StatusBadRequest)
 		return
 	case req.Decision != "approve" && req.Decision != "reject":
 		http.Error(w, `decision must be "approve" or "reject"`, http.StatusBadRequest)
@@ -118,6 +117,7 @@ func (s *Server) decideSpec(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "say what to change in the comment", http.StatusBadRequest)
 		return
 	}
+	by := actorName(r)
 	ctx := r.Context()
 	is, err := s.Store.GetIssueByKey(ctx, r.PathValue("key"))
 	if errors.Is(err, store.ErrNotFound) {

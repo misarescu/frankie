@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { AlertTriangleIcon, CheckCheckIcon, GitForkIcon, InboxIcon, ListTreeIcon, PlayIcon } from "lucide-react";
 import { useState } from "react";
-import { approvalsQuery, issuesQuery, questionsQuery, releasesQuery, runsQuery, specsQuery } from "@/api/queries";
+import { approvalsQuery, issuesQuery, meQuery, questionsQuery, releasesQuery, runsQuery, specsQuery } from "@/api/queries";
 import { useStartIssues } from "@/api/mutations";
+import { canOperate } from "@/auth";
 import { BoardGraph } from "@/components/app/board-graph";
 import { StartReplyPanel } from "@/components/app/StartReplyPanel";
 import { BoardTree } from "@/components/app/board-tree";
@@ -47,6 +48,8 @@ function Board({ project }: { project: Project }) {
   const specs = useQuery(specsQuery());
   const runs = useQuery(runsQuery());
   const releases = useQuery(releasesQuery(project.name));
+  const me = useQuery(meQuery());
+  const writable = canOperate(me.data?.role);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [reply, setReply] = useState<StartReply | null>(null);
@@ -84,10 +87,12 @@ function Board({ project }: { project: Project }) {
               { value: "graph", label: "Dependencies", icon: <GitForkIcon className="size-3.5" /> },
             ]}
           />
-          <Button disabled={selected.size === 0 || start.isPending} onClick={startSelected}>
-            <PlayIcon className="size-3.5" />
-            {selected.size > 0 ? `Start ${selected.size} selected` : "Start selected"}
-          </Button>
+          {writable && (
+            <Button disabled={selected.size === 0 || start.isPending} onClick={startSelected}>
+              <PlayIcon className="size-3.5" />
+              {selected.size > 0 ? `Start ${selected.size} selected` : "Start selected"}
+            </Button>
+          )}
         </>
       }
     />

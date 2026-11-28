@@ -34,10 +34,12 @@ type Config struct {
 	// EgressProjectAllow lets projects add hosts to the egress list in their
 	// `.factory/config.yaml` (egressProxy.projectAllow, D80).
 	EgressProjectAllow bool
-	// APIToken is the bearer token the API's write endpoints require (D58); at
-	// least api.MinTokenLen bytes.
+	// APIToken is the static bearer token accepted ONLY when Auth.PreviewMode
+	// is true (M7.1 preview judge, D146). Ignored in production.
 	APIToken string
-	Repos    []RepoConfig
+	// Auth configures M10 sign-in, sessions, allowlist and SSO (D144-D147).
+	Auth  AuthConfig
+	Repos []RepoConfig
 	// GitHubToken authenticates git traffic and the GitHub API (D26). Empty
 	// works for public repos, read-only, and disables intake.
 	GitHubToken string
@@ -75,8 +77,12 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	if err != nil {
 		return err
 	}
-	if len(cfg.APIToken) < api.MinTokenLen {
-		return fmt.Errorf("API token must be at least %d bytes", api.MinTokenLen)
+	if err := validateAuthConfig(cfg); err != nil {
+		return err
+	}
+	authCfg, err := buildAuthConfig(cfg)
+	if err != nil {
+		return err
 	}
 	var authorize func(*http.Request)
 	if cfg.GitHubToken != "" {
@@ -101,6 +107,10 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	if err := store.Migrate(ctx, st.Pool()); err != nil {
 		return err
 	}
+	if err := runBootstrapAdmin(ctx, st, cfg.Auth.BootstrapAdmin, log); err != nil {
+		return err
+	}
+	go pruneSessionsLoop(ctx, st, log)
 	log.Info("database ready", "repos", len(cfg.Repos))
 	projects, err := ensureProjects(ctx, st, cfg.Repos)
 	if err != nil {
@@ -119,8 +129,9 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 	hub := api.NewHub(cfg.DatabaseURL, log.With("component", "events"))
 	go hub.Run(ctx)
 	mux := http.NewServeMux()
-	(&api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Token: cfg.APIToken,
-		Version: buildinfo.Commit(), MaxConcurrentIssues: cfg.MaxConcurrentIssues}).Register(mux)
+	apiSrv := &api.Server{Store: st, Hub: hub, Log: log, Signaler: signaler, Auth: authCfg,
+		Version: buildinfo.Commit(), MaxConcurrentIssues: cfg.MaxConcurrentIssues}
+	apiSrv.Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool().Ping(r.Context()); err != nil {
@@ -129,6 +140,7 @@ func Run(ctx context.Context, cfg Config, lis Listeners, log *slog.Logger) error
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("GET /version", apiSrv.GetVersion)
 
 	servers := []*http.Server{
 		{Handler: mux, ReadHeaderTimeout: 10 * time.Second},

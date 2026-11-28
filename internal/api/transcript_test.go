@@ -20,6 +20,7 @@ type sseEvent struct{ id, event, data string }
 func readSSE(t *testing.T, url, lastEventID string, got chan<- sseEvent) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	if lastEventID != "" {
 		req.Header.Set("Last-Event-ID", lastEventID)
 	}
@@ -126,6 +127,7 @@ func TestStreamResumesAfterLastEventID(t *testing.T) {
 func get(t *testing.T, url string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

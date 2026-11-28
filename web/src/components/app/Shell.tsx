@@ -1,26 +1,62 @@
-import { Outlet, useRouterState } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { MenuIcon, SearchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { keys, meQuery } from "@/api/queries";
+import { AUTH_UNAUTHORIZED, safeNextPath } from "@/auth";
 import { Breadcrumbs, CrumbsProvider } from "@/components/app/Breadcrumbs";
 import { CommandPalette } from "@/components/app/CommandPalette";
 import { Sidebar } from "@/components/app/Sidebar";
+import { ErrorState, LoadingState } from "@/components/app/states";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { paths } from "@/paths";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-// Shell is the app's frame (the mockup's): the sidebar, a drawer at phone
-// width, the header with breadcrumbs, search and the theme, and the page.
+function isPublicPath(pathname: string): boolean {
+  return pathname === "/login" || pathname.startsWith("/invite/");
+}
+
+// Shell is the app's frame: public auth pages render without the chrome, while
+// every other page requires a signed-in session and redirects to /login?next=...
 export function Shell() {
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
-  const href = useRouterState({ select: (s) => s.location.href });
-  useEffect(() => setDrawer(false), [href]);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const location = useRouterState({ select: (s) => s.location });
+  const isPublic = isPublicPath(location.pathname);
+
+  const me = useQuery({ ...meQuery(), enabled: !isPublic });
+
+  useEffect(() => setDrawer(false), [location.href]);
+
   useEffect(() => {
+    const onUnauthorized = () => {
+      qc.setQueryData(keys.me, null);
+      if (!isPublicPath(window.location.pathname)) {
+        const next = safeNextPath(window.location.pathname + window.location.search);
+        void navigate({ href: paths.login(next === "/" ? {} : { next }), replace: true });
+      }
+    };
+    window.addEventListener(AUTH_UNAUTHORIZED, onUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED, onUnauthorized);
+  }, [navigate, qc]);
+
+  useEffect(() => {
+    if (!isPublic && !me.isPending && !me.isError && me.data === null) {
+      const next = safeNextPath(location.pathname + location.searchStr);
+      void navigate({ href: paths.login(next === "/" ? {} : { next }), replace: true });
+    }
+  }, [isPublic, location.pathname, location.searchStr, me.data, me.isError, me.isPending, navigate]);
+
+  useEffect(() => {
+    if (isPublic) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -29,7 +65,39 @@ export function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [isPublic]);
+
+  if (isPublic) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <Outlet />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
+
+  if (me.isPending) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-bg">
+        <LoadingState rows={3} className="w-64" />
+      </div>
+    );
+  }
+
+  if (me.isError) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-bg p-6">
+        <div className="w-full max-w-md">
+          <ErrorState error={me.error} what="load your session" onRetry={() => void me.refetch()} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!me.data) {
+    return null;
+  }
+
   const pad = { paddingLeft: "max(16px, env(safe-area-inset-left, 0px))", paddingRight: "max(16px, env(safe-area-inset-right, 0px))" };
   return (
     <TooltipProvider delayDuration={300}>

@@ -72,15 +72,15 @@ test("retryIssue reports the server's reason", async () => {
   await expect(retryIssue(conflict, "gc-1")).rejects.toThrow("only a failed issue");
 });
 
-test("M5.1: startIssues and retryIssue send the person's name as by", async () => {
+test("D146: startIssues and retryIssue post without client-supplied by", async () => {
   const bodies: unknown[] = [];
   const fetchFn = async (_url: string, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)));
     return Response.json({}, { status: 202 });
   };
-  await startIssues(fetchFn, ["gc-1"], "Ana");
-  await retryIssue(fetchFn, "gc-1", "Ana");
-  expect(bodies).toEqual([{ keys: ["gc-1"], by: "Ana" }, { by: "Ana" }]);
+  await startIssues(fetchFn, ["gc-1"]);
+  await retryIssue(fetchFn, "gc-1");
+  expect(bodies).toEqual([{ keys: ["gc-1"] }, {}]);
 });
 
 test("M5.1: a parent's progress counts merged, canceled and all", () => {
@@ -113,17 +113,17 @@ test("M5.1: Complete is offered exactly when the API would accept it", () => {
   expect(canComplete({ status: "merged", children: [ref("merged")] })).toBe(false);
 });
 
-test("M5.1: complete and cancel post to the issue, with the name and the reason", async () => {
+test("M5.1: complete and cancel post to the issue with the reason", async () => {
   const calls: { url: string; body: unknown }[] = [];
   const fetchFn = async (url: string, init?: RequestInit) => {
     calls.push({ url, body: JSON.parse(String(init?.body)) });
     return Response.json({ closed: [{ key: "gc-7", type: "epic", title: "t", status: "merged" }] });
   };
-  expect((await completeIssue(fetchFn, "gc-7", "Ana")).closed[0]!.status).toBe("merged");
-  await cancelIssue(fetchFn, "gc-1", "  its change request was closed ", "Ana");
+  expect((await completeIssue(fetchFn, "gc-7")).closed[0]!.status).toBe("merged");
+  await cancelIssue(fetchFn, "gc-1", "  its change request was closed ");
   expect(calls).toEqual([
-    { url: "/api/issues/gc-7/complete", body: { by: "Ana" } },
-    { url: "/api/issues/gc-1/cancel", body: { reason: "its change request was closed", by: "Ana" } },
+    { url: "/api/issues/gc-7/complete", body: {} },
+    { url: "/api/issues/gc-1/cancel", body: { reason: "its change request was closed" } },
   ]);
   await expect(cancelIssue(fetchFn, "gc-1", " ")).rejects.toThrow("say why");
   expect(calls).toHaveLength(2);

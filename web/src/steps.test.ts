@@ -49,15 +49,15 @@ test("M5.1: says who does a step's work and names its attempt", () => {
   expect(stepName({ ...base, attempt: 3 })).toBe("implement (attempt 3)");
 });
 
-test("M5.1: steer and abort send the person's name as by", async () => {
+test("D146: steer and abort post without client-supplied by", async () => {
   const bodies: unknown[] = [];
   const fetchFn = async (_url: string, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)));
     return new Response(null, { status: 202 });
   };
-  await steer(fetchFn, "s1", "go", "Ana");
-  await abort(fetchFn, "s1", "stop", "Ana");
-  expect(bodies).toEqual([{ text: "go", by: "Ana" }, { reason: "stop", by: "Ana" }]);
+  await steer(fetchFn, "s1", "go");
+  await abort(fetchFn, "s1", "stop");
+  expect(bodies).toEqual([{ text: "go" }, { reason: "stop" }]);
 });
 
 test("M5.1: the steps not reached yet follow the ones that ran, in plan order", () => {

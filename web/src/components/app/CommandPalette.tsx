@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { ActivityIcon } from "lucide-react";
-import { issuesQuery, runsQuery } from "@/api/queries";
-import { navItems } from "@/components/app/nav";
+import { issuesQuery, meQuery, runsQuery } from "@/api/queries";
+import { isAdmin } from "@/auth";
+import { navItems, settingsNavItems } from "@/components/app/nav";
 import { useCurrentProject } from "@/components/app/project";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { TypeIcon } from "@/components/app/TypeIcon";
@@ -19,6 +20,8 @@ const RECENT_RUNS = 8;
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const router = useRouter();
   const { project } = useCurrentProject();
+  const me = useQuery(meQuery());
+  const settings = settingsNavItems.filter((i) => !i.adminOnly || isAdmin(me.data?.role));
   const issues = useQuery({ ...issuesQuery(project?.name ?? ""), enabled: open && !!project }).data ?? [];
   const runs = (useQuery({ ...runsQuery(), enabled: open }).data ?? []).slice(0, RECENT_RUNS);
   const go = (href: string) => {
@@ -36,6 +39,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               <CommandItem key={item.id} value={`page ${item.label}`} onSelect={() => go(item.href(project?.key_prefix))}>
                 <item.icon className="size-4 text-muted-fg" />
                 {item.label}
+              </CommandItem>
+            ))}
+            {settings.map((item) => (
+              <CommandItem key={item.id} value={`settings ${item.label}`} onSelect={() => go(item.href)}>
+                <item.icon className="size-4 text-muted-fg" />
+                Settings · {item.label}
               </CommandItem>
             ))}
           </CommandGroup>

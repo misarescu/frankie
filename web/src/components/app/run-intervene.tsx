@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { OctagonXIcon, SendIcon } from "lucide-react";
 import { useState } from "react";
 import { useAbort, useSteer } from "@/api/mutations";
+import { meQuery } from "@/api/queries";
+import { canOperate } from "@/auth";
 import { WriteError } from "@/components/app/states";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +17,11 @@ import { stepName, type Step } from "@/steps";
 // the agent at its next model call without stopping it; an abort stops the
 // session and fails the run with the person's reason.
 export function Intervene({ step }: { step: Step }) {
+  const me = useQuery(meQuery());
   const [text, setText] = useState("");
   const m = useSteer();
   const name = stepName(step);
+  if (!canOperate(me.data?.role)) return null;
   return (
     <div className="border-t border-line bg-muted px-4 py-3">
       <label htmlFor="steer" className="text-xs font-medium text-muted-fg">

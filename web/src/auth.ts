@@ -1,72 +1,132 @@
-// The API token (D58): every write request carries it as a bearer token. The
-// UI asks for it once and keeps it in this browser's localStorage; reads need
-// no token.
+// Authentication types, role helpers and session-backed fetch (M10, D144-D147).
+// Browser requests carry the HttpOnly `frankie_session` cookie automatically
+// (same-origin); no token is stored in localStorage.
+
+export type Role = "admin" | "member" | "viewer";
+export type SSOProvider = "google" | "gitlab" | "github";
+
+export type SSOProviderInfo = { id: SSOProvider; name: string };
+
+export type AuthProviders = {
+  password: boolean;
+  sso: SSOProviderInfo[];
+};
+
+export type UserIdentity = {
+  id: string;
+  provider: SSOProvider;
+  email?: string;
+  login?: string;
+  created_at: string;
+};
+
+export type User = {
+  id: string;
+  username: string;
+  display_name: string;
+  email?: string;
+  role: Role;
+  has_password: boolean;
+  disabled_at?: string;
+  created_at: string;
+  identities?: UserIdentity[];
+};
+
+export type APIToken = {
+  id: string;
+  name: string;
+  token_prefix: string;
+  last_used_at?: string;
+  expires_at?: string;
+  revoked_at?: string;
+  created_at: string;
+};
+
+export type Invite = {
+  id: string;
+  email?: string;
+  role: Role;
+  invited_by?: string;
+  expires_at: string;
+  accepted_at?: string;
+  created_at: string;
+};
+
+export type InvitePreview = {
+  email?: string;
+  role: Role;
+  expires_at: string;
+};
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-// A minimal Storage, so tests can pass a Map-backed one.
-export type TokenStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+// Fired on window when an authenticated API call returns 401 so the shell
+// redirects back to /login.
+export const AUTH_UNAUTHORIZED = "frankie:unauthorized";
 
-const KEY = "frankie.apiToken";
-
-// Fired on window when the API rejects the token, so the token dialog can ask again.
-export const TOKEN_REJECTED = "frankie:token-rejected";
-
-// Storage can be missing or throw (private windows, blocked site data); the
-// token then lasts only for this page.
-let memory: string | null = null;
-
-function storage(): TokenStorage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
+export function notifyUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_UNAUTHORIZED));
   }
 }
 
-export function loadToken(s: TokenStorage | null = storage()): string | null {
-  try {
-    return s?.getItem(KEY) ?? memory;
-  } catch {
-    return memory;
+export function canOperate(role: Role | undefined): boolean {
+  return role === "member" || role === "admin";
+}
+
+export function isAdmin(role: Role | undefined): boolean {
+  return role === "admin";
+}
+
+export function roleLabel(role: Role): string {
+  switch (role) {
+    case "admin": return "Admin";
+    case "member": return "Member";
+    case "viewer": return "Viewer";
   }
 }
 
-export function saveToken(token: string, s: TokenStorage | null = storage()): void {
-  memory = token.trim() || null;
-  try {
-    if (memory) s?.setItem(KEY, memory);
-    else s?.removeItem(KEY);
-  } catch {
-    // memory keeps it for this page
-  }
+export function displayUserName(user: Pick<User, "display_name" | "username">): string {
+  return user.display_name.trim() || user.username;
 }
 
-export function clearToken(s: TokenStorage | null = storage()): void {
-  saveToken("", s);
+// safeNextPath ensures ?next= stays on this origin and never loops onto auth pages.
+export function safeNextPath(raw: string | undefined): string {
+  if (!raw) return "/";
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.startsWith("/\\")) return "/";
+  if (trimmed === "/login" || trimmed.startsWith("/login?") || trimmed.startsWith("/invite/")) return "/";
+  return trimmed;
 }
 
-// withToken wraps fetch so each request carries the stored token. A 401 means
-// the token is missing or wrong: it notifies the page and fails with a message
-// saying what to do.
-export function withToken(fetchFn: Fetch, token: () => string | null, onRejected: () => void = () => {}): Fetch {
+const SSO_ERRORS: Record<string, string> = {
+  sso_failed: "Sign-in with the identity provider did not complete. Please try again.",
+  not_allowed: "Your account is not invited or on the sign-in allowlist for this Frankie deployment.",
+  account_disabled: "Your Frankie account has been disabled. Ask an administrator for help.",
+  already_linked: "That external account is already linked to another Frankie user.",
+  invite_invalid: "That invite is invalid, expired, or restricted to a different email address.",
+  provider_disabled: "That sign-in provider is not enabled on this deployment.",
+};
+
+export function ssoErrorMessage(code: string | undefined): string | null {
+  if (!code) return null;
+  return SSO_ERRORS[code] ?? "Sign-in failed. Please try again.";
+}
+
+// withSession wraps fetch for session-authenticated writes: sends same-origin
+// cookies, triggers AUTH_UNAUTHORIZED on 401, and surfaces clear 403 errors.
+export function withSession(fetchFn: Fetch, onUnauthorized: () => void = () => {}): Fetch {
   return async (input, init) => {
-    const headers = new Headers(init?.headers);
-    const t = token();
-    if (t) headers.set("Authorization", `Bearer ${t}`);
-    const r = await fetchFn(input, { ...init, headers });
+    const r = await fetchFn(input, { credentials: "same-origin", ...init });
     if (r.status === 401) {
-      onRejected();
-      throw new Error(t ? "the API token was rejected; set the right one under API token, in the menu at the bottom of the sidebar"
-        : "this needs the API token; set it under API token, in the menu at the bottom of the sidebar");
+      onUnauthorized();
+      throw new Error("Your session has expired; please sign in again.");
     }
     return r;
   };
 }
 
-// apiFetch is fetch with the browser's stored token, for write requests.
-export const apiFetch: Fetch = withToken(
+export const apiFetch: Fetch = withSession(
   (input, init) => fetch(input, init),
-  () => loadToken(),
-  () => window.dispatchEvent(new Event(TOKEN_REJECTED)),
+  notifyUnauthorized,
 );

@@ -1,30 +1,36 @@
-// The route tree (D141): path URLs with typed search params. Every tab,
+// The route tree (D141, D147): path URLs with typed search params. Every tab,
 // view, filter and selected step is a search param, so each change is a
 // history entry that back and forward walk and a reload restores.
 
 import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, createRoute, createRouter, redirect } from "@tanstack/react-router";
-import { projectsQuery } from "@/api/queries";
+import { meQuery, projectsQuery } from "@/api/queries";
 import { ProjectLayout } from "@/components/app/project";
 import { Shell } from "@/components/app/Shell";
+import { AccountPage } from "@/pages/AccountPage";
 import { ApprovalsPage } from "@/pages/ApprovalsPage";
 import { BoardPage } from "@/pages/BoardPage";
 import { HomePage } from "@/pages/HomePage";
+import { InvitePage } from "@/pages/InvitePage";
 import { IssuePage } from "@/pages/IssuePage";
+import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ReleasePage } from "@/pages/ReleasePage";
 import { ReleasesPage } from "@/pages/ReleasesPage";
 import { RunPage } from "@/pages/RunPage";
 import { RunsPage } from "@/pages/RunsPage";
+import { UsersPage } from "@/pages/UsersPage";
 import { loadLastProject, startProject } from "@/prefs";
 import { legacyPath } from "@/routes";
-import { approvalsSearch, boardSearch, issueSearch, runSearch, runsSearch } from "@/search";
+import { accountSearch, approvalsSearch, boardSearch, issueSearch, loginSearch, runSearch, runsSearch } from "@/search";
 
 export type RouterContext = { queryClient: QueryClient };
 
 // homeProject is the project / opens: the last one opened, else the first.
 async function homeProject(qc: QueryClient): Promise<string | undefined> {
   try {
+    const me = await qc.ensureQueryData({ ...meQuery(), retry: false });
+    if (!me) return undefined;
     const projects = await qc.ensureQueryData({ ...projectsQuery(), retry: false });
     return startProject(projects.map((p) => p.key_prefix), loadLastProject());
   } catch {
@@ -45,10 +51,25 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: NotFoundPage,
 });
 
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  validateSearch: loginSearch,
+  component: LoginPage,
+});
+
+const inviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/invite/$token",
+  component: InvitePage,
+});
+
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: async ({ context }) => {
+    const me = await context.queryClient.ensureQueryData({ ...meQuery(), retry: false }).catch(() => null);
+    if (!me) throw redirect({ to: "/login", replace: true });
     const project = await homeProject(context.queryClient);
     if (project) throw redirect({ to: "/projects/$project/board", params: { project }, replace: true });
   },
@@ -66,13 +87,20 @@ const runRoute = createRoute({ getParentRoute: () => rootRoute, path: "/runs/$id
 const releaseRoute = createRoute({ getParentRoute: () => rootRoute, path: "/releases/$id", component: ReleasePage });
 const approvalsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/approvals", validateSearch: approvalsSearch, component: ApprovalsPage });
 
+const accountRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/account", validateSearch: accountSearch, component: AccountPage });
+const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings/users", component: UsersPage });
+
 const routeTree = rootRoute.addChildren([
+  loginRoute,
+  inviteRoute,
   homeRoute,
   projectRoute.addChildren([boardRoute, runsRoute, releasesRoute]),
   issueRoute,
   runRoute,
   releaseRoute,
   approvalsRoute,
+  accountRoute,
+  usersRoute,
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

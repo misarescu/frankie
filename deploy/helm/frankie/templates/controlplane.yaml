@@ -4,6 +4,7 @@
 {{- $key := randAlphaNum 48 }}
 {{- $apiToken := randAlphaNum 48 }}
 {{- $egressKey := randAlphaNum 48 }}
+{{- $authStateKey := randAlphaNum 48 }}
 {{- with lookup "v1" "Secret" .Release.Namespace $name }}
 {{- $key = index .data "gitproxy-key" | b64dec }}
 {{- if hasKey .data "api-token" }}
@@ -11,6 +12,9 @@
 {{- end }}
 {{- if hasKey .data "egress-key" }}
 {{- $egressKey = index .data "egress-key" | b64dec }}
+{{- end }}
+{{- if hasKey .data "auth-state-key" }}
+{{- $authStateKey = index .data "auth-state-key" | b64dec }}
 {{- end }}
 {{- end }}
 apiVersion: v1
@@ -25,11 +29,12 @@ type: Opaque
 stringData:
   # Signs git proxy tokens (D21). Rotating it invalidates tokens of running steps.
   gitproxy-key: {{ $key | quote }}
-  # Bearer token for the API's write endpoints (D58); the web UI asks for it once.
-  # mise run api-token prints it.
+  # Preview-only static bearer token (D146); mounted only when previewMode is true.
   api-token: {{ $apiToken | quote }}
   # Signs egress tokens (D80); the egress proxy verifies them with it.
   egress-key: {{ $egressKey | quote }}
+  # Signs OAuth/OIDC state cookies (D145).
+  auth-state-key: {{ $authStateKey | quote }}
 ---
 # The control plane launches agent and gate pods, and reads gate pod logs, and
 # nothing else, in the agents namespace.
@@ -136,9 +141,52 @@ spec:
             - name: FRANKIE_EGRESS_KEY
               valueFrom:
                 secretKeyRef: { name: {{ $name }}, key: egress-key }
+            - name: FRANKIE_AUTH_STATE_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $name }}, key: auth-state-key }
+            {{- if .Values.controlPlane.auth.previewMode }}
             - name: FRANKIE_API_TOKEN
               valueFrom:
                 secretKeyRef: { name: {{ $name }}, key: api-token }
+            {{- end }}
+            {{- with .Values.controlPlane.auth.bootstrapAdminSecret }}
+            - name: FRANKIE_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef: { name: {{ . }}, key: username, optional: true }
+            - name: FRANKIE_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ . }}, key: password, optional: true }
+            - name: FRANKIE_BOOTSTRAP_ADMIN_NAME
+              valueFrom:
+                secretKeyRef: { name: {{ . }}, key: display-name, optional: true }
+            - name: FRANKIE_BOOTSTRAP_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef: { name: {{ . }}, key: email, optional: true }
+            {{- end }}
+            {{- if and .Values.controlPlane.auth.sso.google.enabled .Values.controlPlane.auth.sso.google.secret }}
+            - name: FRANKIE_SSO_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.google.secret }}, key: client-id }
+            - name: FRANKIE_SSO_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.google.secret }}, key: client-secret }
+            {{- end }}
+            {{- if and .Values.controlPlane.auth.sso.gitlab.enabled .Values.controlPlane.auth.sso.gitlab.secret }}
+            - name: FRANKIE_SSO_GITLAB_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.gitlab.secret }}, key: client-id }
+            - name: FRANKIE_SSO_GITLAB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.gitlab.secret }}, key: client-secret }
+            {{- end }}
+            {{- if and .Values.controlPlane.auth.sso.github.enabled .Values.controlPlane.auth.sso.github.secret }}
+            - name: FRANKIE_SSO_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.github.secret }}, key: client-id }
+            - name: FRANKIE_SSO_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.controlPlane.auth.sso.github.secret }}, key: client-secret }
+            {{- end }}
             - name: FRANKIE_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef: { name: {{ .Values.controlPlane.githubSecret }}, key: token, optional: true }

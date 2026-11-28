@@ -13,9 +13,10 @@ type versionJSON struct {
 	Version string `json:"version"`
 }
 
-// getVersion reports the control plane's build commit; a read, open like the
-// others (D58).
-func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
+// GetVersion reports the control plane's build commit (D131). Exposed at
+// GET /version for cluster probes and at GET /api/version (authenticated, or
+// open in PreviewMode, D146).
+func (s *Server) GetVersion(w http.ResponseWriter, _ *http.Request) {
 	v := s.Version
 	if v == "" {
 		v = "unknown"

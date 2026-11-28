@@ -1,16 +1,21 @@
-import { ActivityIcon, InboxIcon, RocketIcon, SquareKanbanIcon, type LucideIcon } from "lucide-react";
+import { ActivityIcon, InboxIcon, KeyRoundIcon, RocketIcon, SquareKanbanIcon, UsersIcon, type LucideIcon } from "lucide-react";
 import type { RunSummary } from "@/events";
 import { keyPrefix, type Project } from "@/issues";
 import { paths } from "@/paths";
 
-export type NavID = "board" | "runs" | "approvals" | "releases";
+export type NavID = "board" | "runs" | "approvals" | "releases" | "account" | "users";
 
-// The sidebar's pages, with the icons the palette shows them with too.
+// The sidebar's main pages, with the icons the palette shows them with too.
 export const navItems: { id: NavID; label: string; icon: LucideIcon; href: (project: string | undefined) => string }[] = [
   { id: "board", label: "Board", icon: SquareKanbanIcon, href: (p) => (p ? paths.board(p) : "/") },
   { id: "runs", label: "Runs", icon: ActivityIcon, href: (p) => (p ? paths.runs(p) : "/") },
   { id: "approvals", label: "Approvals", icon: InboxIcon, href: () => paths.approvals() },
   { id: "releases", label: "Releases", icon: RocketIcon, href: (p) => (p ? paths.releases(p) : "/") },
+];
+
+export const settingsNavItems: { id: "account" | "users"; label: string; icon: LucideIcon; href: string; adminOnly?: boolean }[] = [
+  { id: "account", label: "Account", icon: KeyRoundIcon, href: paths.account() },
+  { id: "users", label: "Users", icon: UsersIcon, href: paths.users(), adminOnly: true },
 ];
 
 // switchProjectHref is where picking another project goes: the same page
@@ -29,6 +34,8 @@ export function activeNav(path: string): NavID | undefined {
   if (/^\/projects\/[^/]+\/runs/.test(path) || path.startsWith("/runs/")) return "runs";
   if (/^\/projects\/[^/]+\/releases/.test(path) || path.startsWith("/releases/")) return "releases";
   if (path.startsWith("/approvals")) return "approvals";
+  if (path.startsWith("/settings/account")) return "account";
+  if (path.startsWith("/settings/users")) return "users";
   return undefined;
 }
 

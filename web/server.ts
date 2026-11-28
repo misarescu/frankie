@@ -1,6 +1,7 @@
 // Serves the web UI and proxies /api to the control plane, so the browser
-// talks to one origin (no CORS) and server-sent events stream through. Every
-// other path is the app (M9, D141): the router reads the URL in the browser.
+// talks to one origin (no CORS), cookies and OAuth redirects pass through
+// untouched (D147), and server-sent events stream through. Every other path
+// is the app (M9, D141): the router reads the URL in the browser.
 import index from "./index.html";
 
 // Bun closes connections idle for idleTimeout seconds (default 10). Event
@@ -18,12 +19,24 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
       "/healthz": () => new Response("ok\n"),
       "/api/*": async (req, server) => {
         const url = new URL(req.url);
+        const headers = new Headers(req.headers);
+        if (!headers.has("x-forwarded-proto")) {
+          headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
+        }
+        if (!headers.has("x-forwarded-host")) {
+          headers.set("x-forwarded-host", req.headers.get("host") || url.host);
+        }
+        const ip = server.requestIP(req)?.address;
+        if (ip && !headers.has("x-forwarded-for")) {
+          headers.set("x-forwarded-for", ip);
+        }
         let upstream: Response;
         try {
           upstream = await fetch(controlplaneURL + url.pathname + url.search, {
             method: req.method,
-            headers: req.headers,
+            headers,
             body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
+            redirect: "manual",
             signal: req.signal,
           });
         } catch (e) {
@@ -31,7 +44,7 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
           return new Response(`the control plane is not reachable: ${(e as Error).message}\n`, { status: 502 });
         }
         if (upstream.headers.get("content-type")?.startsWith("text/event-stream")) server.timeout(req, 0);
-        // Pass the body through as a stream so SSE events arrive as they are sent.
+        // Pass the body and headers (including Set-Cookie and Location) straight through.
         return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
       },
       "/*": index,

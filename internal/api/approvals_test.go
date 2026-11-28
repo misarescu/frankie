@@ -65,6 +65,7 @@ func TestApprovalsInbox(t *testing.T) {
 	st, srv, run, _ := testServer(t)
 	step := pendingGate(t, st, run)
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/approvals", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +95,7 @@ func TestDecideGateSignalsTheWorkflow(t *testing.T) {
 		t.Fatalf("signals = %+v", sig.sent)
 	}
 	got := sig.sent[0]
-	want := workflow.HumanDecision{StepRunID: step.ID.String(), Approved: true, By: "alice", Comment: "ok"}
+	want := workflow.HumanDecision{StepRunID: step.ID.String(), Approved: true, By: testActorName, Comment: "ok"}
 	if got.workflowID != run.TemporalWorkflowID || got.name != workflow.HumanDecisionSignal || got.arg != want {
 		t.Errorf("signal = %+v", got)
 	}
@@ -181,12 +182,13 @@ func TestDecideGateRequestChanges(t *testing.T) {
 	if code := postDecision(t, url(step.ID), "application/json", `{"decision":"request-changes","comment":"keep both routes","by":"ana"}`); code != http.StatusAccepted {
 		t.Fatalf("status = %d", code)
 	}
-	want := workflow.HumanDecision{StepRunID: step.ID.String(), By: "ana", Comment: "keep both routes", Action: workflow.DecisionRequestChanges}
+	want := workflow.HumanDecision{StepRunID: step.ID.String(), By: testActorName, Comment: "keep both routes", Action: workflow.DecisionRequestChanges}
 	if len(sig.sent) != 1 || sig.sent[0].arg != want {
 		t.Errorf("signal = %+v", sig.sent)
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/approvals", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

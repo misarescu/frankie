@@ -4,7 +4,7 @@
 #
 #   frankie-verify launch    build and start Postgres + control plane + web UI, seed rows
 #   frankie-verify doctor    read-only: is the current instance worth driving?
-#   frankie-verify env       print the instance's URLs, token and evidence directory
+#   frankie-verify env       print the instance's URLs, credentials, token and evidence directory
 #   frankie-verify sql <q>   run a read-only SQL query against the instance's Postgres
 #   frankie-verify api stop|start   stop or restart only the control plane (the UI's API-down states)
 #   frankie-verify cleanup   copy logs into the evidence directory, stop everything we started
@@ -46,7 +46,13 @@ load_state() {
 	EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"
 }
 
-psql_in() { docker exec -i "$PG_NAME" psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
+psql_in() {
+	if [ -n "${DB_URL:-}" ] && [ -z "${PG_NAME:-}" ]; then
+		psql "$DB_URL" -v ON_ERROR_STOP=1 -q "$@"
+	else
+		docker exec -i "$PG_NAME" psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -q "$@"
+	fi
+}
 
 ensure_playwright() {
 	if [ -d "$PW_DIR/node_modules/playwright" ] && { ls "$HOME/Library/Caches/ms-playwright" "$HOME/.cache/ms-playwright" 2>/dev/null || true; } | grep -q chromium; then
@@ -58,8 +64,13 @@ ensure_playwright() {
 }
 
 cmd_launch() {
-	for t in docker node bun lsof curl mise perl; do command -v "$t" >/dev/null || die "$t is required"; done
-	docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+	for t in node bun lsof curl mise perl; do command -v "$t" >/dev/null || die "$t is required"; done
+	if [ -z "${FRANKIE_VERIFY_PG_URL:-}" ]; then
+		command -v docker >/dev/null || die "docker is required (or set FRANKIE_VERIFY_PG_URL)"
+		docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+	else
+		command -v psql >/dev/null || die "psql is required when FRANKIE_VERIFY_PG_URL is set"
+	fi
 	if [ -f "$STATE_ROOT/current" ] && [ -z "${FRANKIE_VERIFY_RUN:-}" ]; then
 		prev="$(cat "$STATE_ROOT/current")"
 		if [ -f "$STATE_ROOT/runs/$prev/state.env" ]; then
@@ -72,25 +83,47 @@ cmd_launch() {
 	RUN_DIR="$STATE_ROOT/runs/$RUN_ID"
 	EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"
 	mkdir -p "$RUN_DIR" "$EVIDENCE_DIR"
-	PG_NAME="frankie-verify-pg-$RUN_ID"
-	PG_PORT="$(free_port)"; API_PORT="$(free_port)"; GIT_PORT="$(free_port)"; WEB_PORT="$(free_port)"; CDP_PORT="$(free_port)"
-	TOKEN="$(node -e 'console.log(require("crypto").randomBytes(24).toString("hex"))')"
+	API_PORT="$(free_port)"; GIT_PORT="$(free_port)"; WEB_PORT="$(free_port)"; CDP_PORT="$(free_port)"
 	GITKEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+	STATEKEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+	ADMIN_USER="verifier"
+	ADMIN_NAME="verifier"
+	ADMIN_EMAIL="verifier@verify.local"
+	ADMIN_PASS="$(node -e 'console.log(require("crypto").randomBytes(16).toString("hex"))')"
+	TOKEN=""
 	COMMIT="$(git -C "$REPO" rev-parse HEAD)"
+
+	PG_NAME=""
+	PG_PORT=""
+	PG_ADMIN_URL=""
+	PG_DB_NAME=""
+	if [ -n "${FRANKIE_VERIFY_PG_URL:-}" ]; then
+		PG_ADMIN_URL="$FRANKIE_VERIFY_PG_URL"
+		PG_DB_NAME="frankie_verify_$(printf '%s' "$RUN_ID" | tr -cd 'a-zA-Z0-9' | tr '[:upper:]' '[:lower:]')"
+		DB_URL="$(node -e 'const u=new URL(process.argv[1]); u.pathname="/"+process.argv[2]; console.log(u.toString())' "$PG_ADMIN_URL" "$PG_DB_NAME")"
+		echo "== postgres (external DB $PG_DB_NAME)"
+		psql "$PG_ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE \"$PG_DB_NAME\""
+	else
+		PG_NAME="frankie-verify-pg-$RUN_ID"
+		PG_PORT="$(free_port)"
+		DB_URL="postgres://postgres:frankie@127.0.0.1:$PG_PORT/postgres?sslmode=disable"
+		echo "== postgres ($PG_NAME on 127.0.0.1:$PG_PORT)"
+		docker run -d --name "$PG_NAME" -p "127.0.0.1:$PG_PORT:5432" -e POSTGRES_PASSWORD=frankie postgres:17 >/dev/null
+		# A TCP query, not pg_isready: the image's init scripts run a socket-only server first.
+		for _ in $(seq 1 60); do
+			psql_in -c 'select 1' >/dev/null 2>&1 && break
+			sleep 1
+		done
+		psql_in -c 'select 1' >/dev/null 2>&1 || die "postgres did not become ready"
+	fi
+
 	{
-		for v in RUN_ID PG_NAME PG_PORT API_PORT GIT_PORT WEB_PORT CDP_PORT TOKEN GITKEY COMMIT; do printf '%s=%q\n' "$v" "${!v}"; done
+		for v in RUN_ID PG_NAME PG_PORT PG_ADMIN_URL PG_DB_NAME DB_URL API_PORT GIT_PORT WEB_PORT CDP_PORT TOKEN GITKEY STATEKEY ADMIN_USER ADMIN_NAME ADMIN_EMAIL ADMIN_PASS COMMIT; do
+			printf '%s=%q\n' "$v" "${!v}"
+		done
 	} >"$RUN_DIR/state.env"
 	chmod 600 "$RUN_DIR/state.env"
 	echo "$RUN_ID" >"$STATE_ROOT/current"
-
-	echo "== postgres ($PG_NAME on 127.0.0.1:$PG_PORT)"
-	docker run -d --name "$PG_NAME" -p "127.0.0.1:$PG_PORT:5432" -e POSTGRES_PASSWORD=frankie postgres:17 >/dev/null
-	# A TCP query, not pg_isready: the image's init scripts run a socket-only server first.
-	for _ in $(seq 1 60); do
-		psql_in -c 'select 1' >/dev/null 2>&1 && break
-		sleep 1
-	done
-	psql_in -c 'select 1' >/dev/null 2>&1 || die "postgres did not become ready"
 
 	echo "== control plane (building at $COMMIT)"
 	(cd "$REPO" && mise exec -- go build \
@@ -103,6 +136,23 @@ cmd_launch() {
 EOF
 	start_cp
 
+	echo "== mint personal API token for $ADMIN_USER"
+	COOKIE_JAR="$RUN_DIR/admin-cookies.txt"
+	curl -fsS -c "$COOKIE_JAR" -X POST \
+		-H 'Content-Type: application/json' \
+		-d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}" \
+		"http://127.0.0.1:$API_PORT/api/auth/login" >/dev/null || die "bootstrap admin sign-in failed"
+	TOKEN="$(curl -fsS -b "$COOKIE_JAR" -X POST \
+		-H "Origin: http://127.0.0.1:$API_PORT" \
+		-H 'Content-Type: application/json' \
+		-d '{"name":"frankie-verify"}' \
+		"http://127.0.0.1:$API_PORT/api/tokens" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).secret')"
+	rm -f "$COOKIE_JAR"
+	[ -n "$TOKEN" ] || die "could not create personal API token"
+	{ grep -v '^TOKEN=' "$RUN_DIR/state.env" || true; printf 'TOKEN=%q\n' "$TOKEN"; } >"$RUN_DIR/state.env.new"
+	mv "$RUN_DIR/state.env.new" "$RUN_DIR/state.env"
+	chmod 600 "$RUN_DIR/state.env"
+
 	echo "== seed"
 	psql_in <"$SKILL_DIR/scripts/seed.sql"
 
@@ -114,7 +164,7 @@ EOF
 		curl -fsS "http://127.0.0.1:$WEB_PORT/healthz" >/dev/null 2>&1 && break
 		sleep 1
 	done
-	curl -fsS "http://127.0.0.1:$WEB_PORT/api/projects" | grep -q 'verify/demo' || die "web UI does not reach the control plane"
+	curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$WEB_PORT/api/projects" | grep -q 'verify/demo' || die "web UI does not reach the control plane"
 
 	echo "== browser"
 	node "$SKILL_DIR/scripts/browser.mjs" start >/dev/null
@@ -125,8 +175,14 @@ EOF
 # start_cp: start the control plane on the recorded ports and wait until it
 # has migrated and created both projects; records its pid as CP_PID.
 start_cp() {
-	FRANKIE_DATABASE_URL="postgres://postgres:frankie@127.0.0.1:$PG_PORT/postgres?sslmode=disable" \
-		FRANKIE_GITPROXY_KEY="$GITKEY" FRANKIE_API_TOKEN="$TOKEN" FRANKIE_CONFIG="$RUN_DIR/config.json" \
+	FRANKIE_DATABASE_URL="$DB_URL" \
+		FRANKIE_GITPROXY_KEY="$GITKEY" \
+		FRANKIE_AUTH_STATE_KEY="$STATEKEY" \
+		FRANKIE_BOOTSTRAP_ADMIN_USERNAME="$ADMIN_USER" \
+		FRANKIE_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASS" \
+		FRANKIE_BOOTSTRAP_ADMIN_NAME="$ADMIN_NAME" \
+		FRANKIE_BOOTSTRAP_ADMIN_EMAIL="$ADMIN_EMAIL" \
+		FRANKIE_CONFIG="$RUN_DIR/config.json" \
 		"${DETACH[@]}" "$RUN_DIR/controlplane" --api-listen "127.0.0.1:$API_PORT" --gitproxy-listen "127.0.0.1:$GIT_PORT" \
 		</dev/null >>"$RUN_DIR/controlplane.log" 2>&1 &
 	CP_PID=$!
@@ -138,11 +194,12 @@ start_cp() {
 		sleep 1
 	done
 	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 || { tail -20 "$RUN_DIR/controlplane.log" >&2; die "control plane did not become ready"; }
-	# Ready means migrated and the projects exist, not just that the port answers.
-	for _ in $(seq 1 30); do
-		curl -fsS "http://127.0.0.1:$API_PORT/api/projects" 2>/dev/null | grep -q 'verify/other' && break
-		sleep 1
-	done
+	if [ -n "${TOKEN:-}" ]; then
+		for _ in $(seq 1 30); do
+			curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$API_PORT/api/projects" 2>/dev/null | grep -q 'verify/other' && break
+			sleep 1
+		done
+	fi
 }
 
 # cmd_api stop|start: stop or restart the control plane this instance
@@ -156,7 +213,7 @@ cmd_api() {
 			kill "$CP_PID"
 			for _ in $(seq 1 20); do pid_alive "$CP_PID" || break; sleep 0.5; done
 			if pid_alive "$CP_PID"; then kill -9 "$CP_PID" 2>/dev/null || true; fi
-			echo "stopped control plane $CP_PID; the web server now answers /api with 500"
+			echo "stopped control plane $CP_PID; the web server now answers /api with 502"
 			;;
 		start)
 			if pid_alive "${CP_PID:-}"; then echo "control plane $CP_PID already running"; return 0; fi
@@ -175,6 +232,8 @@ cmd_env() {
 RUN_ID=$RUN_ID
 UI=http://127.0.0.1:$WEB_PORT/
 API=http://127.0.0.1:$API_PORT
+ADMIN_USER=$ADMIN_USER
+ADMIN_PASSWORD=$ADMIN_PASS
 API_TOKEN=$TOKEN
 EVIDENCE_DIR=$EVIDENCE_DIR
 STATE_DIR=$RUN_DIR
@@ -200,17 +259,23 @@ cmd_doctor() {
 		owner="$(listener_pid "$port")"
 		if [ "$owner" = "$pid" ]; then ok "$name: pid $pid owns port $port"; else fail "$name: port $port is held by '${owner:-nobody}', not our pid $pid"; fi
 	done
-	if [ "$(docker inspect -f '{{.State.Running}}' "$PG_NAME" 2>/dev/null)" = true ]; then ok "postgres container $PG_NAME running"; else fail "postgres container $PG_NAME is not running"; fi
-	v="$(curl -fsS "http://127.0.0.1:$API_PORT/api/version" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null || true)"
+	if [ -n "${PG_NAME:-}" ]; then
+		if [ "$(docker inspect -f '{{.State.Running}}' "$PG_NAME" 2>/dev/null)" = true ]; then ok "postgres container $PG_NAME running"; else fail "postgres container $PG_NAME is not running"; fi
+	else
+		psql_in -c 'select 1' >/dev/null 2>&1 && ok "postgres database $PG_DB_NAME reachable" || fail "postgres database $PG_DB_NAME not reachable"
+	fi
+	v="$(curl -fsS "http://127.0.0.1:$API_PORT/version" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null || true)"
 	if [ "$v" = "$COMMIT" ]; then ok "control plane build $v"; else fail "control plane reports build '$v', launched at $COMMIT"; fi
 	head="$(git -C "$REPO" rev-parse HEAD)"
 	[ "$head" = "$COMMIT" ] && ok "checkout is still at the launched commit" || echo "WARN  checkout moved since launch ($head); the control plane runs $COMMIT. Web code is served live from the checkout."
 	curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1 && ok "API ready (database reachable)" || fail "API /readyz fails"
-	n="$(curl -fsS "http://127.0.0.1:$WEB_PORT/api/issues?project=verify%2Fdemo" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).length' 2>/dev/null || echo 0)"
+	unauth="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$WEB_PORT/api/projects")"
+	if [ "$unauth" = 401 ]; then ok "unauthenticated /api/projects returns 401"; else fail "unauthenticated /api/projects returned $unauth, want 401"; fi
+	n="$(curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$WEB_PORT/api/issues?project=verify%2Fdemo" 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).length' 2>/dev/null || echo 0)"
 	if [ "$n" -ge 18 ]; then ok "web UI proxies to the API; $n seeded issues"; else fail "web UI shows $n issues for verify/demo, want at least 18 (seed missing?)"; fi
-	# A 400 on an empty body means the token passed; a 401 means it did not.
+	# A 400 on an empty body means the personal token passed; a 401 means it did not.
 	code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"keys":[]}' "http://127.0.0.1:$API_PORT/api/issues/start")"
-	if [ "$code" = 400 ]; then ok "API token accepted"; else fail "API token check answered $code, want 400"; fi
+	if [ "$code" = 400 ]; then ok "personal API token accepted"; else fail "personal API token check answered $code, want 400"; fi
 	if node "$SKILL_DIR/scripts/browser.mjs" status >/dev/null 2>&1; then ok "browser session up"; else fail "browser session is not running (node scripts/browser.mjs start)"; fi
 	return $bad
 }
@@ -224,7 +289,11 @@ cmd_cleanup() {
 		pid="${!var:-}"
 		pid_alive "$pid" && { kill "$pid" 2>/dev/null || true; for _ in 1 2 3 4 5 6 7 8 9 10; do pid_alive "$pid" || break; sleep 0.5; done; pid_alive "$pid" && kill -9 "$pid" 2>/dev/null || true; }
 	done
-	docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+	if [ -n "${PG_NAME:-}" ]; then
+		docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+	elif [ -n "${PG_ADMIN_URL:-}" ] && [ -n "${PG_DB_NAME:-}" ]; then
+		psql "$PG_ADMIN_URL" -v ON_ERROR_STOP=0 -q -c "DROP DATABASE IF EXISTS \"$PG_DB_NAME\" WITH (FORCE)" >/dev/null 2>&1 || true
+	fi
 	rm -rf "$RUN_DIR"
 	[ "$(cat "$STATE_ROOT/current" 2>/dev/null)" = "$RUN_ID" ] && rm -f "$STATE_ROOT/current"
 	echo "cleaned up $RUN_ID; evidence kept in $EVIDENCE_DIR"

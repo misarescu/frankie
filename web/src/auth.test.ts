@@ -1,64 +1,53 @@
-import { expect, test } from "bun:test";
-import { clearToken, loadToken, saveToken, withToken, type TokenStorage } from "./auth";
+import { describe, expect, test } from "bun:test";
+import { canOperate, displayUserName, isAdmin, roleLabel, safeNextPath, ssoErrorMessage, withSession } from "./auth";
 
-const mapStorage = (): TokenStorage & { data: Map<string, string> } => {
-  const data = new Map<string, string>();
-  return {
-    data,
-    getItem: (k) => data.get(k) ?? null,
-    setItem: (k, v) => void data.set(k, v),
-    removeItem: (k) => void data.delete(k),
-  };
-};
+describe("auth helpers (M10)", () => {
+  test("role helpers match D146 hierarchy", () => {
+    expect(canOperate("admin")).toBe(true);
+    expect(canOperate("member")).toBe(true);
+    expect(canOperate("viewer")).toBe(false);
+    expect(canOperate(undefined)).toBe(false);
 
-test("the token round-trips through storage, trimmed, and clears", () => {
-  const s = mapStorage();
-  expect(loadToken(s)).toBeNull();
-  saveToken("  abc123  ", s);
-  expect(loadToken(s)).toBe("abc123");
-  clearToken(s);
-  expect(loadToken(s)).toBeNull();
-  expect(s.data.size).toBe(0);
-});
+    expect(isAdmin("admin")).toBe(true);
+    expect(isAdmin("member")).toBe(false);
+    expect(isAdmin("viewer")).toBe(false);
 
-test("a storage that throws keeps the token for this page", () => {
-  const broken: TokenStorage = {
-    getItem: () => { throw new Error("blocked"); },
-    setItem: () => { throw new Error("blocked"); },
-    removeItem: () => { throw new Error("blocked"); },
-  };
-  saveToken("xyz", broken);
-  expect(loadToken(broken)).toBe("xyz");
-  clearToken(broken);
-  expect(loadToken(broken)).toBeNull();
-});
+    expect(roleLabel("admin")).toBe("Admin");
+    expect(roleLabel("member")).toBe("Member");
+    expect(roleLabel("viewer")).toBe("Viewer");
+  });
 
-test("withToken sends the token as a bearer header and keeps other headers", async () => {
-  let seen: Headers | undefined;
-  const f = withToken(async (_url, init) => {
-    seen = new Headers(init?.headers);
-    return new Response(null, { status: 202 });
-  }, () => "tok");
-  const r = await f("/api/x", { method: "POST", headers: { "Content-Type": "application/json" } });
-  expect(r.status).toBe(202);
-  expect(seen?.get("Authorization")).toBe("Bearer tok");
-  expect(seen?.get("Content-Type")).toBe("application/json");
-});
+  test("displayUserName prefers display_name over username", () => {
+    expect(displayUserName({ display_name: "Mihai", username: "mihai" })).toBe("Mihai");
+    expect(displayUserName({ display_name: "  ", username: "mihai" })).toBe("mihai");
+  });
 
-test("withToken sends no header without a token", async () => {
-  let seen: Headers | undefined;
-  const f = withToken(async (_url, init) => {
-    seen = new Headers(init?.headers);
-    return new Response(null, { status: 200 });
-  }, () => null);
-  await f("/api/x");
-  expect(seen?.has("Authorization")).toBe(false);
-});
+  test("safeNextPath rejects open redirects and auth loops", () => {
+    expect(safeNextPath(undefined)).toBe("/");
+    expect(safeNextPath("/projects/frk/board?view=graph")).toBe("/projects/frk/board?view=graph");
+    expect(safeNextPath("https://evil.example")).toBe("/");
+    expect(safeNextPath("//evil.example")).toBe("/");
+    expect(safeNextPath("/login")).toBe("/");
+    expect(safeNextPath("/login?next=/")).toBe("/");
+    expect(safeNextPath("/invite/abc")).toBe("/");
+  });
 
-test("a 401 notifies the page and says what to do", async () => {
-  let rejected = 0;
-  const unauthorized = async () => new Response("missing or wrong API token\n", { status: 401 });
-  await expect(withToken(unauthorized, () => null, () => rejected++)("/api/x")).rejects.toThrow("needs the API token");
-  await expect(withToken(unauthorized, () => "bad", () => rejected++)("/api/x")).rejects.toThrow("was rejected");
-  expect(rejected).toBe(2);
+  test("ssoErrorMessage maps known codes", () => {
+    expect(ssoErrorMessage(undefined)).toBeNull();
+    expect(ssoErrorMessage("not_allowed")).toContain("allowlist");
+    expect(ssoErrorMessage("unknown_code")).toContain("Sign-in failed");
+  });
+
+  test("withSession sends same-origin credentials and notifies on 401", async () => {
+    let seenCreds: RequestCredentials | undefined;
+    let unauthCount = 0;
+    const f = withSession(async (_url, init) => {
+      seenCreds = init?.credentials;
+      return new Response("unauthorized", { status: 401 });
+    }, () => { unauthCount++; });
+
+    await expect(f("/api/issues/start", { method: "POST" })).rejects.toThrow(/session has expired/i);
+    expect(seenCreds).toBe("same-origin");
+    expect(unauthCount).toBe(1);
+  });
 });

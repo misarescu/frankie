@@ -63,7 +63,6 @@ type decisionRequest struct {
 const (
 	maxDecisionBody = 16 << 10
 	maxComment      = 4000
-	maxBy           = 100
 )
 
 // decideGate sends a person's decision on a pending human gate to the run's
@@ -87,7 +86,7 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	req.Comment, req.By = strings.TrimSpace(req.Comment), strings.TrimSpace(req.By)
+	req.Comment = strings.TrimSpace(req.Comment)
 	switch {
 	case req.Decision != "approve" && req.Decision != "reject" && req.Decision != workflow.DecisionRequestChanges:
 		http.Error(w, `decision must be "approve", "reject" or "request-changes"`, http.StatusBadRequest)
@@ -95,13 +94,11 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 	case req.Decision == workflow.DecisionRequestChanges && req.Comment == "":
 		http.Error(w, "requesting changes needs a comment saying which", http.StatusBadRequest)
 		return
-	case len(req.Comment) > maxComment || len(req.By) > maxBy:
-		http.Error(w, "comment or by is too long", http.StatusBadRequest)
+	case len(req.Comment) > maxComment:
+		http.Error(w, "comment is too long", http.StatusBadRequest)
 		return
 	}
-	if req.By == "" {
-		req.By = "web"
-	}
+	by := actorName(r)
 	if s.Signaler == nil {
 		http.Error(w, "workflows are not running", http.StatusServiceUnavailable)
 		return
@@ -124,7 +121,7 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this gate can only be approved or rejected", http.StatusBadRequest)
 		return
 	}
-	decision := workflow.HumanDecision{StepRunID: id.String(), Approved: req.Decision == "approve", By: req.By, Comment: req.Comment}
+	decision := workflow.HumanDecision{StepRunID: id.String(), Approved: req.Decision == "approve", By: by, Comment: req.Comment}
 	if req.Decision == workflow.DecisionRequestChanges {
 		decision.Action = workflow.DecisionRequestChanges
 	}
@@ -133,6 +130,6 @@ func (s *Server) decideGate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not reach the run's workflow", http.StatusBadGateway)
 		return
 	}
-	s.Log.Info("human decision sent", "gate", id, "issue", p.IssueKey, "decision", req.Decision, "by", req.By)
+	s.Log.Info("human decision sent", "gate", id, "issue", p.IssueKey, "decision", req.Decision, "by", by)
 	w.WriteHeader(http.StatusAccepted)
 }

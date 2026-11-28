@@ -53,6 +53,10 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- $tc := .Values.toolchains -}}
 {{- $gate := .Values.controlPlane.gate -}}
 {{- $gateLimits := .Values.podResources.commandGate.limits -}}
+{{- $auth := .Values.controlPlane.auth -}}
+{{- if and $auth.previewMode $auth.publicURL -}}
+{{- fail "controlPlane.auth.previewMode cannot be enabled with controlPlane.auth.publicURL" -}}
+{{- end -}}
 {{- $cfg := dict
   "repos" $repos
   "intakeLabel" .Values.controlPlane.intake.label
@@ -61,6 +65,19 @@ app.kubernetes.io/component: {{ index . 1 }}
   "temporal" (dict "address" (printf "%s-temporal:7233" $full) "namespace" .Values.temporal.namespace)
   "gatewayAdminURL" (printf "http://%s-llm-gateway:%v" $full .Values.llmGateway.port)
   "egressProjectAllow" .Values.egressProxy.projectAllow
+  "auth" (dict
+    "publicURL" (toString ($auth.publicURL | default ""))
+    "allowedOrigins" ($auth.allowedOrigins | default (list))
+    "sessionTTL" (toString ($auth.sessionTTL | default "168h"))
+    "previewMode" ($auth.previewMode | default false)
+    "allowlist" (dict
+      "emailDomains" ($auth.allowlist.emailDomains | default (list))
+      "githubOrgs" ($auth.allowlist.githubOrgs | default (list))
+      "defaultRole" (toString ($auth.allowlist.defaultRole | default "viewer")))
+    "sso" (dict
+      "google" (dict "enabled" $auth.sso.google.enabled "issuerURL" (toString ($auth.sso.google.issuerURL | default "")))
+      "gitlab" (dict "enabled" $auth.sso.gitlab.enabled "issuerURL" (toString ($auth.sso.gitlab.issuerURL | default "")))
+      "github" (dict "enabled" $auth.sso.github.enabled)))
   "providers" $providers
   "agent" (dict
     "namespace" .Values.agents.namespace

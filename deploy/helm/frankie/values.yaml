@@ -181,6 +181,34 @@ controlPlane:
   # statuses read for the merge queue (D85, D86). Optional until created; without
   # it the git proxy can only read public repos.
   githubSecret: frankie-github
+  # Sign-in, sessions, allowlist and SSO (M10, D144-D147).
+  auth:
+    # Public base URL of the web UI, e.g. https://frankie.example.com. Empty
+    # when reached only by port-forward.
+    publicURL: ""
+    allowedOrigins: []
+    sessionTTL: 168h
+    # Preview-only service mode (D146); never enable in production.
+    previewMode: false
+    # Optional Secret seeding the first admin when the DB has no users (D145):
+    # keys username, password (required), display-name, email.
+    bootstrapAdminSecret: ""
+    allowlist:
+      emailDomains: []
+      githubOrgs: []
+      defaultRole: viewer
+    sso:
+      google:
+        enabled: false
+        issuerURL: https://accounts.google.com
+        secret: ""
+      gitlab:
+        enabled: false
+        issuerURL: https://gitlab.com
+        secret: ""
+      github:
+        enabled: false
+        secret: ""
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 300Mi }
@@ -274,6 +302,14 @@ temporal:
 web:
   # The UI; a preview of the factory runs without it (D131).
   enabled: true
+  # Optional public Ingress for frankie-web (D147). Leave disabled when using a
+  # Cloudflare Tunnel (configured in frankie-cd) or port-forward.
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    tlsSecretName: ""
   resources:
     requests: { cpu: 20m, memory: 64Mi }
     limits: { cpu: 250m, memory: 256Mi }

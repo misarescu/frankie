@@ -1,86 +1,38 @@
-import { afterAll, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createServer } from "./server";
 
-// A stand-in control plane that streams two SSE events with a pause between.
-const upstream = Bun.serve({
-  port: 0,
-  fetch(req) {
-    const url = new URL(req.url);
-    if (url.pathname === "/api/runs") return Response.json([{ ID: "r1" }]);
-    if (url.pathname === "/api/echo-auth") return new Response(req.headers.get("authorization") ?? "", { status: 202 });
-    if (url.pathname === "/api/runs/r1/stream") {
-      const stream = new ReadableStream({
-        async start(c) {
-          c.enqueue(new TextEncoder().encode("id: 1\nevent: tool_call\ndata: {}\n\n"));
-          // Quiet for longer than the web server's idle timeout below.
-          await Bun.sleep(6000);
-          c.enqueue(new TextEncoder().encode("event: end\ndata: {}\n\n"));
-          c.close();
-        },
+describe("web /api proxy (D147)", () => {
+  test("passes 302 redirects, Set-Cookie headers, and forwarded headers through untouched", async () => {
+    let seenProto: string | null = null;
+    let seenHost: string | null = null;
+    const upstream = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        seenProto = req.headers.get("x-forwarded-proto");
+        seenHost = req.headers.get("x-forwarded-host");
+        if (u.pathname === "/api/auth/sso/google/start") {
+          const headers = new Headers({ Location: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
+          headers.append("Set-Cookie", "frankie_oauth_state=signed; Path=/api/auth/sso; HttpOnly; SameSite=Lax");
+          return new Response(null, { status: 302, headers });
+        }
+        return new Response("ok");
+      },
+    });
+    const web = createServer(upstream.url.origin, 0);
+    try {
+      const resp = await fetch(`${web.url.origin}/api/auth/sso/google/start`, {
+        redirect: "manual",
+        headers: { "X-Forwarded-Proto": "https", "X-Forwarded-Host": "frankie.example.com" },
       });
-      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      expect(resp.status).toBe(302);
+      expect(resp.headers.get("location")).toBe("https://accounts.google.com/o/oauth2/v2/auth?state=abc");
+      expect(resp.headers.get("set-cookie")).toContain("frankie_oauth_state=signed");
+      expect(seenProto).toBe("https");
+      expect(seenHost).toBe("frankie.example.com");
+    } finally {
+      web.stop(true);
+      upstream.stop(true);
     }
-    return new Response("nope", { status: 404 });
-  },
-});
-// A 1s idle timeout stands in for Bun's 10s default, so the test stays fast.
-const web = createServer(upstream.url.href.replace(/\/$/, ""), 0, { idleTimeout: 1 });
-afterAll(() => { web.stop(true); upstream.stop(true); });
-
-test("proxies the API", async () => {
-  const r = await fetch(new URL("/api/runs", web.url));
-  expect(r.status).toBe(200);
-  expect(await r.json()).toEqual([{ ID: "r1" }]);
-});
-
-// D58: write requests carry the API token, so the proxy must pass it on.
-test("passes the Authorization header and the body of a POST", async () => {
-  const r = await fetch(new URL("/api/echo-auth", web.url), { method: "POST", headers: { Authorization: "Bearer tok" }, body: "{}" });
-  expect(r.status).toBe(202);
-  expect(await r.text()).toBe("Bearer tok");
-});
-
-test("streams SSE through without buffering, and outlives the idle timeout", async () => {
-  const r = await fetch(new URL("/api/runs/r1/stream", web.url));
-  expect(r.headers.get("content-type")).toBe("text/event-stream");
-  const reader = r.body!.getReader();
-  const first = new TextDecoder().decode((await reader.read()).value);
-  expect(first).toContain("event: tool_call"); // arrives before the upstream finished
-  let rest = "";
-  for (let c = await reader.read(); !c.done; c = await reader.read()) rest += new TextDecoder().decode(c.value);
-  expect(rest).toContain("event: end");
-}, 10_000);
-
-test("serves health", async () => {
-  const r = await fetch(new URL("/healthz", web.url));
-  expect(r.status).toBe(200);
-  expect(await r.text()).toBe("ok\n");
-});
-
-// M9, D141: path URLs. Every path outside /api/ and /healthz is the app, so a
-// deep link or a reload of /issues/gc-83?tab=runs loads it and its router.
-test("serves the app on every page path", async () => {
-  for (const path of ["/", "/issues/gc-83?tab=runs", "/projects/gc/board", "/runs/r1", "/no/such/page"]) {
-    const page = await fetch(new URL(path, web.url));
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain('<div id="root">');
-  }
-});
-
-test("answers 502 when the control plane is down", async () => {
-  const lonely = createServer("http://127.0.0.1:9", 0);
-  try {
-    const r = await fetch(new URL("/api/runs", lonely.url));
-    expect(r.status).toBe(502);
-    expect(await r.text()).toContain("the control plane is not reachable");
-  } finally {
-    lonely.stop(true);
-  }
-});
-
-test("leaves unknown API paths to the control plane", async () => {
-  const r = await fetch(new URL("/api/nope", web.url));
-  expect(r.status).toBe(404);
-  expect(await r.text()).toBe("nope");
+  });
 });

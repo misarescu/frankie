@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `releases-list` table (cards at phone width): name link, short commit, bump, status chip, pipeline, issue count with links, created, finished.
-- `release-gate` a waiting stage gate as `<stage> waits for you` with the reason, expiry, comment box, `Approve` and `Reject`.
+- `release-gate` a waiting stage gate as `<Stage> waits for you` with the reason, expiry, comment box, `Approve` and `Reject`.
 - `release-stages` each deployment: stage, driver, status, started and finished, reason, `verification succeeded|failed|inconclusive` with its summary, and the failed tests with their issue links and messages.
 - `release-notes` the notes and `written by the release agent` (or the fallback text); `Not written yet.` while it is live.
 - `release-issues` the issues with their status.
@@ -25,7 +25,7 @@
 Preconditions: fresh launch. Seeded in `verify/demo`: `c0ffeec` (in progress, staging deploying, agent running), `fedcba9` (in progress, staging passed, production gate waiting), `b0b0b0b` (rolled back, 12 of 14 with two failed tests, bug issue vfy-13, agent cost $0.19), `v0.1.0` (succeeded, production pending).
 
 - **List.** `$B goto /projects/vfy/releases`; `$B expect --in-row v0.1.0 --text succeeded`; `$B expect --in-row fedcba9 --text "waiting for you"`; `$B expect --in-row v0.1.0 --role link --name vfy-7`.
-- **Gated release.** `$B click --role link --name fedcba9`; `$B expect --role heading --name "production waits for you"`; `$B click --in-section "production waits for you" --role button --name Reject --exact` shows `workflows are not running` (unverified locally).
+- **Gated release.** `$B click --role link --name fedcba9`; `$B expect --role heading --name "Production waits for you"`; `$B click --in-section "Production waits for you" --role button --name Reject --exact` shows `workflows are not running` (unverified locally).
 - **Rolled back.** `$B goto /releases/00000000-0000-7000-8000-000000000603`; `$B expect --text "12 of 14 requests passed"`; `$B expect --text "profile/upload avatar png"`; `$B expect --role link --name vfy-13` (the bug issue); `$B expect --text "Release agent"`.
 - **Missing release.** `$B goto /releases/00000000-0000-7000-8000-000000000699`; `$B expect --text "No such release"`.
 - **Proof.** Screenshots under `$EVIDENCE_DIR/releases/` and `curl -s $API/api/releases/<id>`. The list endpoint needs the project: `curl -s "$API/api/releases?project=verify/demo"` (400 without it).

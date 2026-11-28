@@ -46,7 +46,7 @@ Read-only. Checks that both processes are ours and own their ports, the Postgres
 
 ## Drive
 
-Browser commands are `node $S/browser.mjs <cmd>`: a persistent Chromium, each command attaches, acts, detaches, so route, localStorage (API token, "Acting as" name) and page state carry across commands. Run `node $S/browser.mjs` with a bad command to see usage; the header of `scripts/browser.mjs` is the reference.
+Browser commands are `node $S/browser.mjs <cmd>`: a persistent Chromium, each command attaches, acts, detaches, so route, localStorage (`frankie.apiToken`, `frankie.name`, `frankie.theme`, `frankie.project`) and page state carry across commands. Run `node $S/browser.mjs` with a bad command to see usage; the header of `scripts/browser.mjs` is the reference.
 
 ```
 goto </path | #/route | url>               /projects/vfy/board, /issues/vfy-11, /runs/<id>, /approvals, ... (M9 path URLs, features/README.md)
@@ -56,20 +56,26 @@ locator: --role R --name N | --text T | --label L | --placeholder P   [--in-row 
 click --accept-dialog                      for window.confirm (Complete, Abort)
 ```
 
-Set `FRANKIE_VERIFY_FEATURE=<feature id>` in the shell so each action in `actions.log` is tagged. `expect` exits 1 on failure; every failure message is the reason, report it as is. Default timeout 10 s (`FRANKIE_VERIFY_TIMEOUT_MS`). Prefer roles and accessible names; the UI has few ARIA labels, mostly visible text, and checkboxes labelled `select <key>`.
+Set `FRANKIE_VERIFY_FEATURE=<feature id>` in the shell so each action in `actions.log` is tagged. `expect` exits 1 on failure; every failure message is the reason, report it as is. Default timeout 10 s (`FRANKIE_VERIFY_TIMEOUT_MS`). Prefer roles and accessible names: segmented filters and views are `radio`s (`Dependencies`, `Failed`, `Gates`), issue sections are `tab`s, dialogs are `dialog` or `alertdialog` named by their title, cards and banners are `<section>`s for `--in-section`, board checkboxes are `select <key>`. A dialog's title also labels it, so `--label <title>` can match the dialog before its field: use `--role textbox --name`, `--placeholder` or `--nth 1`.
 
-First thing in a fresh browser, do the two identity bars like an operator does (the UI sends the token and name with every write). Writes fail without the token; without the name they succeed but are recorded as `web`, so the recipes' checks for `verifier` fail:
+First thing in a fresh browser, set your name and the API token like an operator does, from the menu at the foot of the sidebar (the UI sends both with every write). Writes fail without the token; without the name they succeed but are recorded as `web`, so the recipes' checks for `verifier` fail:
 
 ```bash
 export FRANKIE_VERIFY_FEATURE=setup
-node $S/browser.mjs goto '#/issues'
-node $S/browser.mjs fill --label "Your name" --value verifier
+node $S/browser.mjs goto /projects/vfy/board
+node $S/browser.mjs click --role button --name "Your name and API token"
+node $S/browser.mjs click --role menuitem --name "Set your name"
+node $S/browser.mjs fill --role textbox --name "Your name" --value verifier
 node $S/browser.mjs click --role button --name Save
-node $S/browser.mjs click --role button --name "set token"
-node $S/browser.mjs fill --label "API token" --value "$API_TOKEN"     # from `frankie-verify env`
+node $S/browser.mjs click --role button --name "Your name and API token"
+node $S/browser.mjs click --role menuitem --name "Set the API token"
+node $S/browser.mjs fill --label "API token" --exact --nth 1 --value "$API_TOKEN"   # from `frankie-verify env`
 node $S/browser.mjs click --role button --name Save
 node $S/browser.mjs expect --text "API token set"
+node $S/browser.mjs expect --text verifier --exact
 ```
+
+`--nth 1` skips the dialog, which its title `API token` also labels; keep `--label "API token"` so `actions.log` records `<token>` instead of the value (a `--placeholder` fill logs it). Once set, the menu items read `Change your name` and `Change the API token`, and `Forget the API token` clears it.
 
 The feature map is in `features/README.md`: read it, then the file for the feature you are verifying. A proof that drives one entry point is incomplete when the map lists others.
 
@@ -106,7 +112,7 @@ Proof standards:
 - Exercise the real operator path: click the buttons, fill the fields. Do not call `/api` writes with curl to stand in for the UI, and do not poke rows into Postgres (the seed is the only SQL write).
 - Capture the action and the resulting state: a before snapshot or screenshot, the click, an after snapshot and screenshot. `actions.log` records each browser command with a timestamp.
 - Verify side effects beside what is visible: `frankie-verify sql` for the row (e.g. `start_requested_by`) and `curl $API/api/issues/<key>` for what the API returns. A UI success banner alone is not proof.
-- Screenshots must show the app identity (the page heading and the "Acting as" bar are in frame).
+- Screenshots must show the app identity (the page heading and the sidebar, whose footer shows your name and `API token set`, are in frame).
 - Mocks: none inside the app. The only stand-ins are the absent Temporal, Kubernetes and GitHub; decisions that need Temporal fail with "workflows are not running" and count as unverified.
 - Record what was not verified (anything behind a workflow, the live cluster, the homelab, Tailscale, real agents) in the report.
 

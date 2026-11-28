@@ -52,7 +52,7 @@ The maintained source for verifying what an operator sees in Frankie's web UI. R
 
 - Fixed ids: run `…02NN` belongs to `vfy-NN` for NN = 04, 06, 07 and `…21NN` for NN = 11 to 17; `…22NN` is vfy-NN's refinement; `…0208`, `…2303` and `…2304` are release runs. A step run id ends in `3` + issue number + step number + attempt: `00000000-0000-7000-8000-000000311032` is vfy-11's step 03 (`implement`), attempt 2.
 - `frankie-verify api stop` and `api start` take the control plane down and back for the API-error states (see `../SKILL.md`).
-- Set the "Acting as" name and API token first (the `setup` block in `../SKILL.md`). Reads work without them. Every write needs the token; a write without a name succeeds but is recorded as `web` instead of `verifier`, which breaks the recipes' `sql` checks.
+- Set your name and the API token first, from the sidebar's footer menu `Your name and API token` (the `setup` block in `../SKILL.md`). Reads work without them. Every write needs the token; a write without a name succeeds but is recorded as `web` instead of `verifier`, which breaks the recipes' `sql` checks.
 - Set `FRANKIE_VERIFY_FEATURE=<feature id>` and write artifacts to `$EVIDENCE_DIR/<feature id>/` (`frankie-verify env` prints `EVIDENCE_DIR`).
 - Shorthand in the recipes: `S=.cursor/skills/verify-frankie/scripts`, `B="node $S/browser.mjs"`.
 - There is no Temporal, Kubernetes or GitHub behind this instance: nothing advances on its own, and anything that signals a workflow answers `workflows are not running`.
@@ -68,7 +68,7 @@ The maintained source for verifying what an operator sees in Frankie's web UI. R
 
 ## Proof and skip reporting
 
-- UI proof is an ARIA snapshot plus a screenshot taken before and after the action, with the page heading and the "Acting as" bar in frame.
+- UI proof is an ARIA snapshot plus a screenshot taken before and after the action, with the page heading and the sidebar (its footer shows your name and `API token set`) in frame.
 - Record the feature id and entry point with every artifact (`actions.log` does this when `FRANKIE_VERIFY_FEATURE` is set).
 - Report an unreachable path with the attempted command and the unmet precondition. Never report a path as verified through a different one.
 - Never weaken a journey to make it pass. A failing journey is reported with its reason, and the reason goes in that feature's `Gotchas`.
@@ -79,10 +79,10 @@ Each feature file starts with an H1 and one paragraph of user-visible behavior, 
 
 ## Features
 
-- [Issues board](./issues-board.md): the project's issues as a tree with dependencies; select and start. Proven end to end (see SKILL.md run).
-- [Issue page](./issue-page.md): one issue's spec, relations, runs, and its start, cancel and spec-approval actions.
-- [Approvals inbox](./approvals-inbox.md): pending human gates (on issues and before release stages), agent questions and refined specs waiting for a person.
-- [Runs and transcripts](./runs.md): the run list and a run's live transcript with its steps table. Every run page renders blank on Chromium 159, last seen 2026-11-28 (see Gotchas).
-- [Releases](./releases.md): a project's releases, their stages, verification, notes and issues.
+- [Issues board](./issues-board.md): `/projects/<prefix>/board`, the project's issues as a tree or a dependency graph, with rolled-up costs; select and start.
+- [Issue page](./issue-page.md): `/issues/<key>`, one issue's header and actions, what waits for a person on it, its live run, and the Overview, Runs, Issues and Activity tabs; start, cancel, retry and spec decisions.
+- [Approvals inbox](./approvals-inbox.md): `/approvals`, pending human gates (on issues and before release stages), agent questions and refined specs waiting for a person.
+- [Runs and transcripts](./runs.md): `/projects/<prefix>/runs` and `/runs/<id>`, a project's runs with filters, and a run's steps beside the selected step's live transcript, with steer, abort and gate decisions in place.
+- [Releases](./releases.md): `/projects/<prefix>/releases` and `/releases/<id>`, a project's releases, their stages, verification, notes and issues.
 
-Not mapped (needs the live factory): human gate decisions taking effect (issue gates and release-stage gates), answering and steering agents, retry, the merge queue, release deployment. Steering/abort panel on a running agent step (`#/runs/<id>`) is mapped in `runs.md` only as far as it renders.
+Not mapped (needs the live factory): human gate decisions taking effect (issue gates and release-stage gates), answering and steering agents, retry, the merge queue, release deployment. The steer and abort controls on a running agent step (`/runs/<id>`) are mapped in `runs.md` only as far as they render and answer `workflows are not running`.

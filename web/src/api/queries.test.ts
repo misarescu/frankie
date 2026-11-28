@@ -30,5 +30,5 @@ test("getJSON says when the web server itself did not answer", async () => {
 test("query keys", () => {
   expect(keys.issues("verify/demo")).toEqual(["issues", "verify/demo"]);
   expect(keys.runEvents("r1")).toEqual(["run", "r1", "events"]);
-  expect(issueQuery("gc-1").queryKey).toEqual(["issue", "gc-1"]);
+  expect([...issueQuery("gc-1").queryKey]).toEqual(["issue", "gc-1"]);
 });

@@ -25,7 +25,7 @@ export function invalidations(runID: string, type: string): QueryKey[] {
   return [keys.runSteps(runID), ["issue"], ["issues"], keys.runs, ["release"], ["releases"], keys.approvals, keys.questions];
 }
 
-type Source = Pick<EventSource, "addEventListener" | "close">;
+type Source = { addEventListener(type: string, listener: (m: Event) => void): void; close(): void };
 type SourceFactory = (url: string) => Source;
 
 const open = new Map<string, { source: Source; refs: number }>();

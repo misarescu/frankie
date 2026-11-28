@@ -1,5 +1,6 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
+import { switchProjectHref } from "@/components/app/nav";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { projectTitle } from "@/crumbs";
 import type { Project } from "@/issues";
@@ -9,6 +10,7 @@ import { saveLastProject } from "@/prefs";
 // choice is remembered (frankie.project) for the next visit.
 export function ProjectSwitcher({ project, projects, failed, onNavigate }: { project: Project | undefined; projects: Project[]; failed: boolean; onNavigate?: () => void }) {
   const navigate = useNavigate();
+  const href = useRouterState({ select: (s) => s.location.href });
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -30,7 +32,7 @@ export function ProjectSwitcher({ project, projects, failed, onNavigate }: { pro
             onSelect={() => {
               saveLastProject(p.key_prefix);
               onNavigate?.();
-              void navigate({ to: "/projects/$project/board", params: { project: p.key_prefix } });
+              void navigate({ href: switchProjectHref(href, p.key_prefix) });
             }}
           >
             <span className="mono w-9 shrink-0 text-xs text-muted-fg">{p.key_prefix}</span>

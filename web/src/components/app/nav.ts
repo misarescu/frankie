@@ -11,6 +11,15 @@ export const navItems: { id: NavID; label: string; icon: LucideIcon; href: (proj
   { id: "releases", label: "Releases", icon: RocketIcon, href: (p) => (p ? paths.releases(p) : "/") },
 ];
 
+// switchProjectHref is where picking another project goes: the same page
+// of that project, with its view and filter, when the page is a project's
+// (board, runs, releases); else that project's board.
+export function switchProjectHref(href: string, project: string): string {
+  const m = /^\/projects\/[^/?#]+(\/[^?#]*)?([?#].*)?$/.exec(href);
+  if (!m?.[1] || m[1] === "/") return paths.board(project);
+  return `/projects/${encodeURIComponent(project)}${m[1]}${m[2] ?? ""}`;
+}
+
 // activeNav is the sidebar entry a path belongs to: an issue is on the
 // board, a run with the runs, a release with the releases.
 export function activeNav(path: string): NavID | undefined {

@@ -9,7 +9,7 @@ Frankie is a software factory: a Go control plane (API, Temporal worker, git pro
 
 What runs: Postgres (Docker) + `cmd/controlplane` (no Temporal, no Kubernetes) + `web/server.ts` + Chromium. What does not: workflows, agent pods, the scheduler, GitHub intake, LiteLLM. So UI reads and the writes that only touch Postgres are provable here (start request, cancel, complete, spec approve/reject). Anything that needs a live workflow (human gate decision, answer, steer, abort, retry, a real run progressing, releases deploying) answers "workflows are not running" and is **not** verified by this skill; say so instead of faking it. The factory itself lives on Kapsule (`kubectl` context `admin@frankie-k8s-v2`): never point this skill at it, never change it, never schedule pods on its platform node.
 
-Helpers live in `scripts/` next to this file. Use paths relative to the repo root: `S=.cursor/skills/verify-frankie/scripts`.
+Helpers live in `scripts/` next to this file. Use paths relative to the repo root: `S=.cursor/skills/verify-frankie/scripts`. Claude Code loads this same skill through the symlink `.claude/skills/verify-frankie`; edit the files here, under `.cursor/`.
 
 ## Launch
 
@@ -25,7 +25,7 @@ What it does, in order, from an empty state each time:
 1. Picks free ports and a run id; state goes to `${TMPDIR}/frankie-verify/runs/<id>/`, evidence to `~/.frankie-verify/evidence/<id>/`.
 2. Starts `postgres:17` as container `frankie-verify-pg-<id>` on `127.0.0.1:<port>` and waits for a TCP query to succeed (not `pg_isready`: the image's init scripts run a socket-only server first).
 3. `go build`s `cmd/controlplane` stamped with `git rev-parse HEAD` and starts it with only `FRANKIE_DATABASE_URL`, a random git-proxy key and a random API token (D58). The control plane migrates the database and creates project `verify/demo` (key prefix `vfy`) from a generated config. Ready means `/readyz` is 200 **and** `/api/projects` lists `verify/demo`.
-4. Applies `scripts/seed.sql` (verification scaffolding, never run it on a real database): seven issues `vfy-1`..`vfy-7`, three runs with transcripts, a pending human gate on `vfy-6`, a refined spec waiting on `vfy-5`, and one succeeded release `v0.1.0` with a pending `production` stage.
+4. Applies `scripts/seed.sql` (verification scaffolding, never run it on a real database): seven issues `vfy-1`..`vfy-7`, three runs with transcripts, a pending human gate on `vfy-6`, a refined spec waiting on `vfy-5`, a succeeded release `v0.1.0` with a pending `production` stage, and a release `fedcba9` waiting at its `production` human gate (a release run with a pending approval, D139).
 5. Starts `bun server.ts` in `web/` (serves the UI, proxies `/api` to the control plane) and a headless Chromium with a CDP port.
 
 Everything it starts is detached into its own session, so it survives the shell that launched it. Pids are in `state.env` in the state dir. The checkout is built as-is: uncommitted `internal/` changes are compiled in (the stamped commit is still HEAD), `web/` is served live.
@@ -56,7 +56,7 @@ click --accept-dialog                      for window.confirm (Complete, Abort)
 
 Set `FRANKIE_VERIFY_FEATURE=<feature id>` in the shell so each action in `actions.log` is tagged. `expect` exits 1 on failure; every failure message is the reason, report it as is. Default timeout 10 s (`FRANKIE_VERIFY_TIMEOUT_MS`). Prefer roles and accessible names; the UI has few ARIA labels, mostly visible text, and checkboxes labelled `select <key>`.
 
-First thing in a fresh browser, do the two identity bars like an operator does (the UI sends the token and name with every write). Write actions fail without them:
+First thing in a fresh browser, do the two identity bars like an operator does (the UI sends the token and name with every write). Writes fail without the token; without the name they succeed but are recorded as `web`, so the recipes' checks for `verifier` fail:
 
 ```bash
 export FRANKIE_VERIFY_FEATURE=setup
@@ -104,9 +104,9 @@ Environment overrides: `FRANKIE_VERIFY_STATE`, `FRANKIE_VERIFY_EVIDENCE`, `FRANK
 
 ## Other surfaces
 
-- API: the same control plane. `curl $API/api/...`: reads are open (`/api/runs`, `/api/issues?project=verify/demo`, `/api/issues/<key>`, `/api/approvals`, `/api/specs`, `/api/releases`, `/api/version`), writes need `Authorization: Bearer $API_TOKEN` and JSON bodies. Use it for second views, not as a replacement for the UI path.
+- API: the same control plane. `curl $API/api/...`: reads are open (`/api/runs`, `/api/issues?project=verify/demo`, `/api/issues/<key>`, `/api/approvals`, `/api/specs`, `/api/releases?project=verify/demo` (400 without `project`), `/api/version`), writes need `Authorization: Bearer $API_TOKEN` and JSON bodies. Use it for second views, not as a replacement for the UI path.
 - `go test ./...` and `bun test` in `web/` (`mise run test`, `mise run lint`) are the code-level checks; this skill is the end-to-end check on top.
 - The real factory (port-forward `svc/frankie-web`, token from `mise run api-token`) is for looking, not driving; it is shared and runs real agents.
 - `cmd/factoryctl` and the cluster `e2e/` suite need the cluster and are out of scope here.
 
-Maintain the feature map with `/maintain-verification-skill` when routes, labels or seed expectations change.
+Maintain the feature map with `/maintain-verification-skill` (`/pstack:maintain-verification-skill` in Claude Code) when routes, labels or seed expectations change.

@@ -83,7 +83,35 @@ VALUES ('00000000-0000-7000-8000-000000000701', '00000000-0000-7000-8000-0000000
         '{"passed":true,"summary":"12 of 12 requests passed"}', now() - interval '2 days' - interval '5 minutes', now() - interval '2 days'),
        ('00000000-0000-7000-8000-000000000702', '00000000-0000-7000-8000-000000000601', 'production', 'flux', 'pending', '', NULL, NULL, NULL);
 
+-- A second release, waiting at its production gate (D139): staging passed, the
+-- release run holds a gate step named after the stage and its pending approval,
+-- and production has no deployment row until someone approves.
+INSERT INTO releases (id, project_id, repo, sha, status, bump, created_at)
+SELECT '00000000-0000-7000-8000-000000000602', p.id, 'verify/demo', 'fedcba9876543210fedcba9876543210fedcba98', 'in_progress', 'patch',
+       now() - interval '1 hour'
+FROM projects p WHERE p.key_prefix = 'vfy';
+
+INSERT INTO release_issues (release_id, issue_id, position)
+VALUES ('00000000-0000-7000-8000-000000000602', '00000000-0000-7000-8000-000000000107', 1);
+
+INSERT INTO deployments (id, release_id, stage, driver, status, reason, verification, started_at, finished_at)
+VALUES ('00000000-0000-7000-8000-000000000703', '00000000-0000-7000-8000-000000000602', 'staging', 'flux', 'succeeded', '',
+        '{"passed":true,"summary":"12 of 12 requests passed"}', now() - interval '55 minutes', now() - interval '50 minutes');
+
+INSERT INTO runs (id, release_id, workflow_snapshot, workflow_version, temporal_workflow_id, temporal_run_id, status, started_at)
+VALUES ('00000000-0000-7000-8000-000000000208', '00000000-0000-7000-8000-000000000602', '{}', 'release-agent',
+        'release/verify/demo', 'verify-release-fedcba9', 'running', now() - interval '1 hour');
+
+INSERT INTO step_runs (id, run_id, step_id, attempt, kind, status, commit_sha, started_at)
+VALUES ('00000000-0000-7000-8000-000000000318', '00000000-0000-7000-8000-000000000208', 'production', 1, 'gate', 'running',
+        'fedcba9876543210fedcba9876543210fedcba98', now() - interval '50 minutes');
+
+INSERT INTO approvals (id, step_run_id, run_id, reason, commit_sha, status, can_request_changes, expires_at)
+VALUES ('00000000-0000-7000-8000-000000000408', '00000000-0000-7000-8000-000000000318', '00000000-0000-7000-8000-000000000208',
+        'Release fedcba9 of verify/demo passed the stages before production. Approve to deploy it to production, or reject to stop the release before it.',
+        'fedcba9876543210fedcba9876543210fedcba98', 'pending', false, now() + interval '71 hours');
+
 UPDATE runs SET created_at = started_at;
-UPDATE releases SET created_at = finished_at - interval '10 minutes';
+UPDATE releases SET created_at = finished_at - interval '10 minutes' WHERE finished_at IS NOT NULL;
 
 COMMIT;

@@ -122,12 +122,14 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
               </td>
               <td className={cn(cell, "min-w-0 max-md:order-0 max-md:basis-full")}>
                 {r.ReleaseID ? (
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <PackageIcon className="size-3.5 shrink-0 text-muted-fg" />
-                    <AppLink href={paths.release(r.ReleaseID)} className="text-primary hover:underline">
-                      release <span className="mono text-[12.5px]">{releaseName({ sha: r.ReleaseSHA ?? "", version: r.ReleaseVersion })}</span>
-                    </AppLink>
-                    <span className="text-muted-fg">· the release agent</span>
+                  <span className="flex min-w-0 items-start gap-1.5 [overflow-wrap:anywhere]">
+                    <PackageIcon className="mt-0.5 size-3.5 shrink-0 text-muted-fg" />
+                    <span className="min-w-0">
+                      <AppLink href={paths.release(r.ReleaseID)} className="text-primary hover:underline">
+                        release <span className="mono text-[12.5px]">{releaseName({ sha: r.ReleaseSHA ?? "", version: r.ReleaseVersion })}</span>
+                      </AppLink>
+                      <span className="whitespace-nowrap text-muted-fg"> · the release agent</span>
+                    </span>
                   </span>
                 ) : (
                   <IssueLink issueKey={r.IssueKey} title={r.IssueTitle} className="line-clamp-2 [overflow-wrap:anywhere]" />

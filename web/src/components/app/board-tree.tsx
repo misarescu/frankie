@@ -106,6 +106,7 @@ export function BoardTree({ rows, issues, inbox, selected, onSelect, collapsed, 
                     {waits.map((w, n) => (
                       <Fragment key={w.kind === "issue" ? w.key : w.text}>
                         {n > 0 && ", "}
+                        <span className="whitespace-nowrap">
                         {w.kind === "issue" ? (
                           <IssueLink issueKey={w.key} />
                         ) : w.external ? (
@@ -113,6 +114,7 @@ export function BoardTree({ rows, issues, inbox, selected, onSelect, collapsed, 
                         ) : (
                           <AppLink href={w.href} className="whitespace-nowrap text-warn hover:underline">{w.text}</AppLink>
                         )}
+                        </span>
                       </Fragment>
                     ))}
                   </span>

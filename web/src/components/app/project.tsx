@@ -47,8 +47,9 @@ export function useProject(): Project {
 }
 
 // useRunSummary finds a run among the recent runs (GET /api/runs), and
-// among more of them when it is older than those.
-export function useRunSummary(id: string | undefined): RunSummary | undefined {
+// among more of them when it is older than those. settled says the search is
+// over, found or not, so a page can wait for the run's status.
+export function useRunSummary(id: string | undefined): { run: RunSummary | undefined; settled: boolean } {
   const recent = useQuery({ ...runsQuery(), enabled: !!id });
   const found = id ? recent.data?.find((r) => r.ID === id) : undefined;
   const older = useQuery({
@@ -57,7 +58,9 @@ export function useRunSummary(id: string | undefined): RunSummary | undefined {
     enabled: !!id && recent.isSuccess && !found,
     staleTime: 60_000,
   });
-  return found ?? (id ? older.data?.find((r) => r.ID === id) : undefined);
+  const run = found ?? (id ? older.data?.find((r) => r.ID === id) : undefined);
+  const settled = !id || !!found || recent.isError || (recent.isSuccess && (older.isSuccess || older.isError));
+  return { run, settled };
 }
 
 // useCurrentProject is the project the shell shows (sidebar, palette): the
@@ -69,7 +72,7 @@ export function useCurrentProject(): { project: Project | undefined; projects: P
   const projects = q.data ?? [];
   const path = useRouterState({ select: (s) => s.location.pathname });
   const entity = pageEntity(path);
-  const run = useRunSummary(entity?.kind === "run" ? entity.id : undefined);
+  const { run } = useRunSummary(entity?.kind === "run" ? entity.id : undefined);
   const releaseID = entity?.kind === "release" ? entity.id : run?.ReleaseID || undefined;
   const release = useQuery({ ...releaseQuery(releaseID ?? ""), enabled: !!releaseID }).data;
   const shown = entityProject(entity, projects, { run, release });

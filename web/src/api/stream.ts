@@ -33,6 +33,10 @@ type Held = { source: Source; refs: number; retry?: ReturnType<typeof setTimeout
 // server answers with an error (the control plane down) instead of the stream.
 const CLOSED = 2;
 export const RETRY_MS = 3000;
+// A stream starts by replaying every stored event; their state changes come
+// in a burst, and refreshing per event refetched each query dozens of times.
+// Invalidations within this window are sent once, after it.
+export const COALESCE_MS = 250;
 
 const open = new Map<string, Held>();
 
@@ -40,7 +44,7 @@ const open = new Map<string, Held>();
 // Subscribers of one run share one connection; the last one to leave closes
 // it. A new connection starts after the last event the cache already has,
 // also when the browser gave up on the old one: it opens again after retryMs.
-export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFactory = (u) => new EventSource(u), retryMs = RETRY_MS): () => void {
+export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFactory = (u) => new EventSource(u), retryMs = RETRY_MS, coalesceMs = COALESCE_MS): () => void {
   const held = open.get(runID);
   if (held) {
     held.refs++;
@@ -49,8 +53,17 @@ export function subscribeRun(qc: QueryClient, runID: string, connect: SourceFact
   const key = keys.runEvents(runID);
   if (qc.getQueryData<RunEvents>(key)?.end) return () => {};
   const update = (f: (prev: RunEvents) => RunEvents) => qc.setQueryData<RunEvents>(key, (prev) => f(prev ?? noEvents));
+  const pending = new Map<string, QueryKey>();
+  let flush: ReturnType<typeof setTimeout> | undefined;
   const stale = (type: string) => {
-    for (const k of invalidations(runID, type)) void qc.invalidateQueries({ queryKey: k });
+    for (const k of invalidations(runID, type)) pending.set(JSON.stringify(k), k);
+    if (pending.size === 0 || flush) return;
+    flush = setTimeout(() => {
+      flush = undefined;
+      const due = [...pending.values()];
+      pending.clear();
+      for (const k of due) void qc.invalidateQueries({ queryKey: k });
+    }, coalesceMs);
   };
   const current = (source: Source) => open.get(runID)?.source === source;
   const start = (): Source => {

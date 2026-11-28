@@ -99,10 +99,13 @@ export function diffLine(line: string): "add" | "del" | "hunk" | "context" {
 }
 
 // Connection is what the page says about the transcript's stream.
-export type Connection = "live" | "reconnecting" | "finished";
+// "connecting" until the run's status is known (GET /api/runs) or its stream
+// ended: an unknown run is not called live.
+export type Connection = "connecting" | "live" | "reconnecting" | "finished";
 
 export function connection(runStatus: string | undefined, stream: { end: string | null; reconnecting: boolean }): Connection {
   if (stream.end || (runStatus && !isActiveRun(runStatus))) return "finished";
+  if (!runStatus) return "connecting";
   return stream.reconnecting ? "reconnecting" : "live";
 }
 

@@ -17,6 +17,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/app/states";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { projectTitle, type Crumb } from "@/crumbs";
+import type { RunSummary } from "@/events";
 import { formatWhen, shortID, shortSHA } from "@/format";
 import { duration } from "@/live";
 import { cn } from "@/lib/utils";
@@ -32,7 +33,10 @@ const route = getRouteApi("/runs/$id");
 export function RunPage() {
   const { id } = route.useParams();
   const steps = useQuery(runStepsQuery(id, false));
-  if (steps.isPending) return <Crumbs tail={runCrumbs(id, undefined)}><LoadingState rows={6} /></Crumbs>;
+  // The run's status comes from the run list; until it does (or the search
+  // ends without it) the page does not know whether the run is live.
+  const summary = useRunSummary(id);
+  if (steps.isPending || (!summary.settled && !steps.error)) return <Crumbs tail={runCrumbs(id, undefined)}><LoadingState rows={6} /></Crumbs>;
   if (steps.error && !steps.data) {
     const missing = steps.error instanceof ApiError && (steps.error.status === 404 || steps.error.status === 400);
     return (
@@ -48,7 +52,7 @@ export function RunPage() {
       </Crumbs>
     );
   }
-  return <RunView id={id} />;
+  return <RunView id={id} run={summary.run} />;
 }
 
 function Crumbs({ tail, children }: { tail: Crumb[]; children: ReactNode }) {
@@ -73,7 +77,7 @@ function PlainCrumbs({ tail }: { tail: Crumb[] }) {
   return null;
 }
 
-const connText: Record<Connection, string> = { live: "Live", reconnecting: "Reconnecting", finished: "Finished" };
+const connText: Record<Connection, string> = { connecting: "Connecting", live: "Live", reconnecting: "Reconnecting", finished: "Finished" };
 
 function ConnectionChip({ state }: { state: Connection }) {
   return (
@@ -84,12 +88,11 @@ function ConnectionChip({ state }: { state: Connection }) {
   );
 }
 
-function RunView({ id }: { id: string }) {
+function RunView({ id, run }: { id: string; run: RunSummary | undefined }) {
   const { step: requested } = route.useSearch();
-  const run = useRunSummary(id);
   const stream = useRunEvents(id);
   const conn = connection(run?.Status, stream);
-  const live = conn !== "finished";
+  const live = conn === "live" || conn === "reconnecting";
   const stepsQ = useQuery(runStepsQuery(id, live));
   const plan = useQuery(runPlanQuery(id)).data;
   const steps = useMemo(() => stepsQ.data ?? [], [stepsQ.data]);

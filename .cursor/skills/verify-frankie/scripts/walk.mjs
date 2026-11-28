@@ -31,6 +31,8 @@
 //              this JSON (status 200, or "status") instead of sending them, to see the page
 //              when the API leaves something out (a run older than the newest the list
 //              returns). A mock wins over a slow entry for the same URL.
+//   "viewports": ["desktop"]  load this path in only these of the walk's viewports (a check of
+//              something the phone layout hides, such as the sidebar).
 //   "budget":  4  most times one GET /api URL (path and query) may be requested
 //              between navigation and settling; null turns it off. Default 4, or the
 //              file's top-level "budget", or --budget. Event streams are not counted.
@@ -169,7 +171,7 @@ async function walkPaths(browser, base, spec, out, flags) {
   for (const entry of spec.paths) {
     const p = typeof entry === "string" ? { path: entry } : entry;
     const name = p.name ?? slug(p.path);
-    for (const viewport of viewports) {
+    for (const viewport of viewports.filter((v) => !p.viewports || p.viewports.includes(v))) {
       for (const theme of themes) {
         const ctx = await context(browser, viewport, theme, { ...(spec.storage ?? {}), ...(p.storage ?? {}) });
         const page = await ctx.newPage();

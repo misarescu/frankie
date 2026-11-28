@@ -85,7 +85,7 @@ export function BoardTree({ rows, issues, inbox, selected, onSelect, collapsed, 
                   )}
                   <span className="mt-[3px]"><TypeIcon type={i.type} /></span>
                   <AppLink href={paths.issue(i.key)} className="line-clamp-2 min-w-0 [overflow-wrap:anywhere] hover:underline" title={i.title}>
-                    <span className="mono mr-2 text-xs text-muted-fg">{i.key}</span>
+                    <span className="mono mr-1 text-xs text-muted-fg">{i.key}</span>{" "}
                     <span className={cn(parent && "font-medium", !finished && "text-fg")}>{i.title}</span>
                   </AppLink>
                   {i.start_requested_at && !finished && (

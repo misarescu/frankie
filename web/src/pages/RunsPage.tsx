@@ -116,8 +116,8 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
           {runs.map((r) => (
             <tr key={r.ID} className="border-b border-line last:border-0 hover:bg-hover max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-1.5 max-md:px-3 max-md:py-2.5">
               <td className={cn(cell, "pl-4 max-md:order-1")}>
-                <AppLink href={paths.run(r.ID)} className="mono text-xs font-medium text-primary hover:underline" title={`run ${r.ID}`}>
-                  <span className="sr-only">run </span>{shortID(r.ID)}
+                <AppLink href={paths.run(r.ID)} className="mono text-xs font-medium text-primary hover:underline" title={`run ${r.ID}`} aria-label={`run ${shortID(r.ID)}`}>
+                  {shortID(r.ID)}
                 </AppLink>
               </td>
               <td className={cn(cell, "min-w-0 max-md:order-0 max-md:basis-full")}>

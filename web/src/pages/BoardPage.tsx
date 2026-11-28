@@ -123,7 +123,7 @@ function Board({ project }: { project: Project }) {
         <AppLink href={paths.approvals()} className="rounded-lg hover:bg-hover">
           <Stat label="Waiting for you" value={inbox ? summary.waiting : "-"} sub="gates, questions, specs" tone={summary.waiting ? "warn" : undefined} />
         </AppLink>
-        <Stat label="Merged" value={summary.merged} sub="issues on main" />
+        <Stat label="Merged" value={summary.merged} sub="merged or released" />
         <Stat label="Spent" value={usd(summary.spent)} sub="all issues, rolled up" />
       </Card>
       {all.length === 0 ? (

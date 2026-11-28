@@ -13,12 +13,18 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
       "/healthz": () => new Response("ok\n"),
       "/api/*": async (req, server) => {
         const url = new URL(req.url);
-        const upstream = await fetch(controlplaneURL + url.pathname + url.search, {
-          method: req.method,
-          headers: req.headers,
-          body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
-          signal: req.signal,
-        });
+        let upstream: Response;
+        try {
+          upstream = await fetch(controlplaneURL + url.pathname + url.search, {
+            method: req.method,
+            headers: req.headers,
+            body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
+            signal: req.signal,
+          });
+        } catch (e) {
+          // The UI tells the control plane being down from an API error by this.
+          return new Response(`the control plane is not reachable: ${(e as Error).message}\n`, { status: 502 });
+        }
         if (upstream.headers.get("content-type")?.startsWith("text/event-stream")) server.timeout(req, 0);
         // Pass the body through as a stream so SSE events arrive as they are sent.
         return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });

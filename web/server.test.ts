@@ -68,6 +68,17 @@ test("serves the app on every page path", async () => {
   }
 });
 
+test("answers 502 when the control plane is down", async () => {
+  const lonely = createServer("http://127.0.0.1:9", 0);
+  try {
+    const r = await fetch(new URL("/api/runs", lonely.url));
+    expect(r.status).toBe(502);
+    expect(await r.text()).toContain("the control plane is not reachable");
+  } finally {
+    lonely.stop(true);
+  }
+});
+
 test("leaves unknown API paths to the control plane", async () => {
   const r = await fetch(new URL("/api/nope", web.url));
   expect(r.status).toBe(404);

@@ -47,8 +47,8 @@ export function waitNote(s: Step, runHref?: string): { text: string; href?: stri
     return runHref ? { text: `building the ${image} image: see its log`, href: runHref } : { text: `building the ${image} image; its log is below` };
   }
   if (s.status !== "running") return undefined;
-  if (s.waits_for === "approval") return { text: "decide it in Approvals", href: "#/approvals" };
-  if (s.waits_for === "answer") return { text: "answer it in Approvals", href: "#/approvals" };
+  if (s.waits_for === "approval") return { text: "decide it in Approvals", href: "/approvals?kind=gate" };
+  if (s.waits_for === "answer") return { text: "answer it in Approvals", href: "/approvals?kind=question" };
   return undefined;
 }
 

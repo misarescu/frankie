@@ -9,6 +9,11 @@ export function createServer(controlplaneURL: string, port: number, opts: { idle
   return Bun.serve({
     port,
     idleTimeout: opts.idleTimeout,
+    // Bundled once and minified in production. In development Bun bundles on
+    // each change, without hot module replacement: its module format breaks
+    // TanStack Router's circular imports (router-core's router.js and
+    // load-client.js), and the app renders nothing.
+    development: process.env.NODE_ENV === "production" ? false : { hmr: false },
     routes: {
       "/healthz": () => new Response("ok\n"),
       "/api/*": async (req, server) => {

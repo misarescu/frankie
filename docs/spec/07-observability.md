@@ -44,6 +44,8 @@ All interventions are recorded as events with the acting user.
 
 ## UI surfaces (from the product brief: "nice management")
 
+M9 (D141, D142) rebuilds every surface below in one shell: a sidebar with the project switcher, Board, Runs, Approvals and Releases, breadcrumbs from the project down to a run's step, a search palette, and path URLs (`/projects/{project}/board`, `/issues/{key}`, `/runs/{id}?step=`, `/releases/{id}`, `/approvals`) in place of the hash routes named below. A parent issue shows the cost of everything under it. The M5-M7 entries below describe what each surface shows.
+
 - Project board / issue list with DAG view and status; start one/many.
   - M5 API (D59): `GET /api/projects`, `GET /api/issues?project=<name>` (the whole project with parents, dependency keys, cost and latest run) and `GET /api/issues/{key}` (the issue page: spec, relations, runs, usage, change requests).
   - M5 UI (`#/issues`): the project's issues as their hierarchy with status, what each waits for, cost and latest run; finished issues hidden unless asked for; the dependency graph drawn in layers (an issue to the right of what it waits for); selected issues start together and the scheduler's plan (starting, waiting with why, overlaps) is shown.
